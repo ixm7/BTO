@@ -15,10 +15,10 @@
   --wrap-max: min(1500px, 96vw);
   --felt-pad: clamp(12px, 1vw, 24px);
   --felt-gap: clamp(6px, .55vw, 14px);
-  /* The stacked face (rank over suit) is narrow, so cards can be larger. */
-  --card-w: clamp(46px, 4.4vw, 92px);
-  --card-h: clamp(64px, 6.2vw, 129px);
-  --card-font: clamp(1.25rem, 1.7vw, 2.1rem);
+  /* The stacked face (rank over suit) is narrow, so cards stay compact. */
+  --card-w: clamp(38px, 3.6vw, 72px);
+  --card-h: clamp(56px, 5.3vw, 106px);
+  --card-font: clamp(1.1rem, 1.5vw, 1.9rem);
   --center-h: clamp(140px, 10vw, 220px);
   --who-font: clamp(.82rem, .85vw, 1.05rem);
   --auction-font: clamp(.92rem, .95vw, 1.2rem);
@@ -161,12 +161,12 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .seat.right .player-tooltip { bottom: auto; top: calc(100% + 6px); }
 
 /* ---- cards (BBO-style: rank + suit side-by-side, larger face) ---- */
-.hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
-.hand .suit-group { display: flex; gap: 3px; margin: 0 6px 4px; }
+.hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
+.hand .suit-group { display: flex; gap: 2px; margin: 0 5px 4px; }
 /* BBO shows the rank with its suit directly underneath, which reads clearly
    and takes about half the width of a side-by-side face. */
 .pc {
-  width: var(--card-w); aspect-ratio: 5 / 7; flex: 0 0 auto;
+  width: var(--card-w); aspect-ratio: 17 / 25; flex: 0 0 auto;
   border-radius: clamp(5px, .4vw, 8px); border: 1.5px solid #c5bfad;
   background: #fffdf8; color: #14201a;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
@@ -179,20 +179,22 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
    units measure the row itself, whatever the sidebar and viewport do, so all
    thirteen cards always sit on one line. */
 .seat.top, .seat.bottom, .seat.left, .seat.right { container-type: inline-size; }
-.seat.top .hand, .seat.bottom .hand { flex-wrap: nowrap; }
-.seat.top .hand .pc, .seat.bottom .hand .pc {
-  width: min(var(--card-w), calc((100cqw - 100px) / 13));
-  font-size: min(var(--card-font), calc((100cqw - 100px) / 13 * .56));
+.seat.top .hand, .seat.bottom .hand {
+  flex-wrap: nowrap;
+  --cw: min(var(--card-w), calc((100cqw - 90px) / 13));
 }
 /* The side columns are narrow, so a hand revealed there wraps by suit. */
-.seat.left .hand .pc, .seat.right .hand .pc {
-  width: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
-  font-size: min(calc(var(--card-font) * .8), calc((100cqw - 40px) / 7 * .56));
+.seat.left .hand, .seat.right .hand {
+  --cw: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
 }
+/* Deriving the type size from the card's own width keeps the face filled the
+   way a BBO card is, at every size, instead of leaving a margin of blank card. */
+.seat .hand .pc { width: var(--cw); font-size: calc(var(--cw) * .48); }
+.center .pc { font-size: calc(var(--card-w) * .48); }
 /* Rank and suit sit tight against each other, as on a BBO card: the glyph
    boxes are trimmed so the gap is the one the design wants, not leading. */
-.pc .rank { font-size: 1.12em; line-height: .78; display: block; }
-.pc .suit { font-size: .88em; line-height: .78; font-weight: 400; display: block; margin-top: .02em; }
+.pc .rank { font-size: 1.1em; line-height: .78; display: block; }
+.pc .suit { font-size: .98em; line-height: .78; font-weight: 400; display: block; margin-top: .04em; }
 .pc.red { color: var(--red); }
 .pc.black { color: #14201a; }
 button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2.5px var(--gold), 0 2px 6px rgba(0,0,0,.3); transform: translateY(-5px); }

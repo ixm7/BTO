@@ -1,4 +1,4 @@
-import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf, rankChar, sideOf, sortForDisplay, type Card, type Seat } from '../engine/cards';
+import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf, rankChar, sideOf, sortForDisplay, type Card, type Seat, type Strain, type Suit } from '../engine/cards';
 import { legalCalls, type AuctionState, type Call } from '../engine/bidding';
 import { isVulnerable } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
@@ -8,6 +8,25 @@ import { h } from './dom';
 
 const SEAT_NAMES: Record<Seat, string> = { N: 'North', E: 'East', S: 'South', W: 'West' };
 const isRed = (suit: string): boolean => suit === 'H' || suit === 'D';
+
+/* Hands read most easily when neighbouring suits differ in colour, so a card
+   is never mistaken for the one beside it. Spades, hearts, clubs, diamonds by
+   default; once a contract exists the trump suit leads and the rest follow,
+   still alternating black and red. */
+export function suitOrder(trump?: Strain): Suit[] {
+  const base: Suit[] = ['S', 'H', 'C', 'D'];
+  if (!trump || trump === 'N') return base;
+  const rest = base.filter((s) => s !== trump);
+  const out: Suit[] = [trump];
+  let prev: Suit = trump;
+  while (rest.length > 0) {
+    const i = Math.max(0, rest.findIndex((s) => isRed(s) !== isRed(prev)));
+    prev = rest[i];
+    out.push(prev);
+    rest.splice(i, 1);
+  }
+  return out;
+}
 
 /* ---- BBO-style card rendering: large rank with suit beside it ---- */
 
@@ -121,7 +140,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     let hand: HTMLElement;
     if (visible) {
       const groups: HTMLElement[] = [];
-      for (const suit of ['S', 'H', 'D', 'C'] as const) {
+      for (const suit of suitOrder(play?.contract.strain)) {
         const inSuit = sortForDisplay(cards.filter((c) => cardSuit(c) === suit));
         if (inSuit.length === 0) continue;
         groups.push(h('div.suit-group', inSuit.map((c) => {
