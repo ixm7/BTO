@@ -229,8 +229,10 @@ function detailView(l: Listing): HTMLElement {
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
 
   return h('div',
-    h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments'), h('span.spacer'),
-      h('a', { href: l.url, target: '_blank', rel: 'noopener' }, `Tournament page #${l.number}`)),
+    /* No link out to the underlying page here: everything on it can be done
+       from this view, and where it cannot — registering without a token — the
+       link sits with the action it belongs to. */
+    h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
