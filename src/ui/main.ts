@@ -254,13 +254,13 @@ function openPartners(initial: Listing): void {
       busy = false; draw();
     };
 
-    const openNoteDialog = (title: string, submitLabel: string, onSubmit: (note: string) => void): void => {
+    const openNoteDialog = (title: string, submitLabel: string, onSubmit: (note: string) => void, defaultValue = ''): void => {
       dialog(title, (close2) => h('form.grid', { onsubmit: (e: Event) => {
         e.preventDefault();
         onSubmit(val(e.target as HTMLFormElement, 'note'));
         close2();
       } },
-        field('Optional note (skill level, convention card, availability…)', h('input', { name: 'note', maxLength: 140 })),
+        field('Optional note (skill level, convention card, availability…)', h('input', { name: 'note', maxLength: 140, value: defaultValue })),
         h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close2 }, 'Cancel'), h('button.primary', { type: 'submit' }, submitLabel))));
     };
 
@@ -325,7 +325,10 @@ function openPartners(initial: Listing): void {
         rows.push(h('div.row', { style: 'margin-top:10px' },
           amSeeking
             ? h('button', { disabled: busy, onclick: act(() => d.cancelSeekingPartner(current.number)) }, 'Remove me from the list')
-            : h('button.primary', { disabled: busy || !myLogin, onclick: () => openNoteDialog('Looking for a partner', 'Add me', (note) => void act(() => d.seekPartner(current.number, note))()) }, 'Add me to the list')));
+            : h('button.primary', { disabled: busy || !myLogin, onclick: () => openNoteDialog('Looking for a partner', 'Add me', (note) => {
+                settings.partnerNote = note; saveSettings(settings); // remembered as the default next time
+                void act(() => d.seekPartner(current.number, note))();
+              }, settings.partnerNote) }, 'Add me to the list')));
       }
 
       body.replaceChildren(...rows.filter((x): x is HTMLElement => x !== null));
@@ -613,7 +616,7 @@ function render(): void {
   const view = node && room ? roomView(node, room) : detail ? detailView(detail) : directoryView();
   root.replaceChildren(h('div.wrap',
     h('header.top',
-      h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'duplicate tournaments, no server')),
+      h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),
       h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,

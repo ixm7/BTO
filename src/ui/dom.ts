@@ -34,6 +34,9 @@ export interface Settings {
   token: string;
   pairCode: string;
   playerId: string;
+  /** Remembered from the last time you added yourself to a "looking for a partner"
+   * list, so it's offered again as the default next time rather than starting blank. */
+  partnerNote: string;
   /** 'p2p' = WebRTC over the internet; 'local' = other tabs of this browser. */
   transport: 'p2p' | 'local';
 }
@@ -45,7 +48,8 @@ export function loadSettings(defaultRepo: string): Settings {
   try { saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>; } catch { /* first visit */ }
   const s: Settings = {
     name: saved.name ?? '', repo: saved.repo ?? defaultRepo, githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
-    pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', transport: saved.transport === 'local' ? 'local' : 'p2p',
+    pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
+    transport: saved.transport === 'local' ? 'local' : 'p2p',
   };
   if (!s.playerId) {
     const b = new Uint8Array(9);
