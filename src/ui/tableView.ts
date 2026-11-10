@@ -1,6 +1,6 @@
 import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf, rankChar, sideOf, sortForDisplay, type Card, type Seat, type Strain, type Suit } from '../engine/cards';
-import { legalCalls, type AuctionState, type Call } from '../engine/bidding';
-import { isVulnerable } from '../engine/deal';
+import { legalCalls, type AuctionState, type Call, type Contract } from '../engine/bidding';
+import { isVulnerable, type Vulnerability } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
 import { contractToString } from '../engine/scoring';
 import { ALERT_MAX, turnAt, type TableState } from '../tournament/state';
@@ -131,6 +131,58 @@ function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call, a
   return h('div.bidbox', callRow, levelRow, suitRow, alertRow);
 }
 
+/* ---- Board badge: vulnerability, board number and dealer in one glyph ----
+
+   The square's four edges are the four seats. An edge is red when that side is
+   vulnerable, so you can read the risk at a glance without parsing "Vul: EW".
+   The board number sits in the middle and the dealer's edge is marked D. */
+
+function vulBadge(boardNo: number | null, vul: Vulnerability, dealer: Seat): HTMLElement {
+  const ns = isVulnerable(vul, 'NS') ? 'vul' : 'nv';
+  const ew = isVulnerable(vul, 'EW') ? 'vul' : 'nv';
+  const side: Record<Seat, string> = { N: ns, S: ns, E: ew, W: ew };
+  /* Centred in that seat's trapezoid, which spans 22 units at each edge. */
+  const dPos: Record<Seat, [number, number]> = { N: [50, 11], E: [89, 50], S: [50, 89], W: [11, 50] };
+  const [dx, dy] = dPos[dealer];
+  const vulText = vul === 'None' ? 'nobody vulnerable' : vul === 'Both' ? 'both sides vulnerable' : `${vul} vulnerable`;
+
+  const el = h('div.vulbadge', {
+    title: `Board ${boardNo ?? '—'} · dealer ${SEAT_NAMES[dealer]} · ${vulText}`,
+    role: 'img', 'aria-label': `Board ${boardNo ?? 'none'}, dealer ${SEAT_NAMES[dealer]}, ${vulText}`,
+  });
+  /* Every value below is a number or one of the four seat letters. */
+  el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <polygon class="${side.N}" points="0,0 100,0 78,22 22,22"/>
+    <polygon class="${side.E}" points="100,0 100,100 78,78 78,22"/>
+    <polygon class="${side.S}" points="100,100 0,100 22,78 78,78"/>
+    <polygon class="${side.W}" points="0,100 0,0 22,22 22,78"/>
+    <rect class="mid" x="22" y="22" width="56" height="56"/>
+    <text class="bno" x="50" y="51">${boardNo ?? '–'}</text>
+    <text class="dlr ${side[dealer] === 'vul' ? 'on-vul' : ''}" x="${dx}" y="${dy}">D</text>
+  </svg>`;
+  return el;
+}
+
+/* ---- Contract and declarer ---- */
+
+const DOUBLING = ['', 'X', 'XX'] as const;
+
+function contractBox(c: Contract): HTMLElement {
+  const strain = SUIT_SYMBOLS[c.strain];
+  return h('div.contract-box', { title: `Contract ${contractToString(c)}` },
+    h(`b.ct${isRed(c.strain) ? '.r' : ''}`, `${c.level}${strain}${DOUBLING[c.doubled]}`),
+    h('span.decl', SEAT_NAMES[c.declarer]));
+}
+
+/* ---- Trick counters: upright for tricks won, on its side for tricks lost,
+   the way won and lost tricks are stacked at a real table. ---- */
+
+function trickCounts(won: number, lost: number): HTMLElement {
+  return h('div.tricks',
+    h('div.tcount.won', { title: `${won} trick${won === 1 ? '' : 's'} won` }, h('i.bar.v'), h('span', String(won))),
+    h('div.tcount.lost', { title: `${lost} trick${lost === 1 ? '' : 's'} lost` }, h('i.bar.h'), h('span', String(lost))));
+}
+
 /* ---- Auction cell (bid display in the history table) ---- */
 
 function callCell(call: Call, alert?: string): HTMLElement {
@@ -234,12 +286,18 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     h('thead', h('tr', order.map((s) => h(`th${isVulnerable(table.vul, sideOf(s)) ? '.vul' : ''}`, s)))),
     h('tbody', rows)));
 
+  /* Tricks are counted from the viewer's own side, as they would be at a real
+     table. A spectator has no side of their own, so they watch declarer's. */
+  const mySide = mySeat ? sideOf(mySeat) : play ? sideOf(play.contract.declarer) : 'NS';
+  const declaring = play ? mySide === sideOf(play.contract.declarer) : false;
+  const won = play ? (declaring ? play.declarerTricks : play.defenderTricks) : 0;
+  const lost = play ? (declaring ? play.defenderTricks : play.declarerTricks) : 0;
+
   const info = h('div.info',
-    h('div', h('b', `Board ${table.boardNo}`)),
-    h('div', `Dealer ${SEAT_NAMES[table.dealer]}`),
-    h('div', `Vul: ${table.vul}`),
-    play ? h('div', 'Contract ', h('b', contractToString(play.contract))) : null,
-    play ? h('div', `Tricks: declarer ${play.declarerTricks}, defence ${play.defenderTricks}`) : null,
+    h('div.tablename', `Table ${table.index + 1}`),
+    vulBadge(table.boardNo, table.vul, table.dealer),
+    play ? contractBox(play.contract) : h('div.contract-box.pending', h('span.decl', 'Bidding')),
+    play ? trickCounts(won, lost) : null,
   );
 
   let status = '';

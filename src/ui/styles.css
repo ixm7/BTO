@@ -130,9 +130,58 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   .felt { grid-template-columns: 1fr 1fr; grid-template-rows: auto; min-height: 0;
     grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
 }
-.felt .info { grid-area: info; font-size: var(--who-font); }
 .felt .auction { grid-area: auction; }
-.felt .info b { font-family: Georgia, serif; font-size: 1.05rem; }
+
+/* ---- board panel: table, vulnerability, contract and trick count ---- */
+/* A narrow rail in the corner, read top to bottom as on BBO. */
+.felt .info {
+  grid-area: info; font-size: var(--who-font);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
+  width: max-content;
+}
+.felt .info .tablename { font-weight: 700; letter-spacing: .02em; opacity: .9; }
+
+/* The badge: four edges for four seats, red where that side is vulnerable. */
+.vulbadge { width: clamp(62px, 5vw, 94px); flex: 0 0 auto; line-height: 0; }
+.vulbadge svg { width: 100%; height: auto; display: block; }
+.vulbadge .nv { fill: #f2efe4; stroke: rgba(0,0,0,.35); stroke-width: 1; }
+.vulbadge .vul { fill: #c8372d; stroke: rgba(0,0,0,.35); stroke-width: 1; }
+.vulbadge .mid { fill: #c9d8cd; stroke: rgba(0,0,0,.3); stroke-width: 1; }
+.vulbadge .bno {
+  fill: #14201a; font-weight: 800; font-size: 38px;
+  text-anchor: middle; dominant-baseline: central;
+}
+/* The dealer's edge is marked D, in white on red where that side is vulnerable. */
+.vulbadge .dlr {
+  fill: #14201a; font-weight: 800; font-size: 17px;
+  text-anchor: middle; dominant-baseline: central;
+}
+.vulbadge .dlr.on-vul { fill: #fff; }
+
+/* Contract and declarer. */
+.felt .contract-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: clamp(62px, 5vw, 94px); padding: 5px 9px; gap: 1px;
+  background: #c9d8cd; color: #14201a; border-radius: 6px;
+  border: 1px solid rgba(0,0,0,.3);
+}
+.felt .contract-box .ct { font-family: Georgia, serif; font-size: clamp(1.05rem, 1.25vw, 1.5rem); line-height: 1.1; }
+.felt .contract-box .ct.r { color: var(--red); }
+.felt .contract-box .decl { font-size: .78em; opacity: .85; }
+.felt .contract-box.pending { background: rgba(255,255,255,.14); color: var(--felt-ink); border-color: rgba(255,255,255,.2); }
+
+/* Trick counters: a bar standing up for a trick won, lying down for one lost. */
+.felt .tricks { display: flex; gap: 6px; }
+.felt .tcount {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 6px;
+  background: #1d6b74; color: #eaf6f4; border: 1px solid rgba(0,0,0,.3);
+  font-weight: 800; font-size: clamp(.95rem, 1.05vw, 1.2rem);
+}
+.felt .tcount.lost { background: #30363a; }
+.felt .tcount .bar { display: block; background: currentColor; border-radius: 1px; }
+.felt .tcount .bar.v { width: 5px; height: 16px; }
+.felt .tcount .bar.h { width: 16px; height: 5px; }
 
 /* ---- seats & player labels (BBO-style compact badge) ---- */
 .seat { text-align: center; min-width: 0; }
