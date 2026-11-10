@@ -49,7 +49,13 @@ export type TEvent =
   | { t: 'call'; table: number; board: number; seat: Seat; call: Call; alert?: string }
   | { t: 'play'; table: number; board: number; seat: Seat; card: Card }
   /** A player who stopped responding; a robot takes their seat for the rest of the event. */
-  | { t: 'retire'; playerId: string };
+  | { t: 'retire'; playerId: string }
+  /**
+   * A board another table finished. A player only sees the cards played at
+   * their own table, but a board cannot be scored until the other tables have
+   * played it, so their results are carried in whole rather than replayed.
+   */
+  | { t: 'result'; result: BoardResult };
 
 export interface BoardResult {
   board: number;
@@ -218,16 +224,39 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
   table.lastResult = result;
   const lastOfRound = firstBoardOfRound(c, state.round) + c.boardsPerRound - 1;
   setBoard(c, table, boardNo < lastOfRound ? boardNo + 1 : null);
+  advanceIfRoundOver(state);
+}
 
-  if (state.tables.every((t) => t.boardNo === null)) {
-    if (state.round + 1 >= c.rounds) {
-      state.finished = true;
-    } else {
-      state.round++;
-      state.tables = seatTables(c, state.round, state.tables, state.retired);
-      refreshActivity(state);
-    }
+/**
+ * The field moves together: nobody starts the next round until every table has
+ * played the round's boards, exactly as a director would call the move.
+ */
+function advanceIfRoundOver(state: TState): void {
+  const c = state.config;
+  if (!state.tables.every((t) => t.boardNo === null)) return;
+  if (state.round + 1 >= c.rounds) {
+    state.finished = true;
+    return;
   }
+  state.round++;
+  state.tables = seatTables(c, state.round, state.tables, state.retired);
+  refreshActivity(state);
+}
+
+/**
+ * Mark off a board that another table has finished. A player watches only
+ * their own table's cards, so a foreign table's progress is known solely from
+ * the results it reports; once it has reported the whole round, it is done.
+ */
+function creditForeignBoard(state: TState, table: TableState): void {
+  const c = state.config;
+  if (table.boardNo === null) return;
+  const first = firstBoardOfRound(c, state.round);
+  const last = first + c.boardsPerRound - 1;
+  const played = state.results.filter((r) => r.table === table.index && r.board >= first && r.board <= last);
+  if (played.length < c.boardsPerRound) return;
+  table.lastResult = played[played.length - 1] ?? table.lastResult;
+  setBoard(c, table, null);
 }
 
 /** Apply one event. Throws if the event is illegal; never mutates its input. */
@@ -240,6 +269,19 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
   if (!prev) throw new Error('Tournament has not started');
   if (prev.finished) throw new Error('Tournament is over');
   const state: TState = { ...prev, tables: prev.tables.map((t) => ({ ...t })) };
+
+  if (ev.t === 'result') {
+    const r = ev.result;
+    const table = state.tables[r.table];
+    if (!table) throw new Error('No such table');
+    /* Results arrive from several tables at once and may be repeated as hosts
+       change, so a board already recorded is accepted and changes nothing. */
+    if (state.results.some((x) => x.table === r.table && x.board === r.board)) return state;
+    state.results = [...state.results, r];
+    creditForeignBoard(state, table);
+    advanceIfRoundOver(state);
+    return state;
+  }
 
   if (ev.t === 'retire') {
     /* Replaying the same retirement twice must land in the same place, so a

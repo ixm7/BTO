@@ -348,8 +348,10 @@ export class TournamentNode {
 
   private handleIntent(ev: TEvent, from: string): void {
     /* Retirement is the coordinator's own judgement about who has stopped
-       responding. Accepting it from a peer would let anyone evict anyone. */
-    if (ev.t === 'start' || ev.t === 'retire' || !this.state) return;
+       responding; accepting it from a peer would let anyone evict anyone.
+       Results arrive from the tables that played them, over the results room,
+       never as an intent from somebody sitting at this table. */
+    if (ev.t === 'start' || ev.t === 'retire' || ev.t === 'result' || !this.state) return;
     const table = this.state.tables[ev.table];
     const playerId = this.playerOf(from);
     if (!table || !playerId) return;
