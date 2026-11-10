@@ -19,7 +19,9 @@
   --card-w: clamp(38px, 3.6vw, 72px);
   --card-h: clamp(56px, 5.3vw, 106px);
   --card-font: clamp(1.1rem, 1.5vw, 1.9rem);
-  --center-h: clamp(140px, 10vw, 220px);
+  /* Two card heights, plus clearance between them and a strip for the message,
+     so the played cards never land on top of one another. */
+  --center-h: calc(var(--card-w) * 2.94 + 70px);
   /* Auction panel: pale blue with dark ink, as on BBO. */
   --auction-bg: #b4d3dc;
   --auction-ink: #11201c;
@@ -114,7 +116,7 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   display: grid; gap: var(--felt-gap);
   /* Partner's hand gets a full-width row of its own, mirroring your own hand,
      so a revealed dummy is laid out at exactly the same size as declarer. */
-  grid-template-columns: minmax(0, .9fr) minmax(0, 1.8fr) minmax(0, .9fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, 1.15fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     "info info auction"
@@ -188,10 +190,17 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   flex-wrap: nowrap;
   --cw: min(var(--card-w), calc((100cqw - 90px) / 13));
 }
-/* The side columns are narrow, so a hand revealed there wraps by suit. */
-.seat.left .hand, .seat.right .hand {
-  --cw: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
+/* A hand revealed at the side is laid out as BBO lays out East and West: one
+   suit per line at full size, stacked downwards and aligned to the outer edge.
+   A very long suit wraps rather than overflowing the column. */
+.seat.left .hand:not(.backs), .seat.right .hand:not(.backs) {
+  flex-direction: column; flex-wrap: nowrap;
+  --cw: min(var(--card-w), calc((100cqw - 24px) / 6));
 }
+.seat.left .hand:not(.backs) { align-items: flex-start; }
+.seat.right .hand:not(.backs) { align-items: flex-end; }
+.seat.left .hand .suit-group, .seat.right .hand .suit-group { flex-wrap: wrap; }
+.seat.right .hand .suit-group { justify-content: flex-end; }
 /* Deriving the type size from the card's own width keeps the face filled the
    way a BBO card is, at every size, instead of leaving a margin of blank card. */
 .seat .hand .pc { width: var(--cw); font-size: calc(var(--cw) * .48); }
@@ -252,13 +261,18 @@ button.pc:disabled { opacity: 1; }
 .center.bidding .bidbox { width: 100%; max-width: none; margin-top: 0; }
 .center .bidwait { text-align: center; font-size: .85rem; opacity: .85; padding: 4px 0 2px; }
 .center .pc { position: absolute; }
-.center .t-top { top: 8px; left: 50%; transform: translateX(-50%); }
-.center .t-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
-.center .t-left { left: 18%; top: 50%; transform: translate(-50%, -50%); }
-.center .t-right { right: 18%; top: 50%; transform: translate(50%, -50%); }
+/* The four played cards sit in a tight cluster around the middle of the table,
+   each offset towards the seat that played it. They are kept clear of one
+   another rather than fanned: the rank sits in the middle of this card face,
+   so an overlap would hide the very thing you need to read. */
+.center .pc { left: 50%; top: 50%; }
+.center .t-top { transform: translate(-50%, calc(-100% - 10px)); }
+.center .t-bottom { transform: translate(-50%, 10px); }
+.center .t-left { transform: translate(calc(-100% - 58px), -50%); }
+.center .t-right { transform: translate(58px, -50%); }
 .center.last .pc { opacity: .55; }
 .center .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-size: .9rem; pointer-events: none; }
-.center.last .msg { align-items: flex-end; padding-bottom: 62px; font-size: .75rem; opacity: .9; }
+.center.last .msg { align-items: flex-end; padding-bottom: 8px; font-size: .75rem; opacity: .9; }
 
 /* ---- auction history (BBO-style: pale blue panel, dark ink) ---- */
 .auction table {
