@@ -11,6 +11,16 @@
   --gold: #c39a1c;
   --accent: #1f5c45;
   --radius: 10px;
+  /* Scale the table surface up on large screens so cards stay easy to read. */
+  --wrap-max: clamp(1100px, 68vw, 1760px);
+  --felt-pad: clamp(12px, 1.1vw, 26px);
+  --felt-gap: clamp(8px, .7vw, 16px);
+  --card-w: clamp(34px, 2.3vw, 60px);
+  --card-h: clamp(48px, 3.3vw, 86px);
+  --card-font: clamp(.95rem, 1.05vw, 1.4rem);
+  --center-h: clamp(170px, 13vw, 260px);
+  --who-font: clamp(.85rem, .85vw, 1.05rem);
+  --auction-font: clamp(.85rem, .8vw, 1.1rem);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -32,7 +42,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
-.wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.wrap { max-width: var(--wrap-max); margin: 0 auto; padding: 16px; }
 header.top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
 header.top .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
 header.top .brand span { color: var(--muted); font-size: .85rem; }
@@ -69,27 +79,27 @@ form.grid .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 form.grid small { color: var(--muted); }
 
 /* ---------------------------------------------------------------- room */
-.room { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 380px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }
 .side { display: grid; gap: 14px; }
 
 .felt {
   background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
-  color: var(--felt-ink); border-radius: 14px; padding: 12px;
-  display: grid; gap: 8px;
+  color: var(--felt-ink); border-radius: 14px; padding: var(--felt-pad);
+  display: grid; gap: var(--felt-gap);
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr);
   grid-template-areas: "info top auction" "left center right" "bottom bottom bottom";
 }
 @media (max-width: 640px) {
   .felt { grid-template-columns: 1fr 1fr; grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
 }
-.felt .info { grid-area: info; font-size: .85rem; }
+.felt .info { grid-area: info; font-size: var(--who-font); }
 .felt .auction { grid-area: auction; }
 .felt .info b { font-family: Georgia, serif; font-size: 1.05rem; }
 .seat { text-align: center; min-width: 0; }
 .seat.top { grid-area: top; } .seat.left { grid-area: left; align-self: center; }
 .seat.right { grid-area: right; align-self: center; } .seat.bottom { grid-area: bottom; }
-.seat .who { display: inline-flex; gap: 6px; align-items: center; padding: 2px 10px; border-radius: 14px; background: rgba(0, 0, 0, .25); font-size: .85rem; margin-bottom: 6px; max-width: 100%; }
+.seat .who { display: inline-flex; gap: 6px; align-items: center; padding: 2px 10px; border-radius: 14px; background: rgba(0, 0, 0, .25); font-size: var(--who-font); margin-bottom: 6px; max-width: 100%; }
 .seat .who i { font-style: normal; font-weight: 700; }
 .seat .who span { overflow-wrap: anywhere; text-align: left; }
 .seat.turn .who { background: var(--gold); color: #1b1503; }
@@ -97,11 +107,11 @@ form.grid small { color: var(--muted); }
 .hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
 .hand .suit-group { display: flex; gap: 2px; margin: 0 4px 4px; }
 .pc {
-  width: 34px; height: 48px; border-radius: 5px; border: 1px solid #b9b3a3; background: #fffdf8; color: #14201a;
+  width: var(--card-w); height: var(--card-h); border-radius: clamp(5px, .4vw, 9px); border: 1px solid #b9b3a3; background: #fffdf8; color: #14201a;
   display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;
-  font-weight: 700; font-size: .95rem; padding: 0;
+  font-weight: 700; font-size: var(--card-font); padding: 0;
 }
-.pc small { font-size: 1rem; font-weight: 400; }
+.pc small { font-size: calc(var(--card-font) * 1.05); font-weight: 400; }
 .pc.red { color: var(--red); }
 button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2px var(--gold); transform: translateY(-4px); }
 button.pc:not(:disabled):hover { transform: translateY(-9px); }
@@ -110,7 +120,7 @@ button.pc:disabled { opacity: 1; }
 .backs { font-size: .8rem; opacity: .85; }
 .backs::before { content: "🂠 "; font-size: 1.3rem; vertical-align: middle; }
 
-.center { grid-area: center; position: relative; min-height: 170px; border-radius: 10px; background: rgba(0, 0, 0, .14); }
+.center { grid-area: center; position: relative; min-height: var(--center-h); border-radius: 10px; background: rgba(0, 0, 0, .14); }
 .center .pc { position: absolute; }
 .center .t-top { top: 8px; left: 50%; transform: translateX(-50%); }
 .center .t-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
@@ -120,16 +130,16 @@ button.pc:disabled { opacity: 1; }
 .center .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-size: .9rem; pointer-events: none; }
 .center.last .msg { align-items: flex-end; padding-bottom: 62px; font-size: .75rem; opacity: .9; }
 
-.auction table { border-collapse: collapse; width: 100%; font-size: .85rem; background: rgba(0, 0, 0, .18); border-radius: 8px; }
-.auction th, .auction td { padding: 2px 4px; text-align: center; width: 25%; }
+.auction table { border-collapse: collapse; width: 100%; font-size: var(--auction-font); background: rgba(0, 0, 0, .18); border-radius: 8px; }
+.auction th, .auction td { padding: clamp(2px, .25vw, 6px) clamp(4px, .4vw, 10px); text-align: center; width: 25%; }
 .auction th { font-weight: 600; opacity: .8; } .auction th.vul { color: #ff9d94; }
 .auction .r { color: #ffb3ac; }
 
-.bidbox2 { display: grid; gap: 8px; margin-top: 10px; max-width: 360px; }
-.bidbox2 .callrow, .bidbox2 .levelrow, .bidbox2 .suitrow { display: flex; gap: 6px; min-height: 42px; }
+.bidbox2 { display: grid; gap: 8px; margin-top: 10px; max-width: clamp(360px, 24vw, 460px); }
+.bidbox2 .callrow, .bidbox2 .levelrow, .bidbox2 .suitrow { display: flex; gap: 6px; min-height: clamp(42px, 3vw, 54px); }
 .bidbox2 button {
   flex: 1; border-radius: 10px; border: 1px solid var(--line); background: #fff;
-  font-weight: 700; font-size: 1.05rem; padding: 0;
+  font-weight: 700; font-size: clamp(1.05rem, 1vw, 1.3rem); padding: 0;
 }
 .bidbox2 .callrow .pass { background: var(--accent); border-color: var(--accent); color: #fff; }
 .bidbox2 .callrow .dbl { background: var(--red); border-color: var(--red); color: #fff; }

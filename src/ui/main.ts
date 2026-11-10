@@ -91,7 +91,7 @@ function directoryView(): HTMLElement {
       d ? h('a.muted', { href: `https://github.com/${d.slug}/issues`, target: '_blank', rel: 'noopener' }, d.slug) : null,
       h('span.spacer'),
       d ? h('button', { onclick: () => void refresh(), disabled: loading }, loading ? 'Refreshing…' : 'Refresh') : null,
-      h('button', { onclick: joinByCode }, 'Join private room'),
+      h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with no GitHub involved.' }, 'Join private room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
       d ? h('button.primary', { onclick: openCreate }, 'New tournament') : null),
     body);
