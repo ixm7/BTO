@@ -76,6 +76,7 @@ export interface TableViewOptions {
   onCall(call: Call): void;
   onPlay(seat: Seat, card: Card): void;
   isPresent(playerId: string): boolean;
+  playerNotes?: Map<string, string>;
 }
 
 export function renderTable(o: TableViewOptions): HTMLElement {
@@ -120,10 +121,19 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       hand = h('div.hand.backs', Array.from({ length: cards.length }, () => cardBack()));
     }
     const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', player.bot ? 'robot' : '', away ? 'away' : ''].filter(Boolean).join(', ');
+    const noteText = o.playerNotes?.get(player.id) ?? 'No description';
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
       { title: `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}` },
       h('b.seat-letter', seat),
-      h('span.pname', player.name + (seat === mySeat ? ' (you)' : '') + (tags ? ` · ${tags}` : '')));
+      h('span.pname', { onclick: (e: MouseEvent) => {
+        e.stopPropagation();
+        // Remove any existing tooltip
+        document.querySelectorAll('.player-tooltip').forEach((t) => t.remove());
+        const tip = h('div.player-tooltip', h('b', player.name), h('p', noteText));
+        const dismiss = (ev: MouseEvent): void => { if (!tip.contains(ev.target as Node)) { tip.remove(); document.removeEventListener('click', dismiss); } };
+        document.addEventListener('click', dismiss);
+        (e.currentTarget as HTMLElement).parentElement!.appendChild(tip);
+      } }, player.name + (seat === mySeat ? ' (you)' : '') + (tags ? ` · ${tags}` : '')));
     return h(`div.seat.${pos[seat]}`, label, hand);
   };
 

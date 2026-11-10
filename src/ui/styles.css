@@ -127,6 +127,23 @@ details.director-section > .grid small { color: var(--muted); }
 .seat .who.vul .seat-letter { color: #ff9d94; }
 .seat .who.active.vul .seat-letter { color: var(--red); }
 
+/* ---- player name tooltip (click to see note) ---- */
+.seat .who .pname { cursor: pointer; }
+.seat .who .pname:hover { text-decoration: underline; }
+.seat .who { position: relative; }
+.player-tooltip {
+  position: absolute; z-index: 50;
+  bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: #1a1a2e; color: #eee; border: 1px solid #444; border-radius: 8px;
+  padding: 8px 12px; min-width: 140px; max-width: 260px;
+  font-size: .85rem; line-height: 1.4; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+  text-align: center; white-space: normal;
+}
+.player-tooltip b { display: block; margin-bottom: 2px; font-size: .9rem; }
+.player-tooltip p { margin: 0; opacity: .85; }
+.seat.left .player-tooltip,
+.seat.right .player-tooltip { bottom: auto; top: calc(100% + 6px); }
+
 /* ---- cards (BBO-style: rank + suit side-by-side, larger face) ---- */
 .hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
 .hand .suit-group { display: flex; gap: 3px; margin: 0 8px 4px; }

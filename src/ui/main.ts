@@ -324,10 +324,7 @@ function openPartners(initial: Listing): void {
         rows.push(h('div.row', { style: 'margin-top:10px' },
           amSeeking
             ? h('button', { disabled: busy, onclick: act(() => d.cancelSeekingPartner(current.number)) }, 'Remove me from the list')
-            : h('button.primary', { disabled: busy || !myLogin, onclick: () => openNoteDialog('Looking for a partner', 'Add me', (note) => {
-                settings.partnerNote = note; saveSettings(settings); // remembered as the default next time
-                void act(() => d.seekPartner(current.number, note))();
-              }, settings.partnerNote) }, 'Add me to the list')));
+            : h('button.primary', { disabled: busy || !myLogin, onclick: act(() => d.seekPartner(current.number, settings.partnerNote)) }, 'Add me to the list')));
       }
 
       body.replaceChildren(...rows.filter((x): x is HTMLElement => x !== null));
@@ -390,7 +387,7 @@ function openSettings(): void {
     const form = h('form.grid', { onsubmit: async (e: Event) => {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
-      Object.assign(settings, { name: val(f, 'name'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
+      Object.assign(settings, { name: val(f, 'name'), partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
       if (settings.token && settings.repo) {
         try { settings.githubLogin = await new Directory(settings.repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
@@ -400,6 +397,8 @@ function openSettings(): void {
       void refresh();
     } },
       field('Your name (shown at the table)', h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' })),
+      field('Player description', h('input', { name: 'note', value: settings.partnerNote, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }),
+        'Visible to other players when they click your name at the table.'),
       field('Connection', h('select', { name: 'transport' },
         h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet'),
         h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
@@ -506,6 +505,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
   const n = new TournamentNode(transport, {
     playerId: settings.playerId, name: settings.name.trim() || 'Guest', deviceScore: deviceScore(), isDirector,
     pairCode: settings.pairCode || undefined,
+    note: settings.partnerNote || undefined,
   }, {
     botDelayMs,
     persist: info.demo ? undefined : {
@@ -615,6 +615,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
         table, mySeat: at?.seat ?? null,
         onCall: (c) => n.call(c), onPlay: (seat, card) => n.play(seat, card),
         isPresent: (id) => n.isPresent(id),
+        playerNotes: n.playerNotes(),
       }));
       if (n.lastError) main.append(h('div.error', n.lastError));
     } else {

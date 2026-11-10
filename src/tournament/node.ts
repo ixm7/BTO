@@ -25,6 +25,8 @@ export interface Me {
   deviceScore: number;
   isDirector: boolean;
   pairCode?: string;
+  /** Player description (skill level, convention card, etc.) shown on click. */
+  note?: string;
 }
 
 export interface NodeOptions {
@@ -47,13 +49,14 @@ interface PeerInfo {
   deviceScore: number;
   isDirector: boolean;
   pairCode?: string;
+  note?: string;
   joinedAt: number;
   seq: number;
   lastSeen: number;
 }
 
 type Msg =
-  | { k: 'hello'; playerId: string; name: string; deviceScore: number; isDirector: boolean; pairCode?: string; joinedAt: number; seq: number }
+  | { k: 'hello'; playerId: string; name: string; deviceScore: number; isDirector: boolean; pairCode?: string; note?: string; joinedAt: number; seq: number }
   | { k: 'intent'; ev: TEvent }
   | { k: 'ev'; seq: number; ev: TEvent }
   | { k: 'syncreq'; have: number }
@@ -146,6 +149,16 @@ export class TournamentNode {
     return false;
   }
 
+  /** Map of playerId → player note/description for all connected players. */
+  playerNotes(): Map<string, string> {
+    const notes = new Map<string, string>();
+    if (this.me.note) notes.set(this.me.playerId, this.me.note);
+    for (const p of this.peerMap.values()) {
+      if (p.note) notes.set(p.playerId, p.note);
+    }
+    return notes;
+  }
+
   mySeat(): { table: TableState; seat: Seat } | null {
     return this.state ? findSeat(this.state, this.me.playerId) : null;
   }
@@ -235,7 +248,8 @@ export class TournamentNode {
   private sendHello(to?: string): void {
     this.transport.send({
       k: 'hello', playerId: this.me.playerId, name: this.me.name, deviceScore: this.me.deviceScore,
-      isDirector: this.me.isDirector, pairCode: this.me.pairCode, joinedAt: this.joinedAt, seq: this.log.length,
+      isDirector: this.me.isDirector, pairCode: this.me.pairCode, note: this.me.note,
+      joinedAt: this.joinedAt, seq: this.log.length,
     } satisfies Msg, to);
   }
 
@@ -250,7 +264,7 @@ export class TournamentNode {
           || known.name !== m.name || known.pairCode !== m.pairCode || known.playerId !== m.playerId;
         this.peerMap.set(from, {
           peerId: from, playerId: m.playerId, name: m.name, deviceScore: m.deviceScore, isDirector: m.isDirector,
-          pairCode: m.pairCode, joinedAt: m.joinedAt, seq: m.seq, lastSeen: this.o.now(),
+          pairCode: m.pairCode, note: m.note, joinedAt: m.joinedAt, seq: m.seq, lastSeen: this.o.now(),
         });
         if (isNew) this.sendHello(from);
         if (m.seq > this.log.length) this.transport.send({ k: 'syncreq', have: this.log.length } satisfies Msg, from);
