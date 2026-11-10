@@ -159,6 +159,16 @@ describe('GitHub directory', () => {
     expect(gh.issues[number - 1].state_reason).toBe('completed');
   });
 
+  it('bypasses the HTTP cache so a refresh right after a write sees it, not a ~60s-stale response', async () => {
+    const seen: (RequestCache | undefined)[] = [];
+    const fetcher = async (_url: string, init: any = {}) => {
+      seen.push(init.cache);
+      return { ok: true, status: 200, json: async () => [], headers: { get: () => null } };
+    };
+    await new Directory('club/bridge', null, fetcher).list();
+    expect(seen).toEqual(['no-store']);
+  });
+
   it('builds a pre-filled github.com link for users without a token', () => {
     const d = new Directory('club/bridge');
     const url = new URL(d.newIssueUrl(makeMeta(base)));

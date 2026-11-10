@@ -192,7 +192,7 @@ export function deriveStatus(meta: TournamentMeta, issue: { state: string; state
 
 /* -------------------------------------------------------------------- API */
 
-type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
+type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; cache?: RequestCache }) => Promise<{
   ok: boolean; status: number; json(): Promise<unknown>; headers: { get(name: string): string | null };
 }>;
 
@@ -220,7 +220,10 @@ export class Directory {
     const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const res = await this.fetcher(url, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    // GitHub's API responses are often cacheable for ~60s; without this, a refresh
+    // run right after a write (e.g. registering) can be served a stale listing
+    // straight from the browser's HTTP cache instead of hitting the network.
+    const res = await this.fetcher(url, { method, headers, cache: 'no-store', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     if (!res.ok) {
       const limited = res.status === 403 || res.status === 429 ? res.headers.get('x-ratelimit-remaining') === '0' : false;
       let detail = '';
