@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Directory, deriveStatus, issueBody, makeMeta, parseMeta, parseRegistrations, parseRepo, type TournamentResults } from '../src/directory/github';
+import { Directory, deriveStatus, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', level: 'Intermediate' as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -45,6 +45,48 @@ describe('issue format', () => {
       { login: 'cat', name: 'cat', at: '2026-11-01T00:00:03Z' },
       { login: 'dan', name: 'Dan D', at: '2026-11-01T00:00:08Z' },
     ]);
+  });
+  it('parses the partner-seeking list and invitations, folding comments in order', () => {
+    const c = (login: string, body: string, t: number) => ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(t).padStart(2, '0')}Z` });
+    const { seekers, invitations } = parsePartners([
+      c('ann', '/seek-partner looking for a strong 2/1 partner', 1),
+      c('bob', '/seek-partner', 2),
+      c('cat', 'just chatting', 3),
+      c('ann', '/invite @bob want to play together?', 4),
+      c('dan', '/seek-partner', 5),
+      c('ann', '/invite @ann', 6), // an inviter cannot invite themselves: ignored entirely
+      c('eve', '/invite @ann', 7), // eve was never a seeker, but inviting is still recorded
+      c('bob', '/decline @ann', 8), // bob declines ann's invite from step 4
+      c('ann', '/invite @bob.', 9), // re-invite after decline; trailing punctuation doesn't break the match or leak into the note
+      c('bob', '/accept @ann', 10),
+      c('dan', '/seek-partner cancel', 11),
+      c('eve', '/invite-cancel @ann', 12),
+    ]);
+    expect(seekers).toEqual([
+      { login: 'ann', note: 'looking for a strong 2/1 partner', at: '2026-11-01T00:00:01Z' },
+      { login: 'bob', at: '2026-11-01T00:00:02Z' },
+    ]); // dan cancelled, cat never joined, eve never joined
+    expect(invitations).toEqual([
+      // same (from, to) pair collapses to one entry carrying its latest event's status, note and timestamp
+      { from: 'ann', to: 'bob', status: 'accepted', at: '2026-11-01T00:00:10Z' },
+      { from: 'eve', to: 'ann', status: 'cancelled', at: '2026-11-01T00:00:12Z' },
+    ]);
+  });
+  it('ignores a self-invite and treats accept/decline of a non-pending invite as a no-op', () => {
+    const c = (login: string, body: string, t: number) => ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(t).padStart(2, '0')}Z` });
+    const { invitations } = parsePartners([
+      c('ann', '/invite @ann', 1), // self-invite: ignored entirely
+      c('bob', '/accept @ann', 2), // nothing pending from ann to bob: no-op
+      c('ann', '/invite @bob', 3),
+      c('bob', '/accept @ann', 4),
+      c('bob', '/decline @ann', 5), // already accepted: a late decline does not flip it back
+    ]);
+    expect(invitations).toEqual([{ from: 'ann', to: 'bob', status: 'accepted', at: '2026-11-01T00:00:04Z' }]);
+  });
+  it('builds a stable, order-independent invite code for a pair', () => {
+    expect(inviteCode(12, 'Ann', 'bob')).toBe(inviteCode(12, 'Bob', 'ann'));
+    expect(inviteCode(12, 'ann', 'bob')).not.toBe(inviteCode(13, 'ann', 'bob'));
+    expect(inviteCode(12, 'ann', 'bob')).toMatch(/^inv-12-ann-bob$/);
   });
   it('derives status', () => {
     const meta = makeMeta(base);
@@ -157,6 +199,46 @@ describe('GitHub directory', () => {
     expect(done.results).toEqual(results);
     expect(await director.publishResults(number, results)).toEqual({ closed: true });
     expect(gh.issues[number - 1].state_reason).toBe('completed');
+  });
+
+  it('runs a full partner-list flow through the Directory API: seek, invite, decline, re-invite, accept', async () => {
+    const gh = fakeGitHub();
+    const director = new Directory('club/bridge', 'ido', gh.fetcher);
+    const number = await director.create(makeMeta(base));
+    const as = (login: string) => new Directory('club/bridge', login, gh.fetcher);
+
+    await as('ann').seekPartner(number, 'strong NT, prefers Stayman');
+    await as('bob').seekPartner(number);
+    let t = await director.get(number);
+    expect(t.partners!.seekers.map((s) => s.login)).toEqual(['ann', 'bob']);
+    expect(t.partners!.seekers[0]!.note).toBe('strong NT, prefers Stayman');
+    expect(t.partners!.invitations).toEqual([]);
+
+    await as('bob').invitePartner(number, 'ann', 'fancy a game?');
+    t = await director.get(number);
+    expect(t.partners!.invitations).toEqual([{ from: 'bob', to: 'ann', note: 'fancy a game?', status: 'pending', at: expect.any(String) }]);
+
+    // Ann declines; Bob invites again; Ann accepts the second invitation.
+    await as('ann').respondToInvite(number, 'bob', false);
+    t = await director.get(number);
+    expect(t.partners!.invitations[0]!.status).toBe('declined');
+
+    await as('bob').invitePartner(number, 'ann');
+    await as('ann').respondToInvite(number, 'bob', true);
+    t = await director.get(number);
+    expect(t.partners!.invitations).toHaveLength(1); // same (from, to) pair collapses to its latest status
+    expect(t.partners!.invitations[0]!.status).toBe('accepted');
+
+    // Ann leaves the seeking list; a separate, uninvited user can still cancel their own invite.
+    await as('ann').seekPartner(number, 'updated note'); // still on the list, just a note change
+    await as('cat').invitePartner(number, 'dan');
+    await as('cat').cancelInvite(number, 'dan');
+    await as('ann').cancelSeekingPartner(number);
+    t = await director.get(number);
+    expect(t.partners!.seekers.map((s) => s.login)).toEqual(['bob']);
+    expect(t.partners!.invitations.find((i) => i.from === 'cat')).toEqual({ from: 'cat', to: 'dan', status: 'cancelled', at: expect.any(String) });
+
+    await expect(new Directory('club/bridge', null, gh.fetcher).seekPartner(number)).rejects.toThrow(/token/);
   });
 
   it('bypasses the HTTP cache so a refresh right after a write sees it, not a ~60s-stale response', async () => {

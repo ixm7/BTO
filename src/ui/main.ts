@@ -1,4 +1,4 @@
-import { Directory, LEVELS, makeMeta, type Level, type Listing, type TournamentResults } from '../directory/github';
+import { Directory, LEVELS, inviteCode, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentNode, deviceScore } from '../tournament/node';
@@ -122,6 +122,7 @@ function detailView(l: Listing): HTMLElement {
       id: l.roomId, name: l.meta.name, boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity, listing: l, demo: false,
     }) }, 'Enter playing room'));
   }
+  if (open) actions.append(h('button', { onclick: () => openPartners(l) }, 'Partners list'));
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
 
   return h('div',
@@ -152,6 +153,109 @@ function resultsTable(r: TournamentResults): HTMLElement {
     h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'Score'), h('th.num', 'MP'))),
     h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction),
       h('td.num', `${x.percent.toFixed(2)}%`), h('td.num', `${x.matchpoints}/${x.maxMatchpoints}`))))));
+}
+
+/** The "looking for a partner" list for one tournament, with invite/accept/decline. */
+function openPartners(initial: Listing): void {
+  const d = directory();
+  if (!d) return;
+  let current = initial;
+  let busy = false;
+  let err: string | null = null;
+
+  dialog(`Partners — ${initial.meta.name}`, (close) => {
+    const body = h('div');
+    const myLogin = settings.githubLogin.trim().toLowerCase();
+
+    const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
+      if (busy) return;
+      busy = true; err = null; draw();
+      try { await fn(); current = await d.get(current.number); } catch (e) { err = (e as Error).message; }
+      busy = false; draw();
+    };
+
+    const openNoteDialog = (title: string, submitLabel: string, onSubmit: (note: string) => void): void => {
+      dialog(title, (close2) => h('form.grid', { onsubmit: (e: Event) => {
+        e.preventDefault();
+        onSubmit(val(e.target as HTMLFormElement, 'note'));
+        close2();
+      } },
+        field('Optional note (skill level, convention card, availability…)', h('input', { name: 'note', maxLength: 140 })),
+        h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close2 }, 'Cancel'), h('button.primary', { type: 'submit' }, submitLabel))));
+    };
+
+    const draw = (): void => {
+      const p = current.partners;
+      const amSeeking = !!myLogin && !!p?.seekers.some((s) => s.login.toLowerCase() === myLogin);
+      const rows: (HTMLElement | null)[] = [
+        h('p.muted', { style: 'margin-top:0' }, 'Players here are looking for a partner for this tournament. Add yourself, then invite someone — or wait to be invited.'),
+        err ? h('div.error', err) : null,
+        !d.canWrite
+          ? h('div.note', 'Add a GitHub token in Settings to do this from here. Until then, comment directly on ',
+              h('a', { href: current.url, target: '_blank', rel: 'noopener' }, 'the tournament issue'), ': ',
+              h('code', '/seek-partner'), ', ', h('code', '/invite @username'), ', ', h('code', '/accept @username'), ' or ', h('code', '/decline @username'), '.')
+          : !myLogin ? h('div.note', 'Set your GitHub username in Settings so invitations addressed to you can be recognized.') : null,
+      ];
+
+      if (!p) {
+        rows.push(h('p.muted', 'Could not load the partner list (GitHub rate limit?).'));
+      } else {
+        const toMe = p.invitations.filter((i) => i.status === 'pending' && !!myLogin && i.to.toLowerCase() === myLogin);
+        if (toMe.length) {
+          const inviteRow = (i: Invitation): HTMLElement => h('tr',
+            h('td', h('b', `@${i.from}`), i.note ? h('div.muted', i.note) : null),
+            h('td', h('div.row',
+              h('button.primary', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, true)) }, 'Accept'),
+              h('button', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
+          rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
+        }
+
+        const myAccepted = p.invitations.filter((i) => i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
+        for (const i of myAccepted) {
+          const partner = i.from.toLowerCase() === myLogin ? i.to : i.from;
+          const code = inviteCode(current.number, i.from, i.to);
+          if (settings.pairCode !== code) { settings.pairCode = code; saveSettings(settings); }
+          rows.push(h('div.note', `You and @${partner} are partnered! Your partner code (`, h('code', code), `) is set automatically — just Register (above) with that in place.`));
+        }
+
+        rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
+          p.seekers.length === 0
+            ? [h('tr', h('td.muted', 'Nobody yet.'))]
+            : p.seekers.map((s) => {
+                const isMe = s.login.toLowerCase() === myLogin;
+                const withThem = (i: Invitation): boolean =>
+                  (i.from.toLowerCase() === myLogin && i.to.toLowerCase() === s.login.toLowerCase())
+                  || (i.to.toLowerCase() === myLogin && i.from.toLowerCase() === s.login.toLowerCase());
+                const partnered = p.invitations.find((i) => i.status === 'accepted' && withThem(i));
+                const sentPending = p.invitations.find((i) => i.status === 'pending' && i.from.toLowerCase() === myLogin && i.to.toLowerCase() === s.login.toLowerCase());
+                return h('tr',
+                  h('td', h('b', `@${s.login}`), isMe ? ' (you)' : '', s.note ? h('div.muted', s.note) : null),
+                  h('td', isMe ? null
+                    : partnered ? h('span.badge.upcoming', 'Partnered')
+                    : sentPending
+                      ? h('button', { disabled: busy, onclick: act(() => d.cancelInvite(current.number, s.login)) }, 'Cancel invite')
+                      : h('button', { disabled: busy || !myLogin, onclick: () => openNoteDialog(`Invite @${s.login}`, 'Send invite', (note) => void act(() => d.invitePartner(current.number, s.login, note))()) }, 'Invite')));
+              })))));
+
+        rows.push(h('div.row', { style: 'margin-top:10px' },
+          amSeeking
+            ? h('button', { disabled: busy, onclick: act(() => d.cancelSeekingPartner(current.number)) }, 'Remove me from the list')
+            : h('button.primary', { disabled: busy || !myLogin, onclick: () => openNoteDialog('Looking for a partner', 'Add me', (note) => void act(() => d.seekPartner(current.number, note))()) }, 'Add me to the list')));
+      }
+
+      body.replaceChildren(...rows.filter((x): x is HTMLElement => x !== null));
+    };
+
+    draw();
+    // The list is paintable right away from whatever snapshot the page already had,
+    // but someone else may have joined, invited or responded since then — refetch
+    // on every open so reopening the dialog shows more than just my own actions.
+    void (async () => {
+      try { current = await d.get(current.number); } catch (e) { err = (e as Error).message; }
+      draw();
+    })();
+    return h('div', body, h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
+  });
 }
 
 /* --------------------------------------------------------------- dialogs */

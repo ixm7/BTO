@@ -58,6 +58,29 @@ export interface TournamentResults {
 
 export type Status = 'upcoming' | 'in progress' | 'finished' | 'cancelled' | 'expired';
 
+/** Someone who has put themselves on the "looking for a partner" list for this tournament. */
+export interface PartnerSeeker {
+  login: string;
+  note?: string;
+  at: string;
+}
+
+export type InviteStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+
+/** A partner invitation from one GitHub login to another, scoped to one tournament. */
+export interface Invitation {
+  from: string;
+  to: string;
+  note?: string;
+  status: InviteStatus;
+  at: string;
+}
+
+export interface PartnersData {
+  seekers: PartnerSeeker[];
+  invitations: Invitation[];
+}
+
 export interface Listing {
   number: number;
   url: string;
@@ -68,6 +91,7 @@ export interface Listing {
   /** Null when comments could not be read (e.g. rate limit). */
   registrations: Registration[] | null;
   results: TournamentResults | null;
+  partners: PartnersData | null;
   /** Peer-to-peer room name for this tournament. */
   roomId: string;
 }
@@ -113,6 +137,9 @@ export function issueBody(meta: TournamentMeta): string {
     'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered).',
     'To withdraw, comment `/withdraw`.',
     '',
+    'Looking for a partner? Comment `/seek-partner` (an optional note after it is fine), or `/seek-partner cancel` to leave that list.',
+    'To invite someone from that list: `/invite @their-username`. They accept with `/accept @your-username` or decline with `/decline @your-username`.',
+    '',
     `<!-- bridge-tournament\n${JSON.stringify(meta, null, 1)}\n-->`,
   ].join('\n');
 }
@@ -154,6 +181,69 @@ export function parseRegistrations(comments: readonly RawComment[]): Registratio
     }
   }
   return [...reg.values()].sort((a, b) => a.at.localeCompare(b.at));
+}
+
+/**
+ * Fold the comment stream into the current "looking for a partner" list and
+ * invitation statuses. Commands (each a line of its own, case-insensitive):
+ *   /seek-partner <note?>     join (or update your note on) the list
+ *   /seek-partner cancel      leave the list
+ *   /invite @login <note?>    invite that person to partner with you
+ *   /invite-cancel @login     withdraw an invitation you sent, while pending
+ *   /accept @login            accept an invitation you received from them
+ *   /decline @login           decline an invitation you received from them
+ * The latest command wins for seekers; for an (inviter, invitee) pair, each
+ * new /invite starts a fresh pending invitation, superseding any old status.
+ */
+export function parsePartners(comments: readonly RawComment[]): PartnersData {
+  const seekers = new Map<string, PartnerSeeker>();
+  const invitations = new Map<string, Invitation>();
+  for (const c of comments) {
+    const login = c.user?.login;
+    if (!login) continue;
+    for (const rawLine of (c.body ?? '').split(/\r?\n/)) {
+      const t = rawLine.trim();
+      let m: RegExpExecArray | null;
+      if ((m = /^\/seek-partner\b(.*)$/i.exec(t))) {
+        const rest = (m[1] as string).trim();
+        if (/^cancel$/i.test(rest)) seekers.delete(login.toLowerCase());
+        else seekers.set(login.toLowerCase(), { login, note: rest || undefined, at: c.created_at });
+        continue;
+      }
+      // A login never contains '.', ',', ':', ';' or '!', so excluding them from the
+      // captured username (rather than trimming afterwards) keeps a trailing mark
+      // like "@bob." from either breaking the match or leaking into the note.
+      if ((m = /^\/invite\s+@?([^\s.,:;!]+)[.,:;!]*(?:\s+(.*))?$/i.exec(t))) {
+        const to = m[1] as string;
+        if (to.toLowerCase() === login.toLowerCase()) continue; // can't invite yourself
+        const note = (m[2] as string | undefined)?.trim() || undefined;
+        invitations.set(`${login.toLowerCase()}->${to.toLowerCase()}`, { from: login, to, note, status: 'pending', at: c.created_at });
+        continue;
+      }
+      if ((m = /^\/invite-cancel\s+@?([^\s.,:;!]+)[.,:;!]*\s*$/i.exec(t))) {
+        const key = `${login.toLowerCase()}->${(m[1] as string).toLowerCase()}`;
+        const cur = invitations.get(key);
+        if (cur && cur.status === 'pending') invitations.set(key, { ...cur, status: 'cancelled', at: c.created_at });
+        continue;
+      }
+      if ((m = /^\/(accept|decline)\s+@?([^\s.,:;!]+)[.,:;!]*\s*$/i.exec(t))) {
+        const key = `${(m[2] as string).toLowerCase()}->${login.toLowerCase()}`;
+        const cur = invitations.get(key);
+        if (cur && cur.status === 'pending') invitations.set(key, { ...cur, status: (m[1] as string).toLowerCase() === 'accept' ? 'accepted' : 'declined', at: c.created_at });
+        continue;
+      }
+    }
+  }
+  return {
+    seekers: [...seekers.values()].sort((a, b) => a.at.localeCompare(b.at)),
+    invitations: [...invitations.values()].sort((a, b) => a.at.localeCompare(b.at)),
+  };
+}
+
+/** A deterministic partner code for a tournament, shared by exactly these two logins once they accept. */
+export function inviteCode(issueNumber: number, loginA: string, loginB: string): string {
+  const pair = [loginA, loginB].map((s) => s.toLowerCase()).sort().join('-');
+  return `inv-${issueNumber}-${pair}`.replace(/[^a-z0-9-]/gi, '');
 }
 
 export function parseResults(comments: readonly RawComment[]): TournamentResults | null {
@@ -258,6 +348,7 @@ export class Directory {
   private async toListing(issue: RawIssue, meta: TournamentMeta, now: number): Promise<Listing> {
     let registrations: Registration[] | null = [];
     let results: TournamentResults | null = null;
+    let partners: PartnersData | null = { seekers: [], invitations: [] };
     if (issue.comments > 0) {
       try {
         const cs = await this.comments(issue.number);
@@ -265,11 +356,12 @@ export class Directory {
         // Only the director or a registered player can publish results.
         const trusted = new Set([issue.user?.login, ...registrations.map((r) => r.login)]);
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
-      } catch { registrations = null; }
+        partners = parsePartners(cs);
+      } catch { registrations = null; partners = null; }
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
-      status: deriveStatus(meta, issue, results, now), registrations, results, roomId: this.roomId(issue.number),
+      status: deriveStatus(meta, issue, results, now), registrations, results, partners, roomId: this.roomId(issue.number),
     };
   }
 
@@ -313,7 +405,12 @@ export class Directory {
 
   issueUrl(number: number): string { return `https://github.com/${this.slug}/issues/${number}`; }
 
-  private comment(number: number, body: string): Promise<unknown> {
+  // `async` here matters beyond style: it guarantees that throwing (e.g. "no
+  // token set") always produces a rejected promise, even though register(),
+  // withdraw() and the partner-list methods below are plain (non-async)
+  // functions that just return this.comment(...)'s result — without this,
+  // calling one of them with no token would throw synchronously instead.
+  private async comment(number: number, body: string): Promise<unknown> {
     if (!this.token) throw new Error('A GitHub token is needed for this');
     return this.req(this.api(`/issues/${number}/comments`), 'POST', { body });
   }
@@ -325,6 +422,26 @@ export class Directory {
   }
 
   withdraw(number: number): Promise<unknown> { return this.comment(number, '/withdraw'); }
+
+  /** Join (or update your note on) the "looking for a partner" list for this tournament. */
+  seekPartner(number: number, note?: string): Promise<unknown> {
+    const clean = (note ?? '').replace(/[\r\n]/g, ' ').trim();
+    return this.comment(number, `/seek-partner${clean ? ` ${clean}` : ''}`);
+  }
+
+  cancelSeekingPartner(number: number): Promise<unknown> { return this.comment(number, '/seek-partner cancel'); }
+
+  invitePartner(number: number, toLogin: string, note?: string): Promise<unknown> {
+    const clean = (note ?? '').replace(/[\r\n]/g, ' ').trim();
+    return this.comment(number, `/invite @${toLogin}${clean ? ` ${clean}` : ''}`);
+  }
+
+  cancelInvite(number: number, toLogin: string): Promise<unknown> { return this.comment(number, `/invite-cancel @${toLogin}`); }
+
+  /** Respond to an invitation you received from `fromLogin`. */
+  respondToInvite(number: number, fromLogin: string, accept: boolean): Promise<unknown> {
+    return this.comment(number, `${accept ? '/accept' : '/decline'} @${fromLogin}`);
+  }
 
   /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */
   async publishResults(number: number, results: TournamentResults): Promise<{ closed: boolean }> {
