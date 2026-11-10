@@ -56,7 +56,7 @@ export interface TournamentResults {
   rankings: ResultRow[];
 }
 
-export type Status = 'upcoming' | 'in progress' | 'finished' | 'cancelled' | 'expired';
+export type Status = 'upcoming' | 'in progress' | 'finished' | 'cancelled' | 'aborted';
 
 /** Someone who has put themselves on the "looking for a partner" list for this tournament. */
 export interface PartnerSeeker {
@@ -283,14 +283,24 @@ export function resultsBody(r: TournamentResults): string {
   ].join('\n');
 }
 
-const SIX_HOURS = 6 * 3600 * 1000;
+/**
+ * How long a tournament could plausibly still be running: a generous ten
+ * minutes a board, plus an hour for a late start and slow play. Past that with
+ * no results posted, nobody finished it.
+ */
+export function playingWindowMs(meta: TournamentMeta): number {
+  const boards = Math.max(1, meta.rounds * meta.boardsPerRound);
+  return boards * 10 * 60 * 1000 + 3600 * 1000;
+}
 
 export function deriveStatus(meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number): Status {
   if (results) return 'finished';
   if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
   const start = Date.parse(meta.startUtc);
   if (now < start) return 'upcoming';
-  return now < start + SIX_HOURS ? 'in progress' : 'expired';
+  /* It began, but no result was ever posted: it ran out of players or was
+     abandoned part-way. Either way it is not still in progress. */
+  return now < start + playingWindowMs(meta) ? 'in progress' : 'aborted';
 }
 
 /* -------------------------------------------------------------------- API */

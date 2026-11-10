@@ -34,6 +34,13 @@ export interface NodeOptions {
   botDelayMs?: number;
   /** How long a human may be disconnected before a robot plays for them. */
   absentGraceMs?: number;
+  /**
+   * How long a player may leave the table waiting — whether sitting there not
+   * acting, or disconnected — before a robot takes their seat for good.
+   * Set to 0 to switch the rule off, as the solo demo does: nobody is waiting
+   * there, so a player who pauses to think should not lose their seat.
+   */
+  idleTimeoutMs?: number;
   /** A peer not heard from for this long is treated as gone. */
   peerTimeoutMs?: number;
   tickMs?: number;
@@ -90,6 +97,8 @@ export class TournamentNode {
   private ticks = 0;
   private pending: TEvent | null = null;
   private absentSince = new Map<string, number>();
+  /** Per table, which position we are waiting on and since when. */
+  private waitingSince = new Map<number, { key: string; at: number }>();
   private closed = false;
   private readonly o: Required<Omit<NodeOptions, 'persist'>> & Pick<NodeOptions, 'persist'>;
   /** Last reason an action of ours was rejected locally (for the UI). */
@@ -99,6 +108,7 @@ export class TournamentNode {
     this.o = {
       botDelayMs: opts.botDelayMs ?? 700,
       absentGraceMs: opts.absentGraceMs ?? 20000,
+      idleTimeoutMs: opts.idleTimeoutMs ?? 60000,
       peerTimeoutMs: opts.peerTimeoutMs ?? 12000,
       tickMs: opts.tickMs ?? 1000,
       now: opts.now ?? (() => Date.now()),
@@ -334,7 +344,9 @@ export class TournamentNode {
   }
 
   private handleIntent(ev: TEvent, from: string): void {
-    if (ev.t === 'start' || !this.state) return;
+    /* Retirement is the coordinator's own judgement about who has stopped
+       responding. Accepting it from a peer would let anyone evict anyone. */
+    if (ev.t === 'start' || ev.t === 'retire' || !this.state) return;
     const table = this.state.tables[ev.table];
     const playerId = this.playerOf(from);
     if (!table || !playerId) return;
@@ -401,6 +413,23 @@ export class TournamentNode {
           const since = this.absentSince.get(player.id) ?? now;
           this.absentSince.set(player.id, since);
           auto = now - since >= this.o.absentGraceMs;
+        }
+        /* How long this seat has kept the table waiting. The key changes with
+           every action at the table, so the clock restarts each turn. */
+        if (this.o.idleTimeoutMs > 0) {
+          const key = `${table.boardNo}:${turn.phase}:${turn.phase === 'auction' ? table.auction?.calls.length : table.play?.cardsPlayed}:${turn.seat}`;
+          const prev = this.waitingSince.get(table.index);
+          if (!prev || prev.key !== key) {
+            this.waitingSince.set(table.index, { key, at: now });
+          } else if (now - prev.at >= this.o.idleTimeoutMs) {
+            /* Retiring reseats this table and may close it, or end the whole
+               tournament. The tables we are looping over are now stale, so
+               start again from the new state rather than acting on them. */
+            this.waitingSince.delete(table.index);
+            this.append({ t: 'retire', playerId: player.id });
+            this.scheduleAuto();
+            return;
+          }
         }
       }
       if (!auto) continue;

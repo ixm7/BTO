@@ -508,6 +508,9 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
     note: settings.partnerNote || undefined,
   }, {
     botDelayMs,
+    /* In the demo you are the only person at the table, so nobody is kept
+       waiting and a long think should not cost you your seat. */
+    idleTimeoutMs: info.demo ? 0 : undefined,
     persist: info.demo ? undefined : {
       load: () => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as TEvent[] | null; } catch { return null; } },
       save: (events) => { try { sessionStorage.setItem(key, JSON.stringify(events)); } catch { /* quota */ } },
@@ -592,7 +595,12 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const main = h('div');
 
   if (state.finished) {
-    main.append(h('div.panel', h('h3', 'Tournament finished'), resultsTable(toResults(state))));
+    main.append(state.aborted
+      ? h('div.panel',
+          h('h3', 'Tournament aborted'),
+          h('p', 'Every table was left without a player, so the tournament was called off. The boards played so far are below.'),
+          resultsTable(toResults(state)))
+      : h('div.panel', h('h3', 'Tournament finished'), resultsTable(toResults(state))));
     const d = directory();
     if (info.listing && d) {
       const l = info.listing;

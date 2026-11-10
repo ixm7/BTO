@@ -40,7 +40,9 @@ export interface TournamentConfig {
 export type TEvent =
   | { t: 'start'; config: TournamentConfig }
   | { t: 'call'; table: number; board: number; seat: Seat; call: Call; alert?: string }
-  | { t: 'play'; table: number; board: number; seat: Seat; card: Card };
+  | { t: 'play'; table: number; board: number; seat: Seat; card: Card }
+  /** A player who stopped responding; a robot takes their seat for the rest of the event. */
+  | { t: 'retire'; playerId: string };
 
 export interface BoardResult {
   board: number;
@@ -68,6 +70,18 @@ export interface TableState {
   auction: AuctionState | null;
   play: PlayState | null;
   lastResult: BoardResult | null;
+  /**
+   * True while this table is still worth playing. A table that was seated with
+   * humans and has since lost every one of them to a robot is switched off:
+   * there is no one left for it to play for.
+   */
+  active: boolean;
+  /**
+   * Whether a human was seated here when the round began. Tables made up
+   * entirely of robots from the start exist to give the humans something to
+   * score against, so they are never switched off on their own account.
+   */
+  hadHuman: boolean;
 }
 
 export interface TState {
@@ -76,6 +90,18 @@ export interface TState {
   tables: TableState[];
   results: BoardResult[];
   finished: boolean;
+  /**
+   * Set when every table that had humans has been abandoned. The tournament is
+   * over, but it did not run to a result, so it is reported as aborted rather
+   * than finished.
+   */
+  aborted: boolean;
+  /**
+   * Players replaced by a robot after they stopped responding. Kept on the
+   * state rather than only on the seat, so they stay retired when the tables
+   * are re-seated for the next round.
+   */
+  retired: string[];
 }
 
 /** Longest explanation kept for an alerted call. */
@@ -107,23 +133,62 @@ function setBoard(c: TournamentConfig, table: TableState, boardNo: number | null
   table.auction = newAuction(table.dealer);
 }
 
-function seatTables(c: TournamentConfig, round: number, previous?: TableState[]): TableState[] {
+/**
+ * The robot that takes over a seat when its player stops responding. The name
+ * is derived from theirs so the other players can see who it stood in for, and
+ * the id from theirs so every peer produces exactly the same seat.
+ */
+export function standIn(p: PlayerRef): PlayerRef {
+  return { id: `bot:${p.id}`, name: `Robot for ${p.name.split(/\s+/)[0] || p.name}`, bot: true };
+}
+
+function seatTables(c: TournamentConfig, round: number, previous?: TableState[], retired: readonly string[] = []): TableState[] {
   const tables: TableState[] = [];
+  const gone = new Set(retired);
   for (let t = 0; t < c.tables; t++) {
     const nsPair = 2 * t;
     const ewPair = ewPairAt(c, t, round);
     const ns = (c.pairs[nsPair] as Pair).players;
     const ew = (c.pairs[ewPair] as Pair).players;
+    const seated: Record<Seat, PlayerRef> = { N: ns[0], S: ns[1], E: ew[0], W: ew[1] };
+    /* Whether humans were dealt into this table, before any of them were
+       replaced: a table that lost its players still counts as having had them. */
+    const hadHuman = SEATS.some((s) => !seated[s].bot);
+    for (const s of SEATS) if (gone.has(seated[s].id)) seated[s] = standIn(seated[s]);
     const table: TableState = {
       index: t, nsPair, ewPair,
-      seats: { N: ns[0], S: ns[1], E: ew[0], W: ew[1] },
+      seats: seated,
       boardNo: null, dealer: 'N', vul: 'None', deal: null, auction: null, play: null,
       lastResult: previous?.[t]?.lastResult ?? null,
+      active: true, hadHuman,
     };
     setBoard(c, table, firstBoardOfRound(c, round));
     tables.push(table);
   }
   return tables;
+}
+
+/**
+ * Switch off any table that had humans and has none left, and call the whole
+ * tournament off once every such table is dark. Tables of robots alone are
+ * ignored here: they were never anybody's game, and they keep playing so the
+ * humans elsewhere still have scores to be compared against.
+ */
+function refreshActivity(state: TState): void {
+  for (const t of state.tables) {
+    if (t.active && t.hadHuman && SEATS.every((s) => t.seats[s].bot)) {
+      t.active = false;
+      t.boardNo = null;
+      t.deal = null;
+      t.auction = null;
+      t.play = null;
+    }
+  }
+  const staffed = state.tables.filter((t) => t.hadHuman);
+  if (staffed.length > 0 && staffed.every((t) => !t.active)) {
+    state.aborted = true;
+    state.finished = true;
+  }
 }
 
 export function validateConfig(c: TournamentConfig): void {
@@ -152,7 +217,8 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
       state.finished = true;
     } else {
       state.round++;
-      state.tables = seatTables(c, state.round, state.tables);
+      state.tables = seatTables(c, state.round, state.tables, state.retired);
+      refreshActivity(state);
     }
   }
 }
@@ -162,13 +228,31 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
   if (ev.t === 'start') {
     if (prev) throw new Error('Tournament already started');
     validateConfig(ev.config);
-    return { config: ev.config, round: 0, tables: seatTables(ev.config, 0), results: [], finished: false };
+    return { config: ev.config, round: 0, tables: seatTables(ev.config, 0), results: [], finished: false, aborted: false, retired: [] };
   }
   if (!prev) throw new Error('Tournament has not started');
   if (prev.finished) throw new Error('Tournament is over');
   const state: TState = { ...prev, tables: prev.tables.map((t) => ({ ...t })) };
+
+  if (ev.t === 'retire') {
+    /* Replaying the same retirement twice must land in the same place, so a
+       repeat is accepted and simply changes nothing. */
+    if (!state.retired.includes(ev.playerId)) state.retired = [...state.retired, ev.playerId];
+    for (const t of state.tables) {
+      const seats = { ...t.seats };
+      let changed = false;
+      for (const s of SEATS) {
+        if (seats[s].id === ev.playerId && !seats[s].bot) { seats[s] = standIn(seats[s]); changed = true; }
+      }
+      if (changed) t.seats = seats;
+    }
+    refreshActivity(state);
+    return state;
+  }
+
   const table = state.tables[ev.table];
   if (!table) throw new Error('No such table');
+  if (!table.active) throw new Error('That table has been closed');
   if (table.boardNo === null || table.boardNo !== ev.board) throw new Error('That board is not in play at this table');
 
   if (ev.t === 'call') {
@@ -203,7 +287,7 @@ export interface Turn {
 }
 
 export function turnAt(table: TableState): Turn | null {
-  if (table.boardNo === null) return null;
+  if (!table.active || table.boardNo === null) return null;
   if (table.play) return { phase: 'play', seat: table.play.turn, controller: controllerOf(table.play, table.play.turn) };
   if (table.auction) {
     const seat = currentBidder(table.auction);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Directory, deriveStatus, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, type TournamentResults } from '../src/directory/github';
+import { Directory, deriveStatus, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', level: 'Intermediate' as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -108,7 +108,9 @@ describe('issue format', () => {
     const start = Date.parse(meta.startUtc);
     expect(deriveStatus(meta, { state: 'open' }, null, start - 1)).toBe('upcoming');
     expect(deriveStatus(meta, { state: 'open' }, null, start + 60000)).toBe('in progress');
-    expect(deriveStatus(meta, { state: 'open' }, null, start + 7 * 3600000)).toBe('expired');
+    /* Started, but no result was ever posted: abandoned, not still running. */
+    expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) - 1)).toBe('in progress');
+    expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) + 1)).toBe('aborted');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'not_planned' }, null, start)).toBe('cancelled');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'completed' }, null, start)).toBe('finished');
   });
