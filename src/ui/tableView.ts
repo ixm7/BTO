@@ -29,9 +29,16 @@ function cardBack(): HTMLElement {
   return h('div.pc.card-back');
 }
 
-/* ---- BBO-style bidding box: Pass + levels in one row, then strains ---- */
+/* ---- BBO-style bidding box: Pass/Dbl, then levels, then strains ---- */
 
-function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTMLElement {
+/* The whole table is re-rendered whenever anything at all changes — a robot
+   acting at another table, a peer joining, the clock ticking. That would wipe
+   out a half-finished bid, so the level the player tapped is remembered here
+   and restored on the next render. The key ties it to one point in one
+   auction, so it is dropped as soon as any call is actually made. */
+let pendingLevel: { key: string; level: number } | null = null;
+
+function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call) => void): HTMLElement {
   const legal = legalCalls(auction);
   const bids = legal.filter((c): c is Extract<Call, { type: 'bid' }> => c.type === 'bid');
   const levels = [...new Set(bids.map((c) => c.level))].sort((x, y) => x - y);
@@ -39,25 +46,32 @@ function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTML
   const suitRow = h('div.suitrow');
   const levelButtons = new Map<number, HTMLButtonElement>();
 
+  const makeCall = (call: Call): void => { pendingLevel = null; onCall(call); };
+
   const pickLevel = (level: number): void => {
+    pendingLevel = { key, level };
     for (const [lv, btn] of levelButtons) btn.classList.toggle('selected', lv === level);
     const strains = bids.filter((c) => c.level === level).map((c) => c.strain);
     suitRow.replaceChildren(...STRAINS.filter((s) => strains.includes(s)).map((s) =>
-      h(`button.suit${isRed(s) ? '.red' : ''}`, { onclick: () => onCall({ type: 'bid', level, strain: s }), 'aria-label': `Bid ${level} ${s === 'N' ? 'no trump' : s}` }, SUIT_SYMBOLS[s])));
+      h(`button.suit${isRed(s) ? '.red' : ''}`, { onclick: () => makeCall({ type: 'bid', level, strain: s }), 'aria-label': `Bid ${level} ${s === 'N' ? 'no trump' : s}` }, SUIT_SYMBOLS[s])));
   };
 
-  /* BBO-style box: Pass/Dbl on one line, the seven levels on the next, and the
-     strains appearing underneath once a level is chosen. Nothing ever wraps. */
+  /* Pass/Dbl on one line, the seven levels on the next, and the strains
+     appearing underneath once a level is chosen. Nothing ever wraps. */
   const callRow = h('div.bidrow.calls',
-    h('button.pass', { onclick: () => onCall({ type: 'pass' }) }, 'Pass'),
-    legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => onCall({ type: 'double' }) }, 'Dbl') : null,
-    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null);
+    h('button.pass', { onclick: () => makeCall({ type: 'pass' }) }, 'Pass'),
+    legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => makeCall({ type: 'double' }) }, 'Dbl') : null,
+    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => makeCall({ type: 'redouble' }) }, 'Rdbl') : null);
 
   const levelRow = h('div.bidrow.levels', levels.map((level) => {
     const btn = h('button.lvl', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
     levelButtons.set(level, btn);
     return btn;
   }));
+
+  /* Restore a level chosen before the last re-render. */
+  if (pendingLevel && pendingLevel.key === key && levels.includes(pendingLevel.level)) pickLevel(pendingLevel.level);
+  else if (pendingLevel && pendingLevel.key !== key) pendingLevel = null;
 
   return h('div.bidbox', callRow, levelRow, suitRow);
 }
@@ -182,7 +196,8 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   if (!play) {
     center.append(auction);
     if (iControl && turn?.phase === 'auction' && table.auction && mySeat) {
-      center.append(renderBidBox(table.auction, (c) => o.onCall(c)));
+      const key = `${table.boardNo}:${table.auction.calls.length}`;
+      center.append(renderBidBox(key, table.auction, (c) => o.onCall(c)));
     } else if (status) {
       center.append(h('div.bidwait', status));
     }

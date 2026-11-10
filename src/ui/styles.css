@@ -15,9 +15,10 @@
   --wrap-max: min(1900px, 97vw);
   --felt-pad: clamp(12px, 1vw, 24px);
   --felt-gap: clamp(6px, .55vw, 14px);
-  --card-w: clamp(44px, 3.4vw, 76px);
-  --card-h: clamp(56px, 4vw, 95px);
-  --card-font: clamp(1.15rem, 1.45vw, 1.8rem);
+  /* The stacked face (rank over suit) is narrow, so cards can be larger. */
+  --card-w: clamp(46px, 4.4vw, 92px);
+  --card-h: clamp(64px, 6.2vw, 129px);
+  --card-font: clamp(1.25rem, 1.7vw, 2.1rem);
   --center-h: clamp(140px, 10vw, 220px);
   --who-font: clamp(.82rem, .85vw, 1.05rem);
   --auction-font: clamp(.92rem, .95vw, 1.2rem);
@@ -155,11 +156,13 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 /* ---- cards (BBO-style: rank + suit side-by-side, larger face) ---- */
 .hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
 .hand .suit-group { display: flex; gap: 3px; margin: 0 6px 4px; }
+/* BBO shows the rank with its suit directly underneath, which reads clearly
+   and takes about half the width of a side-by-side face. */
 .pc {
-  width: var(--card-w); aspect-ratio: 11 / 14; flex: 0 0 auto;
+  width: var(--card-w); aspect-ratio: 5 / 7; flex: 0 0 auto;
   border-radius: clamp(5px, .4vw, 8px); border: 1.5px solid #c5bfad;
   background: #fffdf8; color: #14201a;
-  display: flex; align-items: center; justify-content: center; gap: 1px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
   line-height: 1; font-weight: 800; font-size: var(--card-font); padding: 0;
   box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
@@ -170,7 +173,7 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .seat.bottom .hand { flex-wrap: nowrap; }
 .seat.bottom .hand .pc {
   width: min(var(--card-w), calc((100cqw - 100px) / 13));
-  font-size: min(var(--card-font), calc((100cqw - 100px) / 13 * .4));
+  font-size: min(var(--card-font), calc((100cqw - 100px) / 13 * .56));
 }
 
 /* Dummy and other revealed hands are shown a little smaller. The top column is
@@ -179,14 +182,14 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .seat.top .hand { flex-wrap: nowrap; }
 .seat.top .hand .pc {
   width: min(calc(var(--card-w) * .85), calc((100cqw - 70px) / 13));
-  font-size: min(calc(var(--card-font) * .85), calc((100cqw - 70px) / 13 * .4));
+  font-size: min(calc(var(--card-font) * .85), calc((100cqw - 70px) / 13 * .56));
 }
 .seat.left .hand .pc, .seat.right .hand .pc {
   width: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
-  font-size: min(calc(var(--card-font) * .8), calc((100cqw - 40px) / 7 * .4));
+  font-size: min(calc(var(--card-font) * .8), calc((100cqw - 40px) / 7 * .56));
 }
-.pc .rank { font-size: inherit; }
-.pc .suit { font-size: calc(var(--card-font) * 1.05); font-weight: 400; }
+.pc .rank { font-size: 1em; }
+.pc .suit { font-size: .95em; font-weight: 400; margin-top: .06em; }
 .pc.red { color: var(--red); }
 .pc.black { color: #14201a; }
 button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2.5px var(--gold), 0 2px 6px rgba(0,0,0,.3); transform: translateY(-5px); }
@@ -209,7 +212,7 @@ button.pc:disabled { opacity: 1; }
 .hand.backs { gap: 0; flex-wrap: nowrap; }
 .seat .hand.backs .pc.card-back {
   width: calc(var(--card-w) * .62);
-  aspect-ratio: auto; height: calc(var(--card-w) * .62 * 14 / 11);
+  aspect-ratio: auto; height: calc(var(--card-w) * .62 * 7 / 5);
   margin-left: calc(var(--card-w) * -.45);
   border-radius: clamp(3px, .25vw, 5px);
 }
