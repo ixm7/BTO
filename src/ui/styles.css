@@ -12,13 +12,13 @@
   --accent: #1f5c45;
   --radius: 10px;
   /* Scale the table surface up on large screens so cards stay easy to read (BBO-style larger cards). */
-  --wrap-max: clamp(1100px, 68vw, 1760px);
-  --felt-pad: clamp(14px, 1.2vw, 28px);
-  --felt-gap: clamp(8px, .7vw, 16px);
-  --card-w: clamp(44px, 3.2vw, 72px);
-  --card-h: clamp(56px, 3.8vw, 90px);
-  --card-font: clamp(1.15rem, 1.4vw, 1.75rem);
-  --center-h: clamp(180px, 14vw, 280px);
+  --wrap-max: min(1900px, 97vw);
+  --felt-pad: clamp(12px, 1vw, 24px);
+  --felt-gap: clamp(6px, .55vw, 14px);
+  --card-w: clamp(44px, 3.4vw, 76px);
+  --card-h: clamp(56px, 4vw, 95px);
+  --card-font: clamp(1.15rem, 1.45vw, 1.8rem);
+  --center-h: clamp(140px, 10vw, 220px);
   --who-font: clamp(.82rem, .85vw, 1.05rem);
   --auction-font: clamp(.92rem, .95vw, 1.2rem);
   --back-color: #2980a8;
@@ -98,7 +98,7 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .token-help:empty { display: none; }
 
 /* ---------------------------------------------------------------- room */
-.room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 380px); gap: 14px; align-items: start; }
+.room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(250px, 15vw, 330px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }
 .side { display: grid; gap: 14px; }
 
@@ -106,8 +106,11 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
   color: var(--felt-ink); border-radius: 14px; padding: var(--felt-pad);
   display: grid; gap: var(--felt-gap);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, .85fr) minmax(0, 1.9fr) minmax(0, .85fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas: "info top auction" "left center right" "bottom bottom bottom";
+  /* Keep the table landscape, the way a real table (and BBO) looks on a screen. */
+  min-height: min(58vh, calc(var(--wrap-max) * .36));
 }
 @media (max-width: 640px) {
   .felt { grid-template-columns: 1fr 1fr; grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
@@ -122,7 +125,11 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .seat.right { grid-area: right; align-self: center; } .seat.bottom { grid-area: bottom; }
 .seat .who { display: inline-flex; gap: 0; align-items: stretch; border-radius: 6px; overflow: hidden; background: rgba(0, 0, 0, .35); font-size: var(--who-font); margin-bottom: 6px; max-width: 100%; }
 .seat .who .seat-letter { display: flex; align-items: center; justify-content: center; width: 1.7em; background: rgba(255, 255, 255, .18); font-weight: 800; font-size: .9em; color: #fff; flex-shrink: 0; }
-.seat .who .pname { padding: 3px 10px; overflow-wrap: anywhere; text-align: left; }
+.seat .who .pname { padding: 3px 10px; overflow-wrap: anywhere; text-align: left; min-width: 0; }
+/* Side seats are narrow: keep the badge on one line and trim with an ellipsis
+   (the full name is still in the tooltip and the title attribute). */
+.seat.left .who .pname, .seat.right .who .pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat.left .who, .seat.right .who { max-width: 100%; }
 .seat .who.active { background: var(--gold); color: #1b1503; }
 .seat .who.active .seat-letter { background: rgba(0, 0, 0, .15); color: #1b1503; }
 .seat .who.vul .seat-letter { color: #ff9d94; }
@@ -147,14 +154,36 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 
 /* ---- cards (BBO-style: rank + suit side-by-side, larger face) ---- */
 .hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
-.hand .suit-group { display: flex; gap: 3px; margin: 0 8px 4px; }
+.hand .suit-group { display: flex; gap: 3px; margin: 0 6px 4px; }
 .pc {
-  width: var(--card-w); height: var(--card-h);
+  width: var(--card-w); aspect-ratio: 11 / 14; flex: 0 0 auto;
   border-radius: clamp(5px, .4vw, 8px); border: 1.5px solid #c5bfad;
   background: #fffdf8; color: #14201a;
   display: flex; align-items: center; justify-content: center; gap: 1px;
   line-height: 1; font-weight: 800; font-size: var(--card-font); padding: 0;
   box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+
+/* Your own 13 cards always sit on one line: size them to the space available
+   (container units measure the seat row, whatever the sidebar/viewport do). */
+.seat.bottom { container-type: inline-size; }
+.seat.bottom .hand { flex-wrap: nowrap; }
+.seat.bottom .hand .pc {
+  width: min(var(--card-w), calc((100cqw - 100px) / 13));
+  font-size: min(var(--card-font), calc((100cqw - 100px) / 13 * .4));
+}
+
+/* Dummy and other revealed hands are shown a little smaller. The top column is
+   wide enough for all 13 on one line; the narrow side columns wrap by suit. */
+.seat.top, .seat.left, .seat.right { container-type: inline-size; }
+.seat.top .hand { flex-wrap: nowrap; }
+.seat.top .hand .pc {
+  width: min(calc(var(--card-w) * .85), calc((100cqw - 70px) / 13));
+  font-size: min(calc(var(--card-font) * .85), calc((100cqw - 70px) / 13 * .4));
+}
+.seat.left .hand .pc, .seat.right .hand .pc {
+  width: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
+  font-size: min(calc(var(--card-font) * .8), calc((100cqw - 40px) / 7 * .4));
 }
 .pc .rank { font-size: inherit; }
 .pc .suit { font-size: calc(var(--card-font) * 1.05); font-weight: 400; }
@@ -175,16 +204,31 @@ button.pc:disabled { opacity: 1; }
   box-shadow: 0 1px 3px rgba(0,0,0,.25);
   color: transparent;
 }
-.hand.backs { gap: 0; }
-.hand.backs .pc.card-back { margin-left: clamp(-30px, -2vw, -18px); }
+/* A hidden hand is a tight fan of narrow slivers on a single line, as in BBO.
+   Sizes are proportional to the card width, so the fan never wraps or overflows. */
+.hand.backs { gap: 0; flex-wrap: nowrap; }
+.seat .hand.backs .pc.card-back {
+  width: calc(var(--card-w) * .62);
+  aspect-ratio: auto; height: calc(var(--card-w) * .62 * 14 / 11);
+  margin-left: calc(var(--card-w) * -.45);
+  border-radius: clamp(3px, .25vw, 5px);
+}
 .hand.backs .pc.card-back:first-child { margin-left: 0; }
-/* Non-bottom hands: tighter overlap so 13 cards fit without wrapping */
-.seat.left .hand.backs .pc.card-back,
-.seat.right .hand.backs .pc.card-back,
-.seat.top .hand.backs .pc.card-back { margin-left: clamp(-34px, -2.4vw, -22px); }
 
 /* ---- center play area ---- */
 .center { grid-area: center; position: relative; min-height: var(--center-h); border-radius: 10px; background: rgba(0, 0, 0, .14); }
+
+/* During the auction the centre holds the history with the bidding box
+   directly beneath it (BBO layout), instead of the box sitting under the hand. */
+/* The panel hugs its contents and floats in the middle of the table. */
+.center.bidding {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+  gap: 10px; padding: 10px; min-height: 0; align-self: center;
+  background: rgba(0, 0, 0, .18);
+}
+.center.bidding .auction { grid-area: auto; width: 100%; }
+.center.bidding .bidbox { width: 100%; max-width: none; margin-top: 0; }
+.center .bidwait { text-align: center; font-size: .85rem; opacity: .85; padding: 4px 0 2px; }
 .center .pc { position: absolute; }
 .center .t-top { top: 8px; left: 50%; transform: translateX(-50%); }
 .center .t-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
@@ -212,18 +256,18 @@ button.pc:disabled { opacity: 1; }
 .auction .pending { opacity: .5; }
 
 /* ---- bidding box (BBO-style: Pass + levels in one row, then strain buttons) ---- */
-.bidbox { display: grid; gap: 8px; margin-top: 10px; max-width: clamp(400px, 28vw, 520px); }
-.bidbox .bidrow, .bidbox .suitrow { display: flex; gap: 6px; min-height: clamp(44px, 3.2vw, 56px); }
+.bidbox { container-type: inline-size; display: grid; gap: 6px; margin-top: 10px; }
+.bidbox .bidrow, .bidbox .suitrow { display: flex; flex-wrap: nowrap; gap: 5px; min-height: clamp(36px, 2.6vw, 48px); }
 .bidbox button {
-  border-radius: 8px; border: 1.5px solid var(--line); background: #fff;
-  font-weight: 700; font-size: clamp(1.05rem, 1.05vw, 1.35rem); padding: 4px 0;
+  flex: 1 1 0; min-width: 0; padding: 4px 2px;
+  border-radius: 7px; border: 1.5px solid var(--line); background: #fff; color: var(--ink);
+  font-weight: 700; font-size: min(1.25rem, 5.5cqw); line-height: 1.1;
   cursor: pointer; transition: transform .1s, box-shadow .1s;
 }
 .bidbox button:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,.15); }
-.bidbox .bidrow .pass { flex: 1.3; background: var(--accent); border-color: var(--accent); color: #fff; font-size: clamp(1.1rem, 1.1vw, 1.4rem); }
-.bidbox .bidrow .dbl { flex: 1; background: var(--red); border-color: var(--red); color: #fff; }
-.bidbox .bidrow .lvl { flex: 1; }
-.bidbox .bidrow .lvl.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
-.bidbox .suitrow button { flex: 1; border-radius: 20px; font-size: clamp(1.2rem, 1.2vw, 1.5rem); }
+.bidbox .calls .pass { flex: 2 1 0; background: var(--accent); border-color: var(--accent); color: #fff; }
+.bidbox .calls .dbl { background: var(--red); border-color: var(--red); color: #fff; }
+.bidbox .levels .lvl.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
+.bidbox .suitrow button { border-radius: 18px; font-size: min(1.45rem, 7cqw); }
 .bidbox .suitrow button.red { color: var(--red); }
 .status-line { margin-top: 10px; min-height: 1.5em; }

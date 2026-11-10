@@ -46,18 +46,20 @@ function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTML
       h(`button.suit${isRed(s) ? '.red' : ''}`, { onclick: () => onCall({ type: 'bid', level, strain: s }), 'aria-label': `Bid ${level} ${s === 'N' ? 'no trump' : s}` }, SUIT_SYMBOLS[s])));
   };
 
-  /* BBO layout: Pass + level buttons in a single row */
-  const topRow = h('div.bidrow',
+  /* BBO-style box: Pass/Dbl on one line, the seven levels on the next, and the
+     strains appearing underneath once a level is chosen. Nothing ever wraps. */
+  const callRow = h('div.bidrow.calls',
     h('button.pass', { onclick: () => onCall({ type: 'pass' }) }, 'Pass'),
     legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => onCall({ type: 'double' }) }, 'Dbl') : null,
-    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null,
-    levels.map((level) => {
-      const btn = h('button.lvl', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
-      levelButtons.set(level, btn);
-      return btn;
-    }));
+    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null);
 
-  return h('div.bidbox', topRow, suitRow);
+  const levelRow = h('div.bidrow.levels', levels.map((level) => {
+    const btn = h('button.lvl', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
+    levelButtons.set(level, btn);
+    return btn;
+  }));
+
+  return h('div.bidbox', callRow, levelRow, suitRow);
 }
 
 /* ---- Auction cell (bid display in the history table) ---- */
@@ -115,7 +117,8 @@ export function renderTable(o: TableViewOptions): HTMLElement {
           return btn;
         })));
       }
-      hand = h(`div.hand${canPlayHere || !iControl ? '' : '.dim'}`, groups);
+      /* Only fade a hand while cards are in play and it is not the one to act. */
+      hand = h(`div.hand${!play || canPlayHere || !iControl ? '' : '.dim'}`, groups);
     } else {
       /* BBO-style card backs */
       hand = h('div.hand.backs', Array.from({ length: cards.length }, () => cardBack()));
@@ -137,13 +140,13 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     return h(`div.seat.${pos[seat]}`, label, hand);
   };
 
-  /* Centre: the trick in progress, or the trick just completed. */
+  /* Centre: during the auction it holds the bidding history + box (BBO-style);
+     during play it holds the trick in progress, or the trick just completed. */
   const showingLast = !!play && play.trick.length === 0 && !!play.lastTrick;
   const trick = play ? (showingLast ? play.lastTrick ?? [] : play.trick) : [];
-  const center = h(`div.center${showingLast ? '.last' : ''}`, trick.map((tc) => cardFace(tc.card, undefined, `.t-${pos[tc.seat]}`)));
-  if (!play) center.append(h('div.msg', 'Bidding in progress'));
-  else if (showingLast && play.lastWinner) center.append(h('div.msg', `${SEAT_NAMES[play.lastWinner]} won the trick`));
-  else if (play.cardsPlayed === 0) center.append(h('div.msg', `${SEAT_NAMES[play.turn]} to make the opening lead`));
+  const center = h(`div.center${showingLast ? '.last' : ''}${play ? '' : '.bidding'}`, trick.map((tc) => cardFace(tc.card, undefined, `.t-${pos[tc.seat]}`)));
+  if (play && showingLast && play.lastWinner) center.append(h('div.msg', `${SEAT_NAMES[play.lastWinner]} won the trick`));
+  else if (play && play.cardsPlayed === 0) center.append(h('div.msg', `${SEAT_NAMES[play.turn]} to make the opening lead`));
 
   /* Auction grid (BBO-style: W N E S columns, centred in the play area). */
   const order: Seat[] = ['W', 'N', 'E', 'S'];
@@ -167,20 +170,26 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     play ? h('div', `Tricks: declarer ${play.declarerTricks}, defence ${play.defenderTricks}`) : null,
   );
 
-  const felt = h('div.felt', info, auction, SEATS.map(seatEl), center);
-  const out = h('div', felt);
-
-  /* Status line + bidding box. */
   let status = '';
   if (turn) {
     const actor = table.seats[turn.controller];
     if (iControl) status = turn.phase === 'auction' ? 'Your call.' : turn.seat === mySeat ? 'Your turn — play a card.' : 'Your turn — play a card from dummy.';
     else status = `Waiting for ${actor.name} (${SEAT_NAMES[turn.controller]})…`;
   }
-  out.append(h('div.status-line', { role: 'status' }, iControl ? h('b', status) : status));
 
-  if (iControl && turn?.phase === 'auction' && table.auction && mySeat) {
-    out.append(renderBidBox(table.auction, (c) => o.onCall(c)));
+  /* During the auction the history and the bidding box sit together in the
+     centre of the table, the way Bridge Base Online lays them out. */
+  if (!play) {
+    center.append(auction);
+    if (iControl && turn?.phase === 'auction' && table.auction && mySeat) {
+      center.append(renderBidBox(table.auction, (c) => o.onCall(c)));
+    } else if (status) {
+      center.append(h('div.bidwait', status));
+    }
   }
+
+  const felt = h('div.felt', info, play ? auction : null, SEATS.map(seatEl), center);
+  const out = h('div', felt);
+  out.append(h('div.status-line', { role: 'status' }, iControl ? h('b', status) : status));
   return out;
 }
