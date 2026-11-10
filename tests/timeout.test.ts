@@ -139,6 +139,31 @@ describe('replacing a player who stops responding', () => {
     expect(humansLeft(s)).toBe(0);
   });
 
+  it('uses the director’s limit over the local one, so every host agrees', async () => {
+    const hub = new MemoryHub();
+    /* Each node is configured to retire nobody. The director's setting travels
+       in the config and must override that for all of them. */
+    const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `c${i}`, isDirector: i === 0 }, 0));
+    await until(() => all.every((n) => n.lobby().length === 4));
+    all[0]!.start({ id: 't8', name: 'Directed', boardsPerRound: 1, rounds: 1, seed: 'fixed', idleTimeoutMs: 120 });
+    await until(() => all.every((n) => n.state !== null));
+
+    expect(all[0]!.state!.config.idleTimeoutMs).toBe(120);
+    await until(() => all[0]!.state!.retired.length > 0, 8000);
+  });
+
+  it('respects a longer limit from the director: nobody goes early', async () => {
+    const hub = new MemoryHub();
+    const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `h${i}`, isDirector: i === 0 }, 50));
+    await until(() => all.every((n) => n.lobby().length === 4));
+    /* The local option would retire after 50ms; the director says 10s. */
+    all[0]!.start({ id: 't9', name: 'Patient', boardsPerRound: 1, rounds: 1, seed: 'fixed', idleTimeoutMs: 10000 });
+    await until(() => all.every((n) => n.state !== null));
+
+    await sleep(700);
+    expect(all[0]!.state!.retired).toEqual([]);
+  });
+
   it('ignores a retirement a peer tries to force on someone else', async () => {
     const hub = new MemoryHub();
     const all = [0, 1].map((i) => join(hub, { playerId: `x${i}`, isDirector: i === 0 }, 0));

@@ -35,6 +35,13 @@ export interface TournamentConfig {
   boardsPerRound: number;
   /** pairs[2t] sits North-South at table t; pairs[2t+1] starts East-West at table t. */
   pairs: Pair[];
+  /**
+   * How long a player may keep the table waiting before a robot takes their
+   * seat, in milliseconds; 0 switches the rule off. Set by the director and
+   * carried in the config so that every peer, whichever becomes coordinator,
+   * applies the same limit.
+   */
+  idleTimeoutMs?: number;
 }
 
 export type TEvent =
@@ -388,6 +395,7 @@ function makeBot(n: number): PlayerRef {
 export function buildConfig(opts: {
   id: string; name: string; seed: string; players: LobbyPlayer[];
   boardsPerRound: number; rounds?: number; capacity?: number; minTables?: number;
+  idleTimeoutMs?: number;
 }): TournamentConfig {
   botCounter = 0;
   let players = [...opts.players].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
@@ -430,5 +438,6 @@ export function buildConfig(opts: {
     id: opts.id, name: opts.name, seed: opts.seed, tables, rounds,
     boardsPerRound: Math.max(1, opts.boardsPerRound),
     pairs: full.map((players, id) => ({ id, players })),
+    ...(opts.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: Math.max(0, Math.round(opts.idleTimeoutMs)) }),
   };
 }

@@ -75,7 +75,10 @@ table.list tr.me td { background: #f3ecd2; }
 .badge.upcoming { background: #eef5f0; border-color: #c5dccf; }
 .badge.in-progress { background: #fff4d6; border-color: #e5cf8a; }
 .badge.finished { background: #ecebe6; }
-.badge.cancelled, .badge.expired { color: var(--muted); }
+.badge.cancelled, .badge.aborted { color: var(--muted); }
+/* Checkbox filter in a toolbar row. */
+label.check { display: inline-flex; align-items: center; gap: 5px; font-size: .9rem; cursor: pointer; user-select: none; }
+label.check input { margin: 0; cursor: pointer; }
 
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0; }
 dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }

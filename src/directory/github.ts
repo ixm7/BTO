@@ -30,7 +30,19 @@ export interface TournamentMeta {
   capacity: number;
   boardsPerRound: number;
   rounds: number;
+  /**
+   * How many seconds a player may keep the table waiting before a robot takes
+   * their seat. Absent on tournaments created before the setting existed,
+   * which fall back to DEFAULT_IDLE_SEC.
+   */
+  idleTimeoutSec?: number;
 }
+
+/** The inactivity limit used when a tournament does not name one. */
+export const DEFAULT_IDLE_SEC = 60;
+/** Below this there is no time to think, so the director may not go lower. */
+export const MIN_IDLE_SEC = 20;
+export const MAX_IDLE_SEC = 900;
 
 export interface Registration {
   login: string;
@@ -117,9 +129,16 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
   if (!Number.isInteger(input.capacity) || input.capacity < 4 || input.capacity > 200) throw new Error('Capacity must be between 4 and 200 players');
   if (!Number.isInteger(input.boardsPerRound) || input.boardsPerRound < 1 || input.boardsPerRound > 8) throw new Error('Boards per round must be 1-8');
   if (!Number.isInteger(input.rounds) || input.rounds < 1 || input.rounds > 20) throw new Error('Rounds must be 1-20');
+  const idle = input.idleTimeoutSec;
+  if (idle !== undefined && (!Number.isInteger(idle) || idle < MIN_IDLE_SEC || idle > MAX_IDLE_SEC)) {
+    throw new Error(`Inactivity timeout must be between ${MIN_IDLE_SEC} and ${MAX_IDLE_SEC} seconds`);
+  }
   const startUtc = zonedToUtc(input.start, input.timeZone).toISOString();
   return { v: 1, scoring: 'matchpoints', ...input, name, director: input.director.trim(), startUtc };
 }
+
+/** The tournament's inactivity limit in seconds, defaulted for older entries. */
+export const idleSecOf = (meta: TournamentMeta): number => meta.idleTimeoutSec ?? DEFAULT_IDLE_SEC;
 
 export function issueBody(meta: TournamentMeta): string {
   return [
@@ -133,6 +152,7 @@ export function issueBody(meta: TournamentMeta): string {
     `| **Level** | ${meta.level} |`,
     `| **Capacity** | ${meta.capacity} players |`,
     `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
+    `| **Inactivity limit** | ${idleSecOf(meta)} seconds, then a robot takes the seat |`,
     '',
     'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered).',
     'To withdraw, comment `/withdraw`.',
@@ -156,6 +176,11 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
       start: String(j.start ?? j.startUtc.slice(0, 16)), timeZone: String(j.timeZone ?? 'UTC'), startUtc: j.startUtc,
       level: LEVELS.includes(j.level as Level) ? (j.level as Level) : 'Open',
       capacity: Number(j.capacity) || 0, boardsPerRound: Number(j.boardsPerRound) || 2, rounds: Number(j.rounds) || 2,
+      /* The issue body can be edited by hand on GitHub, so an out-of-range
+         limit is pulled back into range rather than failing the whole entry. */
+      ...(Number.isFinite(Number(j.idleTimeoutSec))
+        ? { idleTimeoutSec: Math.min(MAX_IDLE_SEC, Math.max(MIN_IDLE_SEC, Math.round(Number(j.idleTimeoutSec)))) }
+        : {}),
     };
   } catch { return null; }
 }
@@ -293,6 +318,21 @@ export function playingWindowMs(meta: TournamentMeta): number {
   return boards * 10 * 60 * 1000 + 3600 * 1000;
 }
 
+/** How long a played-out tournament stays on the list before it is dropped. */
+export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
+
+/**
+ * What belongs on the tournament list. One that was abandoned is of no use to
+ * anybody and goes at once; one that was played stays a week so the results
+ * can be read, then goes too. Nothing is deleted on GitHub: the issue is still
+ * there to be opened directly, this only decides what the list shows.
+ */
+export function visibleInList(l: { status: Status; meta: TournamentMeta }, now: number): boolean {
+  if (l.status === 'aborted') return false;
+  if (l.status === 'finished') return now - Date.parse(l.meta.startUtc) < KEEP_FINISHED_MS;
+  return true;
+}
+
 export function deriveStatus(meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number): Status {
   if (results) return 'finished';
   if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
@@ -398,12 +438,9 @@ export class Directory {
       if (meta) found.push({ issue, meta });
     }
     const out = await Promise.all(found.map(({ issue, meta }) => this.toListing(issue, meta, now)));
-    const live = (s: Status): boolean => s === 'upcoming' || s === 'in progress';
-    return out.sort((a, b) => {
-      if (live(a.status) !== live(b.status)) return live(a.status) ? -1 : 1;
-      const d = Date.parse(a.meta.startUtc) - Date.parse(b.meta.startUtc);
-      return live(a.status) ? d : -d;
-    });
+    /* Newest first, so what is still to come is at the top of the page. */
+    return out.filter((l) => visibleInList(l, now))
+      .sort((a, b) => Date.parse(b.meta.startUtc) - Date.parse(a.meta.startUtc));
   }
 
   async get(number: number, now: number = Date.now()): Promise<Listing> {

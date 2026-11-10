@@ -79,6 +79,8 @@ export interface StartOptions {
   /** Add robot pairs until there are at least this many tables. */
   minTables?: number;
   seed?: string;
+  /** Director's inactivity limit in milliseconds; 0 switches the rule off. */
+  idleTimeoutMs?: number;
 }
 
 export class TournamentNode {
@@ -182,6 +184,7 @@ export class TournamentNode {
     const config = buildConfig({
       id: opts.id, name: opts.name, seed: opts.seed ?? Array.from(seedBytes, (n) => n.toString(36)).join(''),
       players: this.lobby(), boardsPerRound: opts.boardsPerRound, rounds: opts.rounds, capacity: opts.capacity, minTables: opts.minTables,
+      idleTimeoutMs: opts.idleTimeoutMs,
     });
     this.append({ t: 'start', config });
   }
@@ -415,13 +418,15 @@ export class TournamentNode {
           auto = now - since >= this.o.absentGraceMs;
         }
         /* How long this seat has kept the table waiting. The key changes with
-           every action at the table, so the clock restarts each turn. */
-        if (this.o.idleTimeoutMs > 0) {
+           every action at the table, so the clock restarts each turn. The
+           director's setting wins, so every peer applies the same limit. */
+        const limit = this.state.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
+        if (limit > 0) {
           const key = `${table.boardNo}:${turn.phase}:${turn.phase === 'auction' ? table.auction?.calls.length : table.play?.cardsPlayed}:${turn.seat}`;
           const prev = this.waitingSince.get(table.index);
           if (!prev || prev.key !== key) {
             this.waitingSince.set(table.index, { key, at: now });
-          } else if (now - prev.at >= this.o.idleTimeoutMs) {
+          } else if (now - prev.at >= limit) {
             /* Retiring reseats this table and may close it, or end the whole
                tournament. The tables we are looping over are now stale, so
                start again from the new state rather than acting on them. */

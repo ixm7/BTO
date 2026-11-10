@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Directory, deriveStatus, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, Directory, KEEP_FINISHED_MS, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', level: 'Intermediate' as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -114,6 +114,43 @@ describe('issue format', () => {
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'not_planned' }, null, start)).toBe('cancelled');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'completed' }, null, start)).toBe('finished');
   });
+  it('keeps the list to what is still useful', () => {
+    const meta = makeMeta(base);
+    const start = Date.parse(meta.startUtc);
+    const at = (status: Parameters<typeof visibleInList>[0]['status']) => ({ status, meta });
+    /* Abandoned events are of no use to anyone and go straight off the list. */
+    expect(visibleInList(at('aborted'), start + 1000)).toBe(false);
+    /* A played event stays a week so its results can be read, then goes. */
+    expect(visibleInList(at('finished'), start + KEEP_FINISHED_MS - 1000)).toBe(true);
+    expect(visibleInList(at('finished'), start + KEEP_FINISHED_MS + 1000)).toBe(false);
+    /* Anything still to come, or under way, always shows. */
+    expect(visibleInList(at('upcoming'), start - 1000)).toBe(true);
+    expect(visibleInList(at('in progress'), start + 1000)).toBe(true);
+  });
+
+  it('carries the director’s inactivity limit, and defaults it for older entries', () => {
+    /* Tournaments created before the setting existed keep the old behaviour. */
+    expect(idleSecOf(makeMeta(base))).toBe(DEFAULT_IDLE_SEC);
+    expect(DEFAULT_IDLE_SEC).toBe(60);
+    expect(idleSecOf(makeMeta({ ...base, idleTimeoutSec: 120 }))).toBe(120);
+    expect(idleSecOf(makeMeta({ ...base, idleTimeoutSec: MIN_IDLE_SEC }))).toBe(MIN_IDLE_SEC);
+
+    /* It survives the round trip through the issue body. */
+    const meta = makeMeta({ ...base, idleTimeoutSec: 45 });
+    expect(parseMeta(issueBody(meta))!.idleTimeoutSec).toBe(45);
+
+    /* The director may not leave players too little time to think. */
+    expect(MIN_IDLE_SEC).toBe(20);
+    expect(() => makeMeta({ ...base, idleTimeoutSec: MIN_IDLE_SEC - 1 })).toThrow(/Inactivity/);
+    expect(() => makeMeta({ ...base, idleTimeoutSec: 0 })).toThrow(/Inactivity/);
+    expect(() => makeMeta({ ...base, idleTimeoutSec: MAX_IDLE_SEC + 1 })).toThrow(/Inactivity/);
+    expect(() => makeMeta({ ...base, idleTimeoutSec: 30.5 })).toThrow(/Inactivity/);
+
+    /* An issue hand-edited on GitHub is pulled back into range, not rejected. */
+    const hacked = issueBody(meta).replace('"idleTimeoutSec": 45', '"idleTimeoutSec": 1');
+    expect(parseMeta(hacked)!.idleTimeoutSec).toBe(MIN_IDLE_SEC);
+  });
+
   it('accepts repository names and URLs', () => {
     expect(parseRepo('ido/bridge')).toEqual({ owner: 'ido', repo: 'bridge' });
     expect(parseRepo('https://github.com/ido/bridge-club.git')).toEqual({ owner: 'ido', repo: 'bridge-club' });
@@ -193,13 +230,14 @@ describe('GitHub directory', () => {
 
     const now = Date.parse('2026-11-10T12:00:00Z');
     const list = await as(null).list(now); // reading needs no login
-    expect(list.map((l) => l.meta.name)).toEqual(['Earlier', 'Friday Pairs']);
-    const t = list[1]!;
+    /* Newest first: 'Friday Pairs' starts on the 20th, 'Earlier' on the 15th. */
+    expect(list.map((l) => l.meta.name)).toEqual(['Friday Pairs', 'Earlier']);
+    const t = list[0]!;
     expect(t).toMatchObject({ number, initiatorLogin: 'ido', status: 'upcoming', roomId: `club/bridge#${number}` });
     expect(t.meta).toMatchObject({ director: 'Ido', scoring: 'matchpoints', level: 'Intermediate', capacity: 16, timeZone: 'America/New_York' });
     expect(t.registrations!.map((r) => r.name)).toEqual(['Ann', 'Bob']);
     expect(t.registrations![0]!.pairCode).toBe('red-team');
-    expect(list[0]!.registrations).toEqual([]);
+    expect(list[1]!.registrations).toEqual([]);
     // Tournaments without comments cost no extra request.
     expect(gh.calls.filter((c) => c.includes('/comments') && c.startsWith('GET'))).toHaveLength(1);
 

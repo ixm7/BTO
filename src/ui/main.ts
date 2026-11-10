@@ -1,4 +1,4 @@
-import { Directory, LEVELS, inviteCode, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, Directory, LEVELS, MAX_IDLE_SEC, MIN_IDLE_SEC, idleSecOf, inviteCode, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentNode, deviceScore } from '../tournament/node';
@@ -111,6 +111,12 @@ function when(l: Listing): HTMLElement {
 const badge = (status: string): HTMLElement => h(`span.badge.${status.replace(' ', '-')}`, status);
 const playersCell = (l: Listing): string => `${l.registrations ? l.registrations.length : '?'} / ${l.meta.capacity}`;
 
+/** Still to be played, and with room for another player. */
+const openToJoin = (l: Listing): boolean =>
+  l.status === 'upcoming' && (l.registrations?.length ?? 0) < l.meta.capacity;
+
+let onlyOpen = false;
+
 function directoryView(): HTMLElement {
   const d = directory();
   const body = h('div.panel');
@@ -120,10 +126,14 @@ function directoryView(): HTMLElement {
     body.append(h('p.muted', 'Loading tournaments from GitHub…'));
   } else if (listings && listings.length === 0) {
     body.append(h('p', 'No tournaments yet. Be the first to create one.'));
+  } else if (listings && onlyOpen && !listings.some(openToJoin)) {
+    body.append(h('p', 'No tournaments are open for registration right now. '),
+      h('button.link', { onclick: () => { onlyOpen = false; render(); } }, 'Show all tournaments'));
   } else if (listings) {
+    const shown = onlyOpen ? listings.filter(openToJoin) : listings;
     body.append(h('div.table-scroll', h('table.list',
       h('thead', h('tr', ['Tournament', 'Director', 'Type', 'Start', 'Level', 'Players', 'Status', 'Result'].map((t) => h(t === 'Players' ? 'th.num' : 'th', t)))),
-      h('tbody', listings.map((l) => h('tr',
+      h('tbody', shown.map((l) => h('tr',
         h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
         h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
         h('td', 'Matchpoints'),
@@ -139,6 +149,9 @@ function directoryView(): HTMLElement {
       h('h2', 'Tournaments'),
       d ? h('a.muted', { href: `https://github.com/${d.slug}/issues`, target: '_blank', rel: 'noopener' }, d.slug) : null,
       h('span.spacer'),
+      d ? h('label.check', { title: 'Show only tournaments that have not started and still have room' },
+        h('input', { type: 'checkbox', checked: onlyOpen, onchange: (e: Event) => { onlyOpen = (e.target as HTMLInputElement).checked; render(); } }),
+        ' Open for registration') : null,
       d ? h('button', { onclick: () => void refresh(), disabled: loading }, loading ? 'Refreshing…' : 'Refresh') : null,
       h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with no GitHub involved.' }, 'Join private room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
@@ -436,6 +449,7 @@ function openCreate(): void {
           name: val(f, 'name'), director: val(f, 'director'), start: val(f, 'start'), timeZone: val(f, 'tz'),
           level: val(f, 'level') as Level, capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
+          idleTimeoutSec: Number(val(f, 'idle')),
         });
         if (d.canWrite) {
           const number = await d.create(meta);
@@ -464,6 +478,9 @@ function openCreate(): void {
         h('div.two',
           field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 4, required: true })),
           field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
+      field('Inactivity limit (seconds)',
+        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
+        `How long a player may keep the table waiting before a robot takes their seat. ${MIN_IDLE_SEC} seconds at the least.`),
       d.canWrite ? null : h('small', 'No token is set, so this opens github.com with the tournament pre-filled for you to submit.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
@@ -584,7 +601,16 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       h('p', `Starting now would make ${tables} table${tables === 1 ? '' : 's'}; robots fill any empty seats.`),
       n.isCoordinator
         ? h('div.row', h('button.primary', { onclick: () => {
-            try { n.start({ id: info.id, name: info.name, boardsPerRound: info.boardsPerRound, rounds: info.rounds, capacity: info.capacity, minTables: info.minTables }); } catch (e) { fail(e); }
+            try {
+              n.start({
+                id: info.id, name: info.name, boardsPerRound: info.boardsPerRound, rounds: info.rounds,
+                capacity: info.capacity, minTables: info.minTables,
+                /* The director's setting travels in the config, so whichever
+                   device ends up hosting applies the same limit. The demo has
+                   nobody waiting, so the rule is off there. */
+                idleTimeoutMs: info.demo ? 0 : info.listing ? idleSecOf(info.listing.meta) * 1000 : undefined,
+              });
+            } catch (e) { fail(e); }
           } }, 'Start tournament'),
           h('span.muted', n.me.isDirector || !info.listing ? 'This device is hosting.' : 'The director is not connected, so this device is hosting.'))
         : h('p.muted', `Waiting for ${n.coordinatorName} to start the tournament.`)));
