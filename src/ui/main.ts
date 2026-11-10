@@ -613,7 +613,7 @@ function render(): void {
   const view = node && room ? roomView(node, room) : detail ? detailView(detail) : directoryView();
   root.replaceChildren(h('div.wrap',
     h('header.top',
-      h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge P2P'), h('span', 'duplicate tournaments, no server')),
+      h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'duplicate tournaments, no server')),
       h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,

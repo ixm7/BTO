@@ -1,4 +1,4 @@
-# Bridge P2P
+# Bridge Break
 
 Duplicate bridge tournaments (matchpoints) that run entirely in the players' browsers.
 There is no game server: browsers talk to each other over WebRTC, and the list of
