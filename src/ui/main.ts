@@ -147,7 +147,7 @@ function directoryView(): HTMLElement {
   if (!d) {
     body.append(h('p', 'No tournament directory is configured. You can still try a demo table against robots.'));
   } else if (loading && !listings) {
-    body.append(h('p.muted', 'Loading tournaments from GitHub…'));
+    body.append(h('p.muted', 'Loading tournaments…'));
   } else if (listings && listings.length === 0) {
     body.append(h('p', 'No tournaments yet. Be the first to create one.'));
   } else if (listings && onlyOpen && !listings.some(openToJoin)) {
@@ -171,13 +171,12 @@ function directoryView(): HTMLElement {
   return h('div',
     h('div.row', { style: 'margin-bottom:10px' },
       h('h2', 'Tournaments'),
-      d ? h('a.muted', { href: `https://github.com/${d.slug}/issues`, target: '_blank', rel: 'noopener' }, d.slug) : null,
       h('span.spacer'),
       d ? h('label.check', { title: 'Show only tournaments that have not started and still have room' },
         h('input', { type: 'checkbox', checked: onlyOpen, onchange: (e: Event) => { onlyOpen = (e.target as HTMLInputElement).checked; render(); } }),
         ' Open for registration') : null,
       d ? h('button', { onclick: () => void refresh(), disabled: loading }, loading ? 'Refreshing…' : 'Refresh') : null,
-      h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with no GitHub involved.' }, 'Join private room'),
+      h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join private room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
       d ? h('button.primary', { onclick: openCreate }, 'New tournament') : null),
     body);
@@ -219,7 +218,7 @@ function detailView(l: Listing): HTMLElement {
           }, 'You have unregistered.') }, 'Unregister')
         : h('button.primary', { disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode), 'You are registered.') }, full ? 'Full' : 'Register'));
     } else {
-      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener' }, 'Register on GitHub'),
+      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener' }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
     actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => enterRoom({
@@ -231,7 +230,7 @@ function detailView(l: Listing): HTMLElement {
 
   return h('div',
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments'), h('span.spacer'),
-      h('a', { href: l.url, target: '_blank', rel: 'noopener' }, `Issue #${l.number} on GitHub`)),
+      h('a', { href: l.url, target: '_blank', rel: 'noopener' }, `Tournament page #${l.number}`)),
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
@@ -241,7 +240,7 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Time zone'), h('dd', l.meta.timeZone),
         h('dt', 'Level'), h('dd', l.meta.level),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
-        h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (GitHub rate limit)'),
+        h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
         h('dt', 'Format'), h('dd', `${l.meta.rounds} round(s) × ${l.meta.boardsPerRound} board(s)`)),
       actions),
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
@@ -307,14 +306,14 @@ function openPartners(initial: Listing): void {
         h('p.muted', { style: 'margin-top:0' }, 'Players here are looking for a partner for this tournament. Add yourself, then invite someone — or wait to be invited.'),
         err ? h('div.error', err) : null,
         !d.canWrite
-          ? h('div.note', 'Add a GitHub token in Settings to do this from here. Until then, comment directly on ',
-              h('a', { href: current.url, target: '_blank', rel: 'noopener' }, 'the tournament issue'), ': ',
+          ? h('div.note', 'Add a token in Settings to do this from here. Until then, comment directly on ',
+              h('a', { href: current.url, target: '_blank', rel: 'noopener' }, 'the tournament page'), ': ',
               h('code', '/seek-partner'), ', ', h('code', '/invite @username'), ', ', h('code', '/accept @username'), ' or ', h('code', '/decline @username'), '.')
-          : !myLogin ? h('div.note', 'Set your GitHub username in Settings so invitations addressed to you can be recognized.') : null,
+          : !myLogin ? h('div.note', 'Set your username in Settings so invitations addressed to you can be recognized.') : null,
       ];
 
       if (!p) {
-        rows.push(h('p.muted', 'Could not load the partner list (GitHub rate limit?).'));
+        rows.push(h('p.muted', 'Could not load the partner list — too many requests just now.'));
       } else {
         const toMe = p.invitations.filter((i) => i.status === 'pending' && !!myLogin && i.to.toLowerCase() === myLogin);
         if (toMe.length) {
@@ -484,7 +483,7 @@ function openCreate(): void {
         } else {
           window.open(d.newIssueUrl(meta), '_blank', 'noopener');
           close();
-          notice = 'A GitHub page opened with the tournament filled in. Press “Create” there, then Refresh here.';
+          notice = 'A page opened with the tournament filled in. Press “Create” there, then Refresh here.';
           render();
         }
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); }
@@ -505,10 +504,10 @@ function openCreate(): void {
       field('Inactivity limit (seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
         `How long a player may keep the table waiting before a robot takes their seat. ${MIN_IDLE_SEC} seconds at the least.`),
-      d.canWrite ? null : h('small', 'No token is set, so this opens github.com with the tournament pre-filled for you to submit.'),
+      d.canWrite ? null : h('small', 'No token is set, so this opens the tournament page pre-filled for you to submit.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
-        h('button.primary', { type: 'submit' }, d.canWrite ? 'Create tournament' : 'Continue on GitHub')));
+        h('button.primary', { type: 'submit' }, d.canWrite ? 'Create tournament' : 'Continue on the tournament page')));
     return form;
   });
 }
@@ -522,7 +521,7 @@ function joinByCode(): void {
     close();
     enterRoom({ id: `private:${code}`, name: `Private room “${code}”`, boardsPerRound: Number(val(f, 'boards')) || 2, rounds: Number(val(f, 'rounds')) || undefined, listing: null, demo: false });
   } },
-    h('p.muted', { style: 'margin:0' }, 'Everyone who enters the same code lands in the same room — no GitHub needed. Good for a quick game or a test.'),
+    h('p.muted', { style: 'margin:0' }, 'Everyone who enters the same code lands in the same room — nothing to sign up for. Good for a quick game or a test.'),
     field('Your name', h('input', { name: 'name', required: true, value: settings.name, maxLength: 30 })),
     field('Room code', h('input', { name: 'code', required: true, minLength: 3, maxLength: 30, placeholder: 'e.g. tuesday-club' })),
     h('div.two',
@@ -659,8 +658,8 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
         : d.canWrite
           ? h('button.primary', { onclick: async () => {
               try { await d.publishResults(l.number, toResults(state)); published = true; render(); void refresh(); } catch (e) { fail(e); }
-            } }, 'Publish results to GitHub')
-          : h('span.muted', 'Add a GitHub token in Settings to publish the results to the tournament page.')));
+            } }, 'Publish results')
+          : h('span.muted', 'Add a token in Settings to publish the results to the tournament page.')));
     }
   } else {
     const table = at?.table ?? state.tables[Math.min(watchTable, state.tables.length - 1)];

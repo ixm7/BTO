@@ -385,11 +385,13 @@ export class Directory {
       const limited = res.status === 403 || res.status === 429 ? res.headers.get('x-ratelimit-remaining') === '0' : false;
       let detail = '';
       try { detail = String(((await res.json()) as { message?: string }).message ?? ''); } catch { /* no body */ }
+      /* These reach the player as-is, so they say what to do rather than
+         naming the service the tournament list happens to be kept on. */
       throw new GitHubError(
-        limited ? 'GitHub rate limit reached. Add a token in Settings (5,000 requests/hour) or try again later.'
-          : res.status === 401 ? 'GitHub rejected the token.'
-          : res.status === 404 ? `Not found on GitHub (${this.slug}). Check the repository name and that it is public.`
-          : `GitHub error ${res.status}${detail ? `: ${detail}` : ''}`,
+        limited ? 'Too many requests just now. Adding a token in Settings raises the limit a long way; otherwise try again in a little while.'
+          : res.status === 401 ? 'That token was rejected.'
+          : res.status === 404 ? `Tournament list not found (${this.slug}). Check the name in Settings, and that the list is public.`
+          : `Could not reach the tournament list (error ${res.status})${detail ? `: ${detail}` : ''}`,
         res.status,
       );
     }

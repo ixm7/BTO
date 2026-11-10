@@ -348,9 +348,11 @@ describe('GitHub directory', () => {
     expect(parseMeta(url.searchParams.get('body'))).toEqual(makeMeta(base));
   });
 
-  it('explains a rate limit clearly', async () => {
+  it('explains a rate limit in words a player will understand', async () => {
     const d = new Directory('club/bridge', null, async () => ({ ok: false, status: 403, json: async () => ({}), headers: { get: () => '0' } }));
-    await expect(d.list()).rejects.toThrow(/rate limit/i);
+    await expect(d.list()).rejects.toThrow(/too many requests/i);
+    /* Players are not expected to know what the list is kept on. */
+    await expect(d.list()).rejects.not.toThrow(/github/i);
   });
 });
 
