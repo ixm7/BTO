@@ -83,6 +83,21 @@ describe('issue format', () => {
     ]);
     expect(invitations).toEqual([{ from: 'ann', to: 'bob', status: 'accepted', at: '2026-11-01T00:00:04Z' }]);
   });
+  it('lets either side of an accepted partnership break it up with /unpair', () => {
+    const c = (login: string, body: string, t: number) => ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(t).padStart(2, '0')}Z` });
+    // ann invited bob, so the invitation key is ann->bob; bob (the invitee) unpairs.
+    const unpairedByInvitee = parsePartners([
+      c('ann', '/invite @bob', 1), c('bob', '/accept @ann', 2), c('bob', '/unpair @ann', 3),
+    ]).invitations;
+    expect(unpairedByInvitee).toEqual([{ from: 'ann', to: 'bob', status: 'unpaired', at: '2026-11-01T00:00:03Z' }]);
+    // Same, but ann (the inviter) unpairs instead.
+    const unpairedByInviter = parsePartners([
+      c('ann', '/invite @bob', 1), c('bob', '/accept @ann', 2), c('ann', '/unpair @bob', 3),
+    ]).invitations;
+    expect(unpairedByInviter).toEqual([{ from: 'ann', to: 'bob', status: 'unpaired', at: '2026-11-01T00:00:03Z' }]);
+    // /unpair with nothing accepted between the two is a no-op.
+    expect(parsePartners([c('ann', '/unpair @bob', 1)]).invitations).toEqual([]);
+  });
   it('builds a stable, order-independent invite code for a pair', () => {
     expect(inviteCode(12, 'Ann', 'bob')).toBe(inviteCode(12, 'Bob', 'ann'));
     expect(inviteCode(12, 'ann', 'bob')).not.toBe(inviteCode(13, 'ann', 'bob'));
@@ -239,6 +254,29 @@ describe('GitHub directory', () => {
     expect(t.partners!.invitations.find((i) => i.from === 'cat')).toEqual({ from: 'cat', to: 'dan', status: 'cancelled', at: expect.any(String) });
 
     await expect(new Directory('club/bridge', null, gh.fetcher).seekPartner(number)).rejects.toThrow(/token/);
+  });
+
+  it('breaks up and re-forms a partnership with unpair', async () => {
+    const gh = fakeGitHub();
+    const director = new Directory('club/bridge', 'ido', gh.fetcher);
+    const number = await director.create(makeMeta(base));
+    const as = (login: string) => new Directory('club/bridge', login, gh.fetcher);
+
+    await as('bob').invitePartner(number, 'ann');
+    await as('ann').respondToInvite(number, 'bob', true);
+    let t = await director.get(number);
+    expect(t.partners!.invitations[0]).toMatchObject({ from: 'bob', to: 'ann', status: 'accepted' });
+
+    // Either side can split up; here the invitee (ann) does it.
+    await as('ann').unpair(number, 'bob');
+    t = await director.get(number);
+    expect(t.partners!.invitations[0]).toMatchObject({ from: 'bob', to: 'ann', status: 'unpaired' });
+
+    // They can re-invite and re-accept afterwards.
+    await as('bob').invitePartner(number, 'ann');
+    await as('ann').respondToInvite(number, 'bob', true);
+    t = await director.get(number);
+    expect(t.partners!.invitations[0]).toMatchObject({ from: 'bob', to: 'ann', status: 'accepted' });
   });
 
   it('bypasses the HTTP cache so a refresh right after a write sees it, not a ~60s-stale response', async () => {

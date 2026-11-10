@@ -38,22 +38,32 @@ function autopilot(n: TournamentNode): void {
 }
 
 describe('configuration', () => {
-  it('pairs by code, then arrival order, and fills with robots', () => {
-    const c = buildConfig({
-      id: 't', name: 'T', seed: 's', boardsPerRound: 2,
-      players: [
-        { id: 'a', name: 'A', joinedAt: 1 }, { id: 'b', name: 'B', joinedAt: 2, pairCode: 'X' },
-        { id: 'c', name: 'C', joinedAt: 3 }, { id: 'd', name: 'D', joinedAt: 4, pairCode: 'x ' },
-        { id: 'e', name: 'E', joinedAt: 5 },
-      ],
-    });
+  it('pairs by code, then randomly among the rest, and fills with robots', () => {
+    const players = [
+      { id: 'a', name: 'A', joinedAt: 1 }, { id: 'b', name: 'B', joinedAt: 2, pairCode: 'X' },
+      { id: 'c', name: 'C', joinedAt: 3 }, { id: 'd', name: 'D', joinedAt: 4, pairCode: 'x ' },
+      { id: 'e', name: 'E', joinedAt: 5 },
+    ];
+    const c = buildConfig({ id: 't', name: 'T', seed: 's', boardsPerRound: 2, players });
     expect(c.tables).toBe(2);
     expect(c.pairs).toHaveLength(4);
     const names = c.pairs.map((p) => p.players.map((x) => x.name).join('+'));
-    expect(names[0]).toBe('B+D');
-    expect(names[1]).toBe('A+C');
-    expect(names[2]).toMatch(/^E\+Robot/);
-    expect(c.pairs[3]!.players.every((p) => p.bot)).toBe(true);
+    expect(names[0]).toBe('B+D'); // paired by shared code, regardless of how the rest shuffle
+    // A, C and E (no shared code) are shuffled rather than paired strictly in arrival order.
+    // Three humans is odd, so one of them is seated with a robot, and because that leaves an
+    // odd number of pairs overall, one further all-robot pair is added to fill out the tables.
+    const allPairedPlayers = c.pairs.flatMap((p) => p.players);
+    const humanNames = new Set(allPairedPlayers.filter((p) => !p.bot).map((p) => p.name));
+    expect(humanNames).toEqual(new Set(['A', 'B', 'C', 'D', 'E']));
+    expect(allPairedPlayers.filter((p) => p.bot)).toHaveLength(3);
+  });
+  it('randomizes who pairs with whom among players without a shared code, deterministically per seed', () => {
+    const players = Array.from({ length: 8 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, joinedAt: i }));
+    const namesOf = (seed: string) => buildConfig({ id: 't', name: 'T', seed, boardsPerRound: 1, players })
+      .pairs.map((p) => p.players.map((x) => x.name).join('+'));
+    expect(namesOf('seed-a')).toEqual(namesOf('seed-a')); // same seed -> reproducible pairing
+    expect(namesOf('seed-a')).not.toEqual(Array.from({ length: 4 }, (_, i) => `P${2 * i}+P${2 * i + 1}`)); // not plain arrival order
+    expect(namesOf('seed-a')).not.toEqual(namesOf('seed-b')); // a different seed shuffles differently
   });
   it('respects capacity and always makes at least one full table', () => {
     const players = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, joinedAt: i }));

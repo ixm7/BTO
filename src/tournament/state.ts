@@ -10,7 +10,7 @@ import {
   applyCall, currentBidder, finalContract, isAuctionOver, newAuction,
   type AuctionState, type Call, type Contract,
 } from '../engine/bidding';
-import { dealBoard, dealerForBoard, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
+import { dealBoard, dealerForBoard, seededRandom, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
 import { applyPlay, controllerOf, isPlayOver, startPlay, type PlayState } from '../engine/play';
 import { matchpoints, nsScore, resultToString } from '../engine/scoring';
 
@@ -271,6 +271,22 @@ export interface LobbyPlayer extends PlayerRef {
   joinedAt: number;
 }
 
+/**
+ * Deterministic Fisher-Yates shuffle. Seeded (from the tournament seed) so that,
+ * for a given seed, the pairing is reproducible rather than arbitrary — useful for
+ * tests and for anyone double-checking a result — while still spreading partners
+ * across the field instead of always pairing strictly in arrival order.
+ */
+function shuffle<T>(items: readonly T[], seed: string): T[] {
+  const rand = seededRandom(`${seed}|pairing`);
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j] as T, out[i] as T];
+  }
+  return out;
+}
+
 let botCounter = 0;
 const BOT_NAMES = ['Robot Ada', 'Robot Blaise', 'Robot Culbertson', 'Robot Dorothy', 'Robot Ely', 'Robot Fritz', 'Robot Goren', 'Robot Helen'];
 function makeBot(n: number): PlayerRef {
@@ -308,7 +324,10 @@ export function buildConfig(opts: {
       used.add(a.id); used.add(b.id);
     }
   }
-  const rest = players.filter((p) => !used.has(p.id));
+  // Players without a shared pair code are paired up at random (not in arrival order), so
+  // nobody is stuck playing with whoever happened to join nearest them; one leftover, if the
+  // count is odd, is paired with a robot below.
+  const rest = shuffle(players.filter((p) => !used.has(p.id)), opts.seed);
   for (let i = 0; i < rest.length; i += 2) {
     pairsOfPlayers.push(rest.slice(i, i + 2));
   }

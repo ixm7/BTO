@@ -30,6 +30,12 @@ let node: TournamentNode | null = null;
 let room: RoomInfo | null = null;
 let watchTable = 0;
 let published = false;
+/** While a tournament detail page is open, poll it so a partner's invite/accept/unregister
+ * elsewhere shows up here without the person having to hit Refresh themselves. */
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+/** Lets an open "Partners list" dialog be pushed a fresher Listing from outside itself
+ * (a refresh() or another action), so it reflects more than just what the dialog did. */
+let partnersSync: ((l: Listing) => void) | null = null;
 
 const directory = (): Directory | null => {
   if (!settings.repo.trim()) return null;
@@ -40,13 +46,57 @@ const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message :
 
 /* ------------------------------------------------------------ directory */
 
+/** Keep `detail` and `listings` in sync with a Listing fetched elsewhere (e.g. from
+ * inside the Partners dialog), and push it to that dialog too, if one is open for it. */
+function syncListing(l: Listing): void {
+  if (detail && detail.number === l.number) detail = l;
+  if (listings) { const i = listings.findIndex((x) => x.number === l.number); if (i >= 0) listings[i] = l; }
+  partnersSync?.(l);
+  render();
+}
+
+/**
+ * If I have an invitation that's been accepted for this tournament, make sure I'm registered
+ * under the matching partner code — so accepting an invite is enough on its own, with no
+ * separate Register click needed. Each side's own browser does this for itself; there is no
+ * server to do it centrally, so the other side only picks it up once their own browser next
+ * refreshes (on a timer, or by opening the Partners dialog).
+ */
+async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
+  if (!d.canWrite || !settings.name.trim()) return l;
+  const open = l.status === 'upcoming' || l.status === 'in progress';
+  const myLogin = settings.githubLogin.trim().toLowerCase();
+  if (!open || !myLogin || !l.partners) return l;
+  const accepted = l.partners.invitations.find((i) =>
+    i.status === 'accepted' && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
+  if (!accepted) return l;
+  const code = inviteCode(l.number, accepted.from, accepted.to);
+  if (settings.pairCode !== code) { settings.pairCode = code; saveSettings(settings); }
+  const mine = l.registrations?.find((r) => r.login.toLowerCase() === myLogin);
+  if (mine && mine.pairCode?.trim().toLowerCase() === code) return l; // already registered together
+  try {
+    await d.register(l.number, settings.name, code);
+    return await d.get(l.number);
+  } catch { return l; } // offline, rate-limited, etc. — try again on the next refresh
+}
+
+function stopPolling(): void { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function startPolling(): void {
+  stopPolling();
+  pollTimer = setInterval(() => { if (!node) void refresh(); }, 15000);
+}
+
 async function refresh(): Promise<void> {
   const d = directory();
   if (!d) { listings = null; render(); return; }
   loading = true; errorMsg = null; render();
   try {
     listings = await d.list();
-    if (detail) detail = listings.find((l) => l.number === detail?.number) ?? detail;
+    if (detail) {
+      let updated = listings.find((l) => l.number === detail?.number) ?? detail;
+      updated = await applyAutoRegister(d, updated);
+      syncListing(updated);
+    }
   } catch (e) { errorMsg = (e as Error).message; }
   loading = false; render();
 }
@@ -108,11 +158,29 @@ function detailView(l: Listing): HTMLElement {
     try { await fn(); notice = done; await refresh(); } catch (e) { fail(e); }
   };
 
+  // The partner of a registered player, by whoever else is registered under the same code.
+  const partnerNameOf = (r: { login: string; pairCode?: string }): string | null => {
+    if (!r.pairCode) return null;
+    const code = r.pairCode.trim().toLowerCase();
+    return regs?.find((o) => o.login !== r.login && o.pairCode?.trim().toLowerCase() === code)?.name ?? null;
+  };
+
+  const myAcceptedInvite = l.partners?.invitations.find((i) =>
+    i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
+  const myPartnerLogin = myAcceptedInvite
+    ? (myAcceptedInvite.from.toLowerCase() === myLogin ? myAcceptedInvite.to : myAcceptedInvite.from)
+    : null;
+
   const actions = h('div.row');
   if (open) {
     if (d.canWrite) {
       actions.append(amRegistered
-        ? h('button', { onclick: act(() => d.withdraw(l.number), 'You have withdrawn.') }, 'Withdraw')
+        ? h('button', { onclick: act(async () => {
+            await d.withdraw(l.number);
+            // Unregistering breaks the partnership too, so the ex-partner's own browser
+            // stops treating us as accepted-and-should-auto-register, and sees we split up.
+            if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
+          }, 'You have unregistered.') }, 'Unregister')
         : h('button.primary', { disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode), 'You are registered.') }, full ? 'Full' : 'Register'));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener' }, 'Register on GitHub'),
@@ -143,7 +211,8 @@ function detailView(l: Listing): HTMLElement {
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
-        h('td.num', i + 1), h('td', r.name), h('td.muted', `@${r.login}`), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : ''),
+        h('td.num', i + 1), h('td', r.name), h('td.muted', `@${r.login}`),
+        h('td.muted', partnerNameOf(r) ? `Partner: ${partnerNameOf(r)}` : ''),
         h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
         : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
 }
@@ -162,6 +231,12 @@ function openPartners(initial: Listing): void {
   let current = initial;
   let busy = false;
   let err: string | null = null;
+  let closed = false;
+  let draw: () => void = () => {};
+  // Lets refresh() (and the polling timer) push a fresher Listing into this dialog
+  // while it's open, so it reflects what the other side has done too, not just mine.
+  const sync = (l: Listing): void => { if (!closed && l.number === current.number) { current = l; draw(); } };
+  partnersSync = sync;
 
   dialog(`Partners — ${initial.meta.name}`, (close) => {
     const body = h('div');
@@ -170,7 +245,12 @@ function openPartners(initial: Listing): void {
     const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
       if (busy) return;
       busy = true; err = null; draw();
-      try { await fn(); current = await d.get(current.number); } catch (e) { err = (e as Error).message; }
+      try {
+        await fn();
+        current = await d.get(current.number);
+        current = await applyAutoRegister(d, current);
+        syncListing(current);
+      } catch (e) { err = (e as Error).message; }
       busy = false; draw();
     };
 
@@ -184,7 +264,7 @@ function openPartners(initial: Listing): void {
         h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close2 }, 'Cancel'), h('button.primary', { type: 'submit' }, submitLabel))));
     };
 
-    const draw = (): void => {
+    draw = (): void => {
       const p = current.partners;
       const amSeeking = !!myLogin && !!p?.seekers.some((s) => s.login.toLowerCase() === myLogin);
       const rows: (HTMLElement | null)[] = [
@@ -215,7 +295,12 @@ function openPartners(initial: Listing): void {
           const partner = i.from.toLowerCase() === myLogin ? i.to : i.from;
           const code = inviteCode(current.number, i.from, i.to);
           if (settings.pairCode !== code) { settings.pairCode = code; saveSettings(settings); }
-          rows.push(h('div.note', `You and @${partner} are partnered! Your partner code (`, h('code', code), `) is set automatically — just Register (above) with that in place.`));
+          const mine = current.registrations?.find((r) => r.login.toLowerCase() === myLogin);
+          const registered = !!mine && mine.pairCode?.trim().toLowerCase() === code;
+          rows.push(h('div.note', `You and @${partner} are partnered!`,
+            registered ? ' You are both registered together — see Unregister on the tournament page to split up.'
+              : d.canWrite ? ' Registering you both automatically…'
+              : ` Comment “/register ${settings.name.trim() || 'Your Name'} pair:${code}” on the issue to register.`));
         }
 
         rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
@@ -251,20 +336,24 @@ function openPartners(initial: Listing): void {
     // but someone else may have joined, invited or responded since then — refetch
     // on every open so reopening the dialog shows more than just my own actions.
     void (async () => {
-      try { current = await d.get(current.number); } catch (e) { err = (e as Error).message; }
+      try {
+        current = await d.get(current.number);
+        current = await applyAutoRegister(d, current);
+        syncListing(current);
+      } catch (e) { err = (e as Error).message; }
       draw();
     })();
     return h('div', body, h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
-  });
+  }, () => { closed = true; if (partnersSync === sync) partnersSync = null; });
 }
 
 /* --------------------------------------------------------------- dialogs */
 
-function dialog(title: string, build: (close: () => void) => HTMLElement): void {
+function dialog(title: string, build: (close: () => void) => HTMLElement, onClose?: () => void): void {
   const dlg = h('dialog') as HTMLDialogElement;
-  const close = (): void => { dlg.close(); dlg.remove(); };
+  const close = (): void => { dlg.close(); dlg.remove(); onClose?.(); };
   dlg.append(h('h2', title), build(close));
-  dlg.addEventListener('cancel', () => dlg.remove());
+  dlg.addEventListener('cancel', () => { dlg.remove(); onClose?.(); });
   document.body.append(dlg);
   dlg.showModal();
 }
@@ -534,14 +623,19 @@ function render(): void {
 
 async function route(): Promise<void> {
   const m = /^#t=(\d+)$/.exec(location.hash);
-  if (!m) { detail = null; render(); return; }
+  if (!m) { detail = null; stopPolling(); render(); return; }
   const number = Number(m[1]);
   detail = listings?.find((l) => l.number === number) ?? null;
   render();
+  startPolling(); // catches a partner's invite/accept/unregister while this page stays open
   if (!detail) {
     const d = directory();
     if (!d) return;
-    try { detail = await d.get(number); render(); } catch (e) { fail(e); }
+    try {
+      let l = await d.get(number);
+      l = await applyAutoRegister(d, l);
+      detail = l; render();
+    } catch (e) { fail(e); }
   }
 }
 

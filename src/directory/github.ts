@@ -65,7 +65,7 @@ export interface PartnerSeeker {
   at: string;
 }
 
-export type InviteStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+export type InviteStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'unpaired';
 
 /** A partner invitation from one GitHub login to another, scoped to one tournament. */
 export interface Invitation {
@@ -139,6 +139,7 @@ export function issueBody(meta: TournamentMeta): string {
     '',
     'Looking for a partner? Comment `/seek-partner` (an optional note after it is fine), or `/seek-partner cancel` to leave that list.',
     'To invite someone from that list: `/invite @their-username`. They accept with `/accept @your-username` or decline with `/decline @your-username`.',
+    'Accepting registers you both automatically. Either of you can comment `/unpair @their-username` to split up again.',
     '',
     `<!-- bridge-tournament\n${JSON.stringify(meta, null, 1)}\n-->`,
   ].join('\n');
@@ -192,6 +193,7 @@ export function parseRegistrations(comments: readonly RawComment[]): Registratio
  *   /invite-cancel @login     withdraw an invitation you sent, while pending
  *   /accept @login            accept an invitation you received from them
  *   /decline @login           decline an invitation you received from them
+ *   /unpair @login            break up an accepted partnership with them
  * The latest command wins for seekers; for an (inviter, invitee) pair, each
  * new /invite starts a fresh pending invitation, superseding any old status.
  */
@@ -230,6 +232,17 @@ export function parsePartners(comments: readonly RawComment[]): PartnersData {
         const key = `${(m[2] as string).toLowerCase()}->${login.toLowerCase()}`;
         const cur = invitations.get(key);
         if (cur && cur.status === 'pending') invitations.set(key, { ...cur, status: (m[1] as string).toLowerCase() === 'accept' ? 'accepted' : 'declined', at: c.created_at });
+        continue;
+      }
+      // Either side of an accepted partnership can break it up; the invitation may have
+      // been accepted in either direction, so check both keys for the one that's live.
+      if ((m = /^\/unpair\s+@?([^\s.,:;!]+)[.,:;!]*\s*$/i.exec(t))) {
+        const other = (m[1] as string).toLowerCase();
+        const keyA = `${login.toLowerCase()}->${other}`;
+        const keyB = `${other}->${login.toLowerCase()}`;
+        const key = invitations.get(keyA)?.status === 'accepted' ? keyA : keyB;
+        const cur = invitations.get(key);
+        if (cur && cur.status === 'accepted') invitations.set(key, { ...cur, status: 'unpaired', at: c.created_at });
         continue;
       }
     }
@@ -442,6 +455,9 @@ export class Directory {
   respondToInvite(number: number, fromLogin: string, accept: boolean): Promise<unknown> {
     return this.comment(number, `${accept ? '/accept' : '/decline'} @${fromLogin}`);
   }
+
+  /** Break up an already-accepted partnership with `otherLogin` (either side may call this). */
+  unpair(number: number, otherLogin: string): Promise<unknown> { return this.comment(number, `/unpair @${otherLogin}`); }
 
   /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */
   async publishResults(number: number, results: TournamentResults): Promise<{ closed: boolean }> {
