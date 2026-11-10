@@ -3,7 +3,7 @@ import { legalCalls, type AuctionState, type Call } from '../engine/bidding';
 import { isVulnerable } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
 import { contractToString } from '../engine/scoring';
-import { turnAt, type TableState } from '../tournament/state';
+import { ALERT_MAX, turnAt, type TableState } from '../tournament/state';
 import { h } from './dom';
 
 const SEAT_NAMES: Record<Seat, string> = { N: 'North', E: 'East', S: 'South', W: 'West' };
@@ -52,23 +52,40 @@ function cardBack(): HTMLElement {
 
 /* The whole table is re-rendered whenever anything at all changes — a robot
    acting at another table, a peer joining, the clock ticking. That would wipe
-   out a half-finished bid, so the level the player tapped is remembered here
-   and restored on the next render. The key ties it to one point in one
+   out a half-finished bid, so what the player has started is remembered here
+   and restored on the next render. The key ties the draft to one point in one
    auction, so it is dropped as soon as any call is actually made. */
-let pendingLevel: { key: string; level: number } | null = null;
+interface BidDraft { key: string; level: number | null; alert: string }
+let draft: BidDraft | null = null;
 
-function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call) => void): HTMLElement {
+const draftFor = (key: string): BidDraft => {
+  if (!draft || draft.key !== key) draft = { key, level: null, alert: '' };
+  return draft;
+};
+
+function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call, alert: string) => void): HTMLElement {
   const legal = legalCalls(auction);
   const bids = legal.filter((c): c is Extract<Call, { type: 'bid' }> => c.type === 'bid');
   const levels = [...new Set(bids.map((c) => c.level))].sort((x, y) => x - y);
+  const d = draftFor(key);
+
+  /* The old table is still mounted while this runs, so the live DOM tells us
+     whether the player is mid-sentence in the alert box and where the caret is. */
+  const active = document.activeElement;
+  const typing = active instanceof HTMLInputElement && active.classList.contains('alert-text');
+  const caret = typing ? active.selectionStart : null;
 
   const suitRow = h('div.suitrow');
   const levelButtons = new Map<number, HTMLButtonElement>();
 
-  const makeCall = (call: Call): void => { pendingLevel = null; onCall(call); };
+  const makeCall = (call: Call): void => {
+    const alert = d.alert;
+    draft = null;
+    onCall(call, alert);
+  };
 
   const pickLevel = (level: number): void => {
-    pendingLevel = { key, level };
+    d.level = level;
     for (const [lv, btn] of levelButtons) btn.classList.toggle('selected', lv === level);
     const strains = bids.filter((c) => c.level === level).map((c) => c.strain);
     suitRow.replaceChildren(...STRAINS.filter((s) => strains.includes(s)).map((s) =>
@@ -88,27 +105,49 @@ function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call) =
     return btn;
   }));
 
-  /* Restore a level chosen before the last re-render. */
-  if (pendingLevel && pendingLevel.key === key && levels.includes(pendingLevel.level)) pickLevel(pendingLevel.level);
-  else if (pendingLevel && pendingLevel.key !== key) pendingLevel = null;
+  /* An explanation for the opponents, attached to whatever call is made next. */
+  const alertInput = h('input.alert-text', {
+    type: 'text', value: d.alert, maxLength: ALERT_MAX, autocomplete: 'off', spellcheck: false,
+    placeholder: 'Explain a non-standard call',
+    'aria-label': 'Explanation of your next call, shown to the other players',
+  }) as HTMLInputElement;
+  alertInput.oninput = () => { d.alert = alertInput.value; };
+  const alertRow = h('div.alertrow', h('label.alert-label', { for: 'alert-text' }, 'Alert:'), alertInput);
+  alertInput.id = 'alert-text';
 
-  return h('div.bidbox', callRow, levelRow, suitRow);
+  /* Restore a level chosen before the last re-render. */
+  if (d.level !== null && levels.includes(d.level)) pickLevel(d.level);
+
+  /* A microtask, not an animation frame: it runs once this render's DOM swap
+     has finished but still inside the same task, so no keystroke can land in
+     the discarded input in between. */
+  if (typing) {
+    queueMicrotask(() => {
+      alertInput.focus();
+      if (caret !== null) alertInput.setSelectionRange(caret, caret);
+    });
+  }
+
+  return h('div.bidbox', callRow, levelRow, suitRow, alertRow);
 }
 
 /* ---- Auction cell (bid display in the history table) ---- */
 
-function callCell(call: Call): HTMLElement {
-  if (call.type === 'pass') return h('td.call-pass', 'Pass');
-  if (call.type === 'double') return h('td.call-dbl', 'X');
-  if (call.type === 'redouble') return h('td.call-rdbl', 'XX');
+function callCell(call: Call, alert?: string): HTMLElement {
+  /* An alerted call is tinted and carries its explanation as a tooltip. */
+  const a = alert ? '.alerted' : '';
+  const attrs = alert ? { title: alert } : {};
+  if (call.type === 'pass') return h(`td.call-pass${a}`, attrs, 'Pass');
+  if (call.type === 'double') return h(`td.call-dbl${a}`, attrs, 'X');
+  if (call.type === 'redouble') return h(`td.call-rdbl${a}`, attrs, 'XX');
   const strain = call.strain;
-  return h(`td.call-bid${isRed(strain) ? '.r' : ''}`, `${call.level}`, h('span', SUIT_SYMBOLS[strain]));
+  return h(`td.call-bid${isRed(strain) ? '.r' : ''}${a}`, attrs, `${call.level}`, h('span', SUIT_SYMBOLS[strain]));
 }
 
 export interface TableViewOptions {
   table: TableState;
   mySeat: Seat | null;
-  onCall(call: Call): void;
+  onCall(call: Call, alert?: string): void;
   onPlay(seat: Seat, card: Card): void;
   isPresent(playerId: string): boolean;
   playerNotes?: Map<string, string>;
@@ -186,7 +225,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   const cells: HTMLElement[] = [];
   if (table.auction) {
     for (let i = 0; i < order.indexOf(table.auction.dealer); i++) cells.push(h('td', ''));
-    for (const e of table.auction.calls) cells.push(callCell(e.call));
+    for (const e of table.auction.calls) cells.push(callCell(e.call, e.alert));
     if (!play) cells.push(h('td.pending', '?'));
   }
   const rows: HTMLElement[] = [];
@@ -216,7 +255,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     center.append(auction);
     if (iControl && turn?.phase === 'auction' && table.auction && mySeat) {
       const key = `${table.boardNo}:${table.auction.calls.length}`;
-      center.append(renderBidBox(key, table.auction, (c) => o.onCall(c)));
+      center.append(renderBidBox(key, table.auction, (c, alert) => o.onCall(c, alert)));
     } else if (status) {
       center.append(h('div.bidwait', status));
     }

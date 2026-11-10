@@ -8,7 +8,12 @@ export type Call =
 
 export interface AuctionState {
   dealer: Seat;
-  calls: { seat: Seat; call: Call }[];
+  /**
+   * Each call, with the explanation its bidder offered the opponents, if any.
+   * An alert is a courtesy rather than a rule of bridge, so nothing in this
+   * module reads it; it travels with the call so the two cannot drift apart.
+   */
+  calls: { seat: Seat; call: Call; alert?: string }[];
 }
 
 export interface Contract {
@@ -114,10 +119,11 @@ export function illegalReason(a: AuctionState, seat: Seat, call: Call): string |
   }
 }
 
-export function applyCall(a: AuctionState, seat: Seat, call: Call): AuctionState {
+export function applyCall(a: AuctionState, seat: Seat, call: Call, alert?: string): AuctionState {
   const why = illegalReason(a, seat, call);
   if (why) throw new Error(why);
-  return { dealer: a.dealer, calls: [...a.calls, { seat, call }] };
+  const note = alert?.trim();
+  return { dealer: a.dealer, calls: [...a.calls, note ? { seat, call, alert: note } : { seat, call }] };
 }
 
 /** Legal calls for the seat to act (used by bots and the bidding box). */

@@ -613,7 +613,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     if (table && table.boardNo !== null) {
       main.append(renderTable({
         table, mySeat: at?.seat ?? null,
-        onCall: (c) => n.call(c), onPlay: (seat, card) => n.play(seat, card),
+        onCall: (c, alert) => n.call(c, alert), onPlay: (seat, card) => n.play(seat, card),
         isPresent: (id) => n.isPresent(id),
         playerNotes: n.playerNotes(),
       }));

@@ -39,7 +39,7 @@ export interface TournamentConfig {
 
 export type TEvent =
   | { t: 'start'; config: TournamentConfig }
-  | { t: 'call'; table: number; board: number; seat: Seat; call: Call }
+  | { t: 'call'; table: number; board: number; seat: Seat; call: Call; alert?: string }
   | { t: 'play'; table: number; board: number; seat: Seat; card: Card };
 
 export interface BoardResult {
@@ -77,6 +77,9 @@ export interface TState {
   results: BoardResult[];
   finished: boolean;
 }
+
+/** Longest explanation kept for an alerted call. */
+export const ALERT_MAX = 120;
 
 export const totalBoards = (c: TournamentConfig): number => c.rounds * c.boardsPerRound;
 export const firstBoardOfRound = (c: TournamentConfig, round: number): number => round * c.boardsPerRound + 1;
@@ -170,7 +173,7 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
 
   if (ev.t === 'call') {
     if (!table.auction || table.play) throw new Error('Auction is over');
-    table.auction = applyCall(table.auction, ev.seat, ev.call);
+    table.auction = applyCall(table.auction, ev.seat, ev.call, ev.alert?.slice(0, ALERT_MAX));
     if (isAuctionOver(table.auction)) {
       const contract = finalContract(table.auction);
       if (!contract) finishBoard(state, table, null, 0);

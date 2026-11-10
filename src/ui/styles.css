@@ -20,6 +20,11 @@
   --card-h: clamp(56px, 5.3vw, 106px);
   --card-font: clamp(1.1rem, 1.5vw, 1.9rem);
   --center-h: clamp(140px, 10vw, 220px);
+  /* Auction panel: pale blue with dark ink, as on BBO. */
+  --auction-bg: #b4d3dc;
+  --auction-ink: #11201c;
+  --alert-bg: #e3e3e3;
+  --bidbox-bg: #d9d3a8;
   --who-font: clamp(.82rem, .85vw, 1.05rem);
   --auction-font: clamp(.92rem, .95vw, 1.2rem);
   --back-color: #2980a8;
@@ -255,25 +260,34 @@ button.pc:disabled { opacity: 1; }
 .center .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-size: .9rem; pointer-events: none; }
 .center.last .msg { align-items: flex-end; padding-bottom: 62px; font-size: .75rem; opacity: .9; }
 
-/* ---- auction history (BBO-style: semi-transparent centered table) ---- */
+/* ---- auction history (BBO-style: pale blue panel, dark ink) ---- */
 .auction table {
   border-collapse: collapse; width: 100%; font-size: var(--auction-font);
-  background: rgba(255, 255, 255, .12); border-radius: 8px; overflow: hidden;
+  background: var(--auction-bg); color: var(--auction-ink);
+  border-radius: 8px; overflow: hidden;
 }
 .auction th, .auction td { padding: clamp(4px, .35vw, 8px) clamp(6px, .5vw, 12px); text-align: center; width: 25%; }
-.auction th { font-weight: 700; opacity: .9; letter-spacing: .03em; border-bottom: 1px solid rgba(255,255,255,.15); }
-.auction th.vul { color: #ff9d94; }
+.auction th {
+  font-weight: 700; letter-spacing: .03em; background: #fff; color: #16211c;
+  border-bottom: 1px solid rgba(0,0,0,.18);
+}
+.auction th.vul { background: var(--red); color: #fff; }
 .auction td { font-weight: 600; font-size: calc(var(--auction-font) * 1.05); }
-.auction .call-pass { opacity: .7; }
-.auction .call-bid { font-weight: 700; }
-.auction .call-bid.r { color: #ffb3ac; }
-.auction .call-dbl { color: #ff8a80; font-weight: 700; }
-.auction .call-rdbl { color: #82b1ff; font-weight: 700; }
-.auction .r { color: #ffb3ac; }
+.auction .call-pass { opacity: .75; }
+.auction .call-bid { font-weight: 800; }
+.auction .call-bid.r, .auction .r { color: var(--red); }
+.auction .call-dbl, .auction .call-rdbl { color: var(--red); font-weight: 800; }
+.auction .call-rdbl { color: #1549a8; }
 .auction .pending { opacity: .5; }
 
+/* An alerted call: tinted, with the bidder's explanation as its tooltip. */
+.auction .alerted { background: var(--alert-bg); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); cursor: help; }
+
 /* ---- bidding box (BBO-style: Pass + levels in one row, then strain buttons) ---- */
-.bidbox { container-type: inline-size; display: grid; gap: 6px; margin-top: 10px; }
+.bidbox {
+  container-type: inline-size; display: grid; gap: 6px; margin-top: 10px;
+  background: var(--bidbox-bg); border-radius: 8px; padding: 8px;
+}
 .bidbox .bidrow, .bidbox .suitrow { display: flex; flex-wrap: nowrap; gap: 5px; min-height: clamp(36px, 2.6vw, 48px); }
 .bidbox button {
   flex: 1 1 0; min-width: 0; padding: 4px 2px;
@@ -287,4 +301,15 @@ button.pc:disabled { opacity: 1; }
 .bidbox .levels .lvl.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
 .bidbox .suitrow button { border-radius: 18px; font-size: min(1.45rem, 7cqw); }
 .bidbox .suitrow button.red { color: var(--red); }
+
+/* Explanation offered to the opponents, attached to the next call made. */
+.bidbox .alertrow { display: flex; align-items: center; gap: 8px; }
+.bidbox .alert-label { font-weight: 700; color: #2a2616; font-size: min(1rem, 4.6cqw); flex: 0 0 auto; }
+.bidbox .alert-text {
+  flex: 1 1 auto; min-width: 0; padding: 6px 9px;
+  border: 1.5px solid var(--line); border-radius: 7px;
+  background: #fff; color: var(--ink); font-size: min(.95rem, 4.4cqw);
+}
+.bidbox .alert-text::placeholder { color: #8a8a80; }
+.bidbox .alert-text:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .status-line { margin-top: 10px; min-height: 1.5em; }

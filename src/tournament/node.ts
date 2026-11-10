@@ -176,10 +176,12 @@ export class TournamentNode {
     this.append({ t: 'start', config });
   }
 
-  call(call: Call): void {
+  /** `alert` explains a non-standard call to the opponents; blank means none. */
+  call(call: Call, alert?: string): void {
     const at = this.mySeat();
     if (!at || at.table.boardNo === null) return;
-    this.submit({ t: 'call', table: at.table.index, board: at.table.boardNo, seat: at.seat, call });
+    const note = alert?.trim();
+    this.submit({ t: 'call', table: at.table.index, board: at.table.boardNo, seat: at.seat, call, ...(note ? { alert: note } : {}) });
   }
 
   /** Play a card from `seat`: my own seat, or dummy's when I am declarer. */
