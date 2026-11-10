@@ -409,7 +409,7 @@ function openSettings(): void {
           field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' })),
           h('label', 'Token ',
             h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?'),
-            h('input', { name: 'token', type: 'password', value: settings.token, autocomplete: 'off', placeholder: 'optional' }),
+            h('input.masked', { name: 'token', type: 'text', value: settings.token, autocomplete: 'off', spellcheck: false, placeholder: 'optional' }),
             h('small', 'Lets you create tournaments, register and publish results from here.')),
           helpPanel)),
 
