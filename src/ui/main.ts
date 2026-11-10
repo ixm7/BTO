@@ -364,15 +364,36 @@ function dialog(title: string, build: (close: () => void) => HTMLElement, onClos
 const field = (label: string, input: HTMLElement, hint?: string): HTMLElement => h('label', label, input, hint ? h('small', hint) : null);
 const val = (f: HTMLFormElement, name: string): string => String(new FormData(f).get(name) ?? '').trim();
 
+function tokenHelpSteps(): HTMLElement {
+  const repoSlug = settings.repo.trim() || 'owner/repository';
+  const repoUrl = `https://github.com/${repoSlug}`;
+  const tokenUrl = 'https://github.com/settings/tokens?type=beta';
+  return h('div.help-steps',
+    h('h3', 'How to get a GitHub token'),
+    h('ol',
+      h('li', 'Sign up or log in at ', h('a', { href: 'https://github.com', target: '_blank', rel: 'noopener' }, 'github.com'), '.'),
+      h('li', 'Open ', h('a', { href: tokenUrl, target: '_blank', rel: 'noopener' }, 'Fine-grained tokens'), ' (Settings → Developer settings → Personal access tokens → Fine-grained tokens).'),
+      h('li', 'Click “Generate new token”. Name it anything (e.g. “Bridge Break”).'),
+      h('li', 'Under Repository access, choose “Only select repositories” and pick ', h('a', { href: repoUrl, target: '_blank', rel: 'noopener' }, repoSlug), '.'),
+      h('li', 'Under Permissions → Repository permissions, set Issues to “Read and write”. Leave everything else unchanged.'),
+      h('li', 'Click “Generate token” and copy the value into the token field above.')),
+    h('p.muted', 'The token is stored only in this browser and sent only to api.github.com.'));
+}
+
 function openSettings(): void {
   dialog('Settings', (close) => {
     const err = h('div');
+    const helpPanel = h('div.token-help');
+    const toggleHelp = (): void => {
+      if (helpPanel.children.length) helpPanel.replaceChildren();
+      else helpPanel.replaceChildren(tokenHelpSteps());
+    };
     const form = h('form.grid', { onsubmit: async (e: Event) => {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
       const repo = val(f, 'repo');
       if (repo) { try { new Directory(repo); } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; } }
-      Object.assign(settings, { name: val(f, 'name'), repo, githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), pairCode: val(f, 'pair'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
+      Object.assign(settings, { name: val(f, 'name'), repo, githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
       if (settings.token && repo) {
         try { settings.githubLogin = await new Directory(repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
@@ -382,17 +403,22 @@ function openSettings(): void {
       void refresh();
     } },
       field('Your name (shown at the table)', h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' })),
-      field('Tournament directory (public GitHub repository)', h('input', { name: 'repo', value: settings.repo, placeholder: 'owner/repository' }),
-        'Tournaments are Issues in this repository. Everyone in your club uses the same one.'),
-      field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' }),
-        'Lets the app recognise you as director of tournaments you created.'),
-      field('GitHub token (optional)', h('input', { name: 'token', type: 'password', value: settings.token, autocomplete: 'off' }),
-        'A fine-grained token with “Issues: read and write” on the directory repository lets you create tournaments, register and publish results from here. It is stored only in this browser and sent only to api.github.com. Without it you do those steps on github.com.'),
-      field('Partner code (optional)', h('input', { name: 'pair', value: settings.pairCode, maxLength: 20 }),
-        'Two players who enter the same code are seated as partners.'),
+      field('Tournament directory', h('input', { name: 'repo', value: settings.repo, placeholder: 'owner/repository' }),
+        'Everyone in your club uses the same directory.'),
       field('Connection', h('select', { name: 'transport' },
-        h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet (peer-to-peer WebRTC)'),
+        h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet'),
         h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
+
+      h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
+        h('summary', 'Tournament Director'),
+        h('div.grid',
+          field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' })),
+          h('label', 'Token ',
+            h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?'),
+            h('input', { name: 'token', type: 'password', value: settings.token, autocomplete: 'off', placeholder: 'optional' }),
+            h('small', 'Lets you create tournaments, register and publish results from here.')),
+          helpPanel)),
+
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'), h('button.primary', { type: 'submit' }, 'Save')));
     return form;

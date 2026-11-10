@@ -78,6 +78,22 @@ form.grid input, form.grid select { padding: 7px 9px; border: 1px solid var(--li
 form.grid .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 form.grid small { color: var(--muted); }
 
+/* Tournament Director subsection in Settings */
+details.director-section { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
+details.director-section summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--ink); padding: 4px 0; }
+details.director-section summary::marker { color: var(--muted); }
+details.director-section > .grid { display: grid; gap: 10px; margin-top: 8px; }
+details.director-section > .grid label { display: grid; gap: 3px; font-size: .85rem; color: var(--muted); }
+details.director-section > .grid input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
+details.director-section > .grid small { color: var(--muted); }
+.help-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: .75rem; font-weight: 700; padding: 0; margin-left: 4px; vertical-align: middle; border: 1px solid var(--accent); color: var(--accent); background: transparent; cursor: pointer; }
+.help-icon:hover { background: var(--accent); color: #fff; }
+.help-steps { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 6px; font-size: .83rem; }
+.help-steps h3 { font-size: .9rem; margin-bottom: 6px; }
+.help-steps ol { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.help-steps p.muted { margin: 8px 0 0; font-size: .8rem; }
+.token-help:empty { display: none; }
+
 /* ---------------------------------------------------------------- room */
 .room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 380px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }
