@@ -12,7 +12,7 @@
   --accent: #1f5c45;
   --radius: 10px;
   /* Scale the table surface up on large screens so cards stay easy to read (BBO-style larger cards). */
-  --wrap-max: min(1900px, 97vw);
+  --wrap-max: min(1500px, 96vw);
   --felt-pad: clamp(12px, 1vw, 24px);
   --felt-gap: clamp(6px, .55vw, 14px);
   /* The stacked face (rank over suit) is narrow, so cards can be larger. */
@@ -107,14 +107,21 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
   color: var(--felt-ink); border-radius: 14px; padding: var(--felt-pad);
   display: grid; gap: var(--felt-gap);
-  grid-template-columns: minmax(0, .85fr) minmax(0, 1.9fr) minmax(0, .85fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-areas: "info top auction" "left center right" "bottom bottom bottom";
-  /* Keep the table landscape, the way a real table (and BBO) looks on a screen. */
-  min-height: min(58vh, calc(var(--wrap-max) * .36));
+  /* Partner's hand gets a full-width row of its own, mirroring your own hand,
+     so a revealed dummy is laid out at exactly the same size as declarer. */
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.8fr) minmax(0, .9fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "info info auction"
+    "top top top"
+    "left center right"
+    "bottom bottom bottom";
+  /* Landscape, but close to the proportions of a real table rather than a strip. */
+  min-height: min(70vh, calc(var(--wrap-max) * .52));
 }
 @media (max-width: 640px) {
-  .felt { grid-template-columns: 1fr 1fr; grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
+  .felt { grid-template-columns: 1fr 1fr; grid-template-rows: auto; min-height: 0;
+    grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
 }
 .felt .info { grid-area: info; font-size: var(--who-font); }
 .felt .auction { grid-area: auction; }
@@ -163,33 +170,29 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
   border-radius: clamp(5px, .4vw, 8px); border: 1.5px solid #c5bfad;
   background: #fffdf8; color: #14201a;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
-  line-height: 1; font-weight: 800; font-size: var(--card-font); padding: 0;
+  line-height: .82; font-weight: 800; font-size: var(--card-font); padding: 0;
   box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
 
-/* Your own 13 cards always sit on one line: size them to the space available
-   (container units measure the seat row, whatever the sidebar/viewport do). */
-.seat.bottom { container-type: inline-size; }
-.seat.bottom .hand { flex-wrap: nowrap; }
-.seat.bottom .hand .pc {
+/* The top and bottom hands each own a full-width row, so the same rule sizes
+   both: a revealed dummy is exactly as large as declarer's hand. Container
+   units measure the row itself, whatever the sidebar and viewport do, so all
+   thirteen cards always sit on one line. */
+.seat.top, .seat.bottom, .seat.left, .seat.right { container-type: inline-size; }
+.seat.top .hand, .seat.bottom .hand { flex-wrap: nowrap; }
+.seat.top .hand .pc, .seat.bottom .hand .pc {
   width: min(var(--card-w), calc((100cqw - 100px) / 13));
   font-size: min(var(--card-font), calc((100cqw - 100px) / 13 * .56));
 }
-
-/* Dummy and other revealed hands are shown a little smaller. The top column is
-   wide enough for all 13 on one line; the narrow side columns wrap by suit. */
-.seat.top, .seat.left, .seat.right { container-type: inline-size; }
-.seat.top .hand { flex-wrap: nowrap; }
-.seat.top .hand .pc {
-  width: min(calc(var(--card-w) * .85), calc((100cqw - 70px) / 13));
-  font-size: min(calc(var(--card-font) * .85), calc((100cqw - 70px) / 13 * .56));
-}
+/* The side columns are narrow, so a hand revealed there wraps by suit. */
 .seat.left .hand .pc, .seat.right .hand .pc {
   width: min(calc(var(--card-w) * .8), calc((100cqw - 40px) / 7));
   font-size: min(calc(var(--card-font) * .8), calc((100cqw - 40px) / 7 * .56));
 }
-.pc .rank { font-size: 1em; }
-.pc .suit { font-size: .95em; font-weight: 400; margin-top: .06em; }
+/* Rank and suit sit tight against each other, as on a BBO card: the glyph
+   boxes are trimmed so the gap is the one the design wants, not leading. */
+.pc .rank { font-size: 1.12em; line-height: .78; display: block; }
+.pc .suit { font-size: .88em; line-height: .78; font-weight: 400; display: block; margin-top: .02em; }
 .pc.red { color: var(--red); }
 .pc.black { color: #14201a; }
 button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2.5px var(--gold), 0 2px 6px rgba(0,0,0,.3); transform: translateY(-5px); }
@@ -219,14 +222,23 @@ button.pc:disabled { opacity: 1; }
 .hand.backs .pc.card-back:first-child { margin-left: 0; }
 
 /* ---- center play area ---- */
-.center { grid-area: center; position: relative; min-height: var(--center-h); border-radius: 10px; background: rgba(0, 0, 0, .14); }
+/* Kept near-square and centred: a wide strip of felt reads badly and pushes
+   the trick cards far apart. */
+.center {
+  grid-area: center; justify-self: center; width: 100%;
+  max-width: clamp(260px, 26vw, 440px);
+  position: relative; min-height: var(--center-h);
+  border-radius: 10px; background: rgba(0, 0, 0, .14);
+}
 
 /* During the auction the centre holds the history with the bidding box
    directly beneath it (BBO layout), instead of the box sitting under the hand. */
-/* The panel hugs its contents and floats in the middle of the table. */
+/* The panel hugs its contents and floats in the middle of the table. It needs
+   a little more room than the trick area to fit the seven level buttons. */
 .center.bidding {
   display: flex; flex-direction: column; align-items: stretch; justify-content: center;
   gap: 10px; padding: 10px; min-height: 0; align-self: center;
+  max-width: clamp(320px, 34vw, 560px);
   background: rgba(0, 0, 0, .18);
 }
 .center.bidding .auction { grid-area: auto; width: 100%; }
