@@ -9,30 +9,32 @@ import { h } from './dom';
 const SEAT_NAMES: Record<Seat, string> = { N: 'North', E: 'East', S: 'South', W: 'West' };
 const isRed = (suit: string): boolean => suit === 'H' || suit === 'D';
 
+/* ---- BBO-style card rendering: large rank with suit beside it ---- */
+
 function cardFace(card: Card, onPlay?: () => void, extraClass = ''): HTMLElement {
   const suit = cardSuit(card);
   const rank = rankChar(card) === 'T' ? '10' : rankChar(card);
-  const cls = `pc${isRed(suit) ? '.red' : ''}${extraClass}`;
+  const colorCls = isRed(suit) ? '.red' : '.black';
+  const cls = `pc${colorCls}${extraClass}`;
   const label = `${rank} of ${{ S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' }[suit]}`;
+  const inner = [h('span.rank', rank), h('span.suit', SUIT_SYMBOLS[suit])];
   return onPlay
-    ? h(`button.${cls}`, { onclick: onPlay, title: `Play ${label}`, 'aria-label': `Play ${label}` }, rank, h('small', SUIT_SYMBOLS[suit]))
-    : h(`div.${cls}`, { 'aria-label': label }, rank, h('small', SUIT_SYMBOLS[suit]));
+    ? h(`button.${cls}`, { onclick: onPlay, title: `Play ${label}`, 'aria-label': `Play ${label}` }, inner)
+    : h(`div.${cls}`, { 'aria-label': label }, inner);
 }
 
-/**
- * Two-step bidding box: pick a level, then a strain. Only levels that have at
- * least one legal strain are shown, and once a level is picked only the
- * strains that would actually outbid the last bid are offered.
- */
+/* ---- Card back (opponent's hidden cards) ---- */
+
+function cardBack(): HTMLElement {
+  return h('div.pc.card-back');
+}
+
+/* ---- BBO-style bidding box: Pass + levels in one row, then strains ---- */
+
 function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTMLElement {
   const legal = legalCalls(auction);
   const bids = legal.filter((c): c is Extract<Call, { type: 'bid' }> => c.type === 'bid');
   const levels = [...new Set(bids.map((c) => c.level))].sort((x, y) => x - y);
-
-  const callRow = h('div.callrow',
-    h('button.pass', { onclick: () => onCall({ type: 'pass' }) }, 'Pass'),
-    legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => onCall({ type: 'double' }) }, 'Dbl') : null,
-    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null);
 
   const suitRow = h('div.suitrow');
   const levelButtons = new Map<number, HTMLButtonElement>();
@@ -44,25 +46,32 @@ function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTML
       h(`button.suit${isRed(s) ? '.red' : ''}`, { onclick: () => onCall({ type: 'bid', level, strain: s }), 'aria-label': `Bid ${level} ${s === 'N' ? 'no trump' : s}` }, SUIT_SYMBOLS[s])));
   };
 
-  const levelRow = h('div.levelrow', levels.map((level) => {
-    const btn = h('button', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
-    levelButtons.set(level, btn);
-    return btn;
-  }));
+  /* BBO layout: Pass + level buttons in a single row */
+  const topRow = h('div.bidrow',
+    h('button.pass', { onclick: () => onCall({ type: 'pass' }) }, 'Pass'),
+    legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => onCall({ type: 'double' }) }, 'Dbl') : null,
+    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null,
+    levels.map((level) => {
+      const btn = h('button.lvl', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
+      levelButtons.set(level, btn);
+      return btn;
+    }));
 
-  return h('div.bidbox2', callRow, levelRow, suitRow);
+  return h('div.bidbox', topRow, suitRow);
 }
 
+/* ---- Auction cell (bid display in the history table) ---- */
+
 function callCell(call: Call): HTMLElement {
-  if (call.type === 'pass') return h('td', 'Pass');
-  if (call.type === 'double') return h('td', h('b', 'X'));
-  if (call.type === 'redouble') return h('td', h('b', 'XX'));
-  return h('td', `${call.level}`, h('span', { class: isRed(call.strain) ? 'r' : '' }, SUIT_SYMBOLS[call.strain]));
+  if (call.type === 'pass') return h('td.call-pass', 'Pass');
+  if (call.type === 'double') return h('td.call-dbl', 'X');
+  if (call.type === 'redouble') return h('td.call-rdbl', 'XX');
+  const strain = call.strain;
+  return h(`td.call-bid${isRed(strain) ? '.r' : ''}`, `${call.level}`, h('span', SUIT_SYMBOLS[strain]));
 }
 
 export interface TableViewOptions {
   table: TableState;
-  /** Seat of the viewer, or null for a spectator (who sees all four hands). */
   mySeat: Seat | null;
   onCall(call: Call): void;
   onPlay(seat: Seat, card: Card): void;
@@ -107,13 +116,15 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       }
       hand = h(`div.hand${canPlayHere || !iControl ? '' : '.dim'}`, groups);
     } else {
-      hand = h('div.backs', `${cards.length} card${cards.length === 1 ? '' : 's'}`);
+      /* BBO-style card backs */
+      hand = h('div.hand.backs', Array.from({ length: cards.length }, () => cardBack()));
     }
     const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', player.bot ? 'robot' : '', away ? 'away' : ''].filter(Boolean).join(', ');
-    return h(`div.seat.${pos[seat]}${turn?.seat === seat ? '.turn' : ''}`,
-      h(`div.who${vul ? '.vul' : ''}`, { title: `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}` },
-        h('i', seat), h('span', player.name + (seat === mySeat ? ' (you)' : '') + (tags ? ` · ${tags}` : ''))),
-      hand);
+    const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
+      { title: `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}` },
+      h('b.seat-letter', seat),
+      h('span.pname', player.name + (seat === mySeat ? ' (you)' : '') + (tags ? ` · ${tags}` : '')));
+    return h(`div.seat.${pos[seat]}`, label, hand);
   };
 
   /* Centre: the trick in progress, or the trick just completed. */
@@ -124,13 +135,13 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   else if (showingLast && play.lastWinner) center.append(h('div.msg', `${SEAT_NAMES[play.lastWinner]} won the trick`));
   else if (play.cardsPlayed === 0) center.append(h('div.msg', `${SEAT_NAMES[play.turn]} to make the opening lead`));
 
-  /* Auction grid, starting from West so partnerships line up in columns. */
+  /* Auction grid (BBO-style: W N E S columns, centred in the play area). */
   const order: Seat[] = ['W', 'N', 'E', 'S'];
   const cells: HTMLElement[] = [];
   if (table.auction) {
     for (let i = 0; i < order.indexOf(table.auction.dealer); i++) cells.push(h('td', ''));
     for (const e of table.auction.calls) cells.push(callCell(e.call));
-    if (!play) cells.push(h('td', '?'));
+    if (!play) cells.push(h('td.pending', '?'));
   }
   const rows: HTMLElement[] = [];
   for (let i = 0; i < cells.length; i += 4) rows.push(h('tr', cells.slice(i, i + 4)));
@@ -163,4 +174,3 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   }
   return out;
 }
-

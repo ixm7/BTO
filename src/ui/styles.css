@@ -11,16 +11,18 @@
   --gold: #c39a1c;
   --accent: #1f5c45;
   --radius: 10px;
-  /* Scale the table surface up on large screens so cards stay easy to read. */
+  /* Scale the table surface up on large screens so cards stay easy to read (BBO-style larger cards). */
   --wrap-max: clamp(1100px, 68vw, 1760px);
-  --felt-pad: clamp(12px, 1.1vw, 26px);
+  --felt-pad: clamp(14px, 1.2vw, 28px);
   --felt-gap: clamp(8px, .7vw, 16px);
-  --card-w: clamp(34px, 2.3vw, 60px);
-  --card-h: clamp(48px, 3.3vw, 86px);
-  --card-font: clamp(.95rem, 1.05vw, 1.4rem);
-  --center-h: clamp(170px, 13vw, 260px);
-  --who-font: clamp(.85rem, .85vw, 1.05rem);
-  --auction-font: clamp(.85rem, .8vw, 1.1rem);
+  --card-w: clamp(44px, 3.2vw, 72px);
+  --card-h: clamp(56px, 3.8vw, 90px);
+  --card-font: clamp(1.15rem, 1.4vw, 1.75rem);
+  --center-h: clamp(180px, 14vw, 280px);
+  --who-font: clamp(.82rem, .85vw, 1.05rem);
+  --auction-font: clamp(.92rem, .95vw, 1.2rem);
+  --back-color: #2980a8;
+  --back-stripe: #2270a0;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -112,30 +114,58 @@ details.director-section > .grid small { color: var(--muted); }
 .felt .info { grid-area: info; font-size: var(--who-font); }
 .felt .auction { grid-area: auction; }
 .felt .info b { font-family: Georgia, serif; font-size: 1.05rem; }
+
+/* ---- seats & player labels (BBO-style compact badge) ---- */
 .seat { text-align: center; min-width: 0; }
 .seat.top { grid-area: top; } .seat.left { grid-area: left; align-self: center; }
 .seat.right { grid-area: right; align-self: center; } .seat.bottom { grid-area: bottom; }
-.seat .who { display: inline-flex; gap: 6px; align-items: center; padding: 2px 10px; border-radius: 14px; background: rgba(0, 0, 0, .25); font-size: var(--who-font); margin-bottom: 6px; max-width: 100%; }
-.seat .who i { font-style: normal; font-weight: 700; }
-.seat .who span { overflow-wrap: anywhere; text-align: left; }
-.seat.turn .who { background: var(--gold); color: #1b1503; }
-.seat .who.vul i { color: #ff9d94; } .seat.turn .who.vul i { color: var(--red); }
-.hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
-.hand .suit-group { display: flex; gap: 2px; margin: 0 4px 4px; }
-.pc {
-  width: var(--card-w); height: var(--card-h); border-radius: clamp(5px, .4vw, 9px); border: 1px solid #b9b3a3; background: #fffdf8; color: #14201a;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;
-  font-weight: 700; font-size: var(--card-font); padding: 0;
-}
-.pc small { font-size: calc(var(--card-font) * 1.05); font-weight: 400; }
-.pc.red { color: var(--red); }
-button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2px var(--gold); transform: translateY(-4px); }
-button.pc:not(:disabled):hover { transform: translateY(-9px); }
-button.pc:disabled { opacity: 1; }
-.hand.dim .pc { opacity: .75; }
-.backs { font-size: .8rem; opacity: .85; }
-.backs::before { content: "🂠 "; font-size: 1.3rem; vertical-align: middle; }
+.seat .who { display: inline-flex; gap: 0; align-items: stretch; border-radius: 6px; overflow: hidden; background: rgba(0, 0, 0, .35); font-size: var(--who-font); margin-bottom: 6px; max-width: 100%; }
+.seat .who .seat-letter { display: flex; align-items: center; justify-content: center; width: 1.7em; background: rgba(255, 255, 255, .18); font-weight: 800; font-size: .9em; color: #fff; flex-shrink: 0; }
+.seat .who .pname { padding: 3px 10px; overflow-wrap: anywhere; text-align: left; }
+.seat .who.active { background: var(--gold); color: #1b1503; }
+.seat .who.active .seat-letter { background: rgba(0, 0, 0, .15); color: #1b1503; }
+.seat .who.vul .seat-letter { color: #ff9d94; }
+.seat .who.active.vul .seat-letter { color: var(--red); }
 
+/* ---- cards (BBO-style: rank + suit side-by-side, larger face) ---- */
+.hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
+.hand .suit-group { display: flex; gap: 3px; margin: 0 8px 4px; }
+.pc {
+  width: var(--card-w); height: var(--card-h);
+  border-radius: clamp(5px, .4vw, 8px); border: 1.5px solid #c5bfad;
+  background: #fffdf8; color: #14201a;
+  display: flex; align-items: center; justify-content: center; gap: 1px;
+  line-height: 1; font-weight: 800; font-size: var(--card-font); padding: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.pc .rank { font-size: inherit; }
+.pc .suit { font-size: calc(var(--card-font) * 1.05); font-weight: 400; }
+.pc.red { color: var(--red); }
+.pc.black { color: #14201a; }
+button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2.5px var(--gold), 0 2px 6px rgba(0,0,0,.3); transform: translateY(-5px); }
+button.pc:not(:disabled):hover { transform: translateY(-10px); box-shadow: 0 0 0 2.5px var(--gold), 0 4px 12px rgba(0,0,0,.35); }
+button.pc:disabled { opacity: 1; }
+.hand.dim .pc { opacity: .7; }
+
+/* ---- card backs (BBO-style blue/teal patterned backs) ---- */
+.pc.card-back {
+  background: var(--back-color);
+  background-image:
+    repeating-linear-gradient(45deg, var(--back-stripe) 0px, var(--back-stripe) 1px, transparent 1px, transparent 6px),
+    repeating-linear-gradient(-45deg, var(--back-stripe) 0px, var(--back-stripe) 1px, transparent 1px, transparent 6px);
+  border-color: #1a6080;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  color: transparent;
+}
+.hand.backs { gap: 0; }
+.hand.backs .pc.card-back { margin-left: clamp(-30px, -2vw, -18px); }
+.hand.backs .pc.card-back:first-child { margin-left: 0; }
+/* Non-bottom hands: tighter overlap so 13 cards fit without wrapping */
+.seat.left .hand.backs .pc.card-back,
+.seat.right .hand.backs .pc.card-back,
+.seat.top .hand.backs .pc.card-back { margin-left: clamp(-34px, -2.4vw, -22px); }
+
+/* ---- center play area ---- */
 .center { grid-area: center; position: relative; min-height: var(--center-h); border-radius: 10px; background: rgba(0, 0, 0, .14); }
 .center .pc { position: absolute; }
 .center .t-top { top: 8px; left: 50%; transform: translateX(-50%); }
@@ -146,20 +176,36 @@ button.pc:disabled { opacity: 1; }
 .center .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-size: .9rem; pointer-events: none; }
 .center.last .msg { align-items: flex-end; padding-bottom: 62px; font-size: .75rem; opacity: .9; }
 
-.auction table { border-collapse: collapse; width: 100%; font-size: var(--auction-font); background: rgba(0, 0, 0, .18); border-radius: 8px; }
-.auction th, .auction td { padding: clamp(2px, .25vw, 6px) clamp(4px, .4vw, 10px); text-align: center; width: 25%; }
-.auction th { font-weight: 600; opacity: .8; } .auction th.vul { color: #ff9d94; }
-.auction .r { color: #ffb3ac; }
-
-.bidbox2 { display: grid; gap: 8px; margin-top: 10px; max-width: clamp(360px, 24vw, 460px); }
-.bidbox2 .callrow, .bidbox2 .levelrow, .bidbox2 .suitrow { display: flex; gap: 6px; min-height: clamp(42px, 3vw, 54px); }
-.bidbox2 button {
-  flex: 1; border-radius: 10px; border: 1px solid var(--line); background: #fff;
-  font-weight: 700; font-size: clamp(1.05rem, 1vw, 1.3rem); padding: 0;
+/* ---- auction history (BBO-style: semi-transparent centered table) ---- */
+.auction table {
+  border-collapse: collapse; width: 100%; font-size: var(--auction-font);
+  background: rgba(255, 255, 255, .12); border-radius: 8px; overflow: hidden;
 }
-.bidbox2 .callrow .pass { background: var(--accent); border-color: var(--accent); color: #fff; }
-.bidbox2 .callrow .dbl { background: var(--red); border-color: var(--red); color: #fff; }
-.bidbox2 .levelrow button.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
-.bidbox2 .suitrow button { border-radius: 20px; font-size: 1.15rem; }
-.bidbox2 .suitrow button.red { color: var(--red); }
+.auction th, .auction td { padding: clamp(4px, .35vw, 8px) clamp(6px, .5vw, 12px); text-align: center; width: 25%; }
+.auction th { font-weight: 700; opacity: .9; letter-spacing: .03em; border-bottom: 1px solid rgba(255,255,255,.15); }
+.auction th.vul { color: #ff9d94; }
+.auction td { font-weight: 600; font-size: calc(var(--auction-font) * 1.05); }
+.auction .call-pass { opacity: .7; }
+.auction .call-bid { font-weight: 700; }
+.auction .call-bid.r { color: #ffb3ac; }
+.auction .call-dbl { color: #ff8a80; font-weight: 700; }
+.auction .call-rdbl { color: #82b1ff; font-weight: 700; }
+.auction .r { color: #ffb3ac; }
+.auction .pending { opacity: .5; }
+
+/* ---- bidding box (BBO-style: Pass + levels in one row, then strain buttons) ---- */
+.bidbox { display: grid; gap: 8px; margin-top: 10px; max-width: clamp(400px, 28vw, 520px); }
+.bidbox .bidrow, .bidbox .suitrow { display: flex; gap: 6px; min-height: clamp(44px, 3.2vw, 56px); }
+.bidbox button {
+  border-radius: 8px; border: 1.5px solid var(--line); background: #fff;
+  font-weight: 700; font-size: clamp(1.05rem, 1.05vw, 1.35rem); padding: 4px 0;
+  cursor: pointer; transition: transform .1s, box-shadow .1s;
+}
+.bidbox button:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+.bidbox .bidrow .pass { flex: 1.3; background: var(--accent); border-color: var(--accent); color: #fff; font-size: clamp(1.1rem, 1.1vw, 1.4rem); }
+.bidbox .bidrow .dbl { flex: 1; background: var(--red); border-color: var(--red); color: #fff; }
+.bidbox .bidrow .lvl { flex: 1; }
+.bidbox .bidrow .lvl.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
+.bidbox .suitrow button { flex: 1; border-radius: 20px; font-size: clamp(1.2rem, 1.2vw, 1.5rem); }
+.bidbox .suitrow button.red { color: var(--red); }
 .status-line { margin-top: 10px; min-height: 1.5em; }
