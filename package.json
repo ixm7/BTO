@@ -1,0 +1,27 @@
+{
+  "name": "bridge-p2p",
+  "version": "0.1.0",
+  "description": "Serverless peer-to-peer duplicate bridge tournaments in the browser",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "vite preview",
+    "deploy": "npm run build && npx gh-pages -d dist"
+  },
+  "dependencies": {
+    "trystero": "^0.26.0"
+  },
+  "devDependencies": {
+    "gh-pages": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  },
+  "private": true,
+  "type": "module"
+}

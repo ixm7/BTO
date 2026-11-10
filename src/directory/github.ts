@@ -1,0 +1,338 @@
+/**
+ * The tournament directory lives in the Issues of a public GitHub repository.
+ *
+ *   one issue            = one tournament (the issue author is the director)
+ *   "/register Name"     = a comment that registers the commenter
+ *   "/withdraw"          = a comment that withdraws them
+ *   results comment      = final rankings, after which the issue is closed
+ *
+ * Reading needs no login. Writing either uses a GitHub token the user pastes
+ * in, or falls back to opening a pre-filled page on github.com.
+ */
+import { zonedToUtc } from './time';
+
+export const LEVELS = ['Open', 'Novice', 'Intermediate', 'Advanced', 'Expert'] as const;
+export type Level = (typeof LEVELS)[number];
+
+export interface TournamentMeta {
+  v: 1;
+  name: string;
+  /** Display name of the initiator / tournament director. */
+  director: string;
+  scoring: 'matchpoints';
+  /** Wall-clock start in `timeZone`, e.g. "2026-11-21T19:30". */
+  start: string;
+  timeZone: string;
+  /** The same instant in UTC (ISO 8601). */
+  startUtc: string;
+  level: Level;
+  /** Maximum number of players. */
+  capacity: number;
+  boardsPerRound: number;
+  rounds: number;
+}
+
+export interface Registration {
+  login: string;
+  name: string;
+  pairCode?: string;
+  at: string;
+}
+
+export interface ResultRow {
+  rank: number;
+  players: string;
+  direction: 'NS' | 'EW';
+  percent: number;
+  matchpoints: number;
+  maxMatchpoints: number;
+}
+
+export interface TournamentResults {
+  v: 1;
+  finishedAt: string;
+  tables: number;
+  boards: number;
+  rankings: ResultRow[];
+}
+
+export type Status = 'upcoming' | 'in progress' | 'finished' | 'cancelled' | 'expired';
+
+export interface Listing {
+  number: number;
+  url: string;
+  meta: TournamentMeta;
+  /** GitHub login of the issue author. */
+  initiatorLogin: string;
+  status: Status;
+  /** Null when comments could not be read (e.g. rate limit). */
+  registrations: Registration[] | null;
+  results: TournamentResults | null;
+  /** Peer-to-peer room name for this tournament. */
+  roomId: string;
+}
+
+export interface Repo { owner: string; repo: string }
+
+export function parseRepo(s: string): Repo {
+  const m = /^(?:https?:\/\/github\.com\/)?([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(s.trim());
+  if (!m) throw new Error('Repository must look like "owner/name"');
+  return { owner: m[1] as string, repo: m[2] as string };
+}
+
+/* ---------------------------------------------------------------- parsing */
+
+const META_RE = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/;
+const RESULTS_RE = /<!--\s*bridge-results\s*([\s\S]*?)-->/;
+
+export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc'>): TournamentMeta {
+  const name = input.name.trim();
+  if (!name) throw new Error('Tournament name is required');
+  if (!input.director.trim()) throw new Error('Director name is required');
+  if (!LEVELS.includes(input.level)) throw new Error('Unknown player level');
+  if (!Number.isInteger(input.capacity) || input.capacity < 4 || input.capacity > 200) throw new Error('Capacity must be between 4 and 200 players');
+  if (!Number.isInteger(input.boardsPerRound) || input.boardsPerRound < 1 || input.boardsPerRound > 8) throw new Error('Boards per round must be 1-8');
+  if (!Number.isInteger(input.rounds) || input.rounds < 1 || input.rounds > 20) throw new Error('Rounds must be 1-20');
+  const startUtc = zonedToUtc(input.start, input.timeZone).toISOString();
+  return { v: 1, scoring: 'matchpoints', ...input, name, director: input.director.trim(), startUtc };
+}
+
+export function issueBody(meta: TournamentMeta): string {
+  return [
+    '### ♠ ♥ Bridge tournament ♦ ♣',
+    '',
+    '| | |',
+    '|---|---|',
+    `| **Director** | ${meta.director} |`,
+    '| **Scoring** | Matchpoints |',
+    `| **Start** | ${meta.start.replace('T', ' ')} (${meta.timeZone}) — ${meta.startUtc.slice(0, 16).replace('T', ' ')} UTC |`,
+    `| **Level** | ${meta.level} |`,
+    `| **Capacity** | ${meta.capacity} players |`,
+    `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
+    '',
+    'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered).',
+    'To withdraw, comment `/withdraw`.',
+    '',
+    `<!-- bridge-tournament\n${JSON.stringify(meta, null, 1)}\n-->`,
+  ].join('\n');
+}
+
+export function parseMeta(body: string | null | undefined): TournamentMeta | null {
+  const m = META_RE.exec(body ?? '');
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[1] as string) as Partial<TournamentMeta>;
+    if (j.v !== 1 || typeof j.name !== 'string' || typeof j.startUtc !== 'string' || Number.isNaN(Date.parse(j.startUtc))) return null;
+    return {
+      v: 1, name: j.name, director: String(j.director ?? ''), scoring: 'matchpoints',
+      start: String(j.start ?? j.startUtc.slice(0, 16)), timeZone: String(j.timeZone ?? 'UTC'), startUtc: j.startUtc,
+      level: LEVELS.includes(j.level as Level) ? (j.level as Level) : 'Open',
+      capacity: Number(j.capacity) || 0, boardsPerRound: Number(j.boardsPerRound) || 2, rounds: Number(j.rounds) || 2,
+    };
+  } catch { return null; }
+}
+
+export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
+
+/** Fold the comment stream into the current registration list (each user's latest command wins). */
+export function parseRegistrations(comments: readonly RawComment[]): Registration[] {
+  const reg = new Map<string, Registration>();
+  for (const c of comments) {
+    const login = c.user?.login;
+    if (!login) continue;
+    for (const line of (c.body ?? '').split(/\r?\n/)) {
+      const t = line.trim();
+      if (/^\/withdraw\b/i.test(t)) { reg.delete(login); continue; }
+      const m = /^\/register\b(.*)$/i.exec(t);
+      if (!m) continue;
+      let rest = (m[1] as string).trim();
+      let pairCode: string | undefined;
+      const pm = /\bpair:\s*(\S+)\s*$/i.exec(rest);
+      if (pm) { pairCode = pm[1]; rest = rest.slice(0, pm.index).trim(); }
+      const prev = reg.get(login);
+      reg.set(login, { login, name: rest || login, ...(pairCode ? { pairCode } : {}), at: prev?.at ?? c.created_at });
+    }
+  }
+  return [...reg.values()].sort((a, b) => a.at.localeCompare(b.at));
+}
+
+export function parseResults(comments: readonly RawComment[]): TournamentResults | null {
+  for (const c of comments) {
+    const m = RESULTS_RE.exec(c.body ?? '');
+    if (!m) continue;
+    try {
+      const j = JSON.parse(m[1] as string) as TournamentResults;
+      if (j.v === 1 && Array.isArray(j.rankings)) return j;
+    } catch { /* keep looking */ }
+  }
+  return null;
+}
+
+export function resultsBody(r: TournamentResults): string {
+  return [
+    `### Final results — ${r.tables} table(s), ${r.boards} board(s)`,
+    '',
+    '| Rank | Pair | Dir | Score | MP |',
+    '|---:|---|:-:|---:|---:|',
+    ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${x.percent.toFixed(2)}% | ${x.matchpoints}/${x.maxMatchpoints} |`),
+    '',
+    `<!-- bridge-results\n${JSON.stringify(r)}\n-->`,
+  ].join('\n');
+}
+
+const SIX_HOURS = 6 * 3600 * 1000;
+
+export function deriveStatus(meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number): Status {
+  if (results) return 'finished';
+  if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
+  const start = Date.parse(meta.startUtc);
+  if (now < start) return 'upcoming';
+  return now < start + SIX_HOURS ? 'in progress' : 'expired';
+}
+
+/* -------------------------------------------------------------------- API */
+
+type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
+  ok: boolean; status: number; json(): Promise<unknown>; headers: { get(name: string): string | null };
+}>;
+
+interface RawIssue {
+  number: number; title: string; body: string | null; html_url: string; state: string; state_reason?: string | null;
+  comments: number; user: { login: string } | null; pull_request?: unknown;
+}
+
+export class GitHubError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+export class Directory {
+  readonly repo: Repo;
+  constructor(repo: string | Repo, private token: string | null = null, private fetcher: FetchLike = (u, i) => fetch(u, i)) {
+    this.repo = typeof repo === 'string' ? parseRepo(repo) : repo;
+  }
+
+  get canWrite(): boolean { return !!this.token; }
+  get slug(): string { return `${this.repo.owner}/${this.repo.repo}`; }
+  private api(path: string): string { return `https://api.github.com/repos/${this.repo.owner}/${this.repo.repo}${path}`; }
+  roomId(number: number): string { return `${this.slug}#${number}`; }
+
+  private async req<T>(url: string, method = 'GET', body?: unknown): Promise<T> {
+    const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const res = await this.fetcher(url, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    if (!res.ok) {
+      const limited = res.status === 403 || res.status === 429 ? res.headers.get('x-ratelimit-remaining') === '0' : false;
+      let detail = '';
+      try { detail = String(((await res.json()) as { message?: string }).message ?? ''); } catch { /* no body */ }
+      throw new GitHubError(
+        limited ? 'GitHub rate limit reached. Add a token in Settings (5,000 requests/hour) or try again later.'
+          : res.status === 401 ? 'GitHub rejected the token.'
+          : res.status === 404 ? `Not found on GitHub (${this.slug}). Check the repository name and that it is public.`
+          : `GitHub error ${res.status}${detail ? `: ${detail}` : ''}`,
+        res.status,
+      );
+    }
+    return (await res.json()) as T;
+  }
+
+  /** GitHub login of the token owner. */
+  async whoAmI(): Promise<string> {
+    if (!this.token) throw new Error('No GitHub token set');
+    return (await this.req<{ login: string }>('https://api.github.com/user')).login;
+  }
+
+  private async comments(number: number): Promise<RawComment[]> {
+    const all: RawComment[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const batch = await this.req<RawComment[]>(this.api(`/issues/${number}/comments?per_page=100&page=${page}`));
+      all.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return all;
+  }
+
+  private async toListing(issue: RawIssue, meta: TournamentMeta, now: number): Promise<Listing> {
+    let registrations: Registration[] | null = [];
+    let results: TournamentResults | null = null;
+    if (issue.comments > 0) {
+      try {
+        const cs = await this.comments(issue.number);
+        registrations = parseRegistrations(cs);
+        // Only the director or a registered player can publish results.
+        const trusted = new Set([issue.user?.login, ...registrations.map((r) => r.login)]);
+        results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
+      } catch { registrations = null; }
+    }
+    return {
+      number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
+      status: deriveStatus(meta, issue, results, now), registrations, results, roomId: this.roomId(issue.number),
+    };
+  }
+
+  /** All tournaments in the repository, soonest upcoming first, then past ones newest first. */
+  async list(now: number = Date.now()): Promise<Listing[]> {
+    const issues = await this.req<RawIssue[]>(this.api('/issues?state=all&per_page=100&sort=created&direction=desc'));
+    const found: { issue: RawIssue; meta: TournamentMeta }[] = [];
+    for (const issue of issues) {
+      if (issue.pull_request) continue;
+      const meta = parseMeta(issue.body);
+      if (meta) found.push({ issue, meta });
+    }
+    const out = await Promise.all(found.map(({ issue, meta }) => this.toListing(issue, meta, now)));
+    const live = (s: Status): boolean => s === 'upcoming' || s === 'in progress';
+    return out.sort((a, b) => {
+      if (live(a.status) !== live(b.status)) return live(a.status) ? -1 : 1;
+      const d = Date.parse(a.meta.startUtc) - Date.parse(b.meta.startUtc);
+      return live(a.status) ? d : -d;
+    });
+  }
+
+  async get(number: number, now: number = Date.now()): Promise<Listing> {
+    const issue = await this.req<RawIssue>(this.api(`/issues/${number}`));
+    const meta = parseMeta(issue.body);
+    if (!meta) throw new Error('That issue is not a bridge tournament');
+    return this.toListing(issue, meta, now);
+  }
+
+  /** Create a tournament with the API (needs a token). Returns the new issue number. */
+  async create(meta: TournamentMeta): Promise<number> {
+    if (!this.token) throw new Error('A GitHub token is needed to create a tournament from here');
+    const issue = await this.req<RawIssue>(this.api('/issues'), 'POST', { title: `🂡 ${meta.name}`, body: issueBody(meta) });
+    return issue.number;
+  }
+
+  /** Without a token: a github.com page with the tournament pre-filled; the user just presses "Submit". */
+  newIssueUrl(meta: TournamentMeta): string {
+    const q = new URLSearchParams({ title: `🂡 ${meta.name}`, body: issueBody(meta) });
+    return `https://github.com/${this.slug}/issues/new?${q.toString()}`;
+  }
+
+  issueUrl(number: number): string { return `https://github.com/${this.slug}/issues/${number}`; }
+
+  private comment(number: number, body: string): Promise<unknown> {
+    if (!this.token) throw new Error('A GitHub token is needed for this');
+    return this.req(this.api(`/issues/${number}/comments`), 'POST', { body });
+  }
+
+  register(number: number, name: string, pairCode?: string): Promise<unknown> {
+    const clean = name.replace(/[\r\n]/g, ' ').trim();
+    const code = pairCode?.trim().replace(/\s+/g, '-');
+    return this.comment(number, `/register ${clean}${code ? ` pair:${code}` : ''}`);
+  }
+
+  withdraw(number: number): Promise<unknown> { return this.comment(number, '/withdraw'); }
+
+  /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */
+  async publishResults(number: number, results: TournamentResults): Promise<{ closed: boolean }> {
+    await this.comment(number, resultsBody(results));
+    try {
+      await this.req(this.api(`/issues/${number}`), 'PATCH', { state: 'closed', state_reason: 'completed' });
+      return { closed: true };
+    } catch { return { closed: false }; }
+  }
+
+  async cancel(number: number): Promise<void> {
+    await this.req(this.api(`/issues/${number}`), 'PATCH', { state: 'closed', state_reason: 'not_planned' });
+  }
+}
