@@ -158,8 +158,10 @@ describe('issue format', () => {
   });
 });
 
-/** A tiny in-memory stand-in for the GitHub Issues API. */
-function fakeGitHub() {
+/** A tiny in-memory stand-in for the GitHub Issues API.
+ *  `canDelete` mirrors whether the token has admin rights on the repository,
+ *  which is what GitHub requires before it will delete an issue. */
+function fakeGitHub({ canDelete = true }: { canDelete?: boolean } = {}) {
   const issues: any[] = [];
   const comments = new Map<number, any[]>();
   let clock = 0;
@@ -172,14 +174,24 @@ function fakeGitHub() {
     const reply = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body, headers: { get: () => null } });
     const path = url.replace('https://api.github.com', '');
     if (path === '/user') return login ? reply(200, { login }) : reply(401, {});
+    if (path === '/graphql') {
+      if (!login) return reply(401, {});
+      /* GitHub answers a refused mutation with 200 and an errors array. */
+      if (!canDelete) return reply(200, { data: null, errors: [{ message: 'Must have admin access' }] });
+      const id = JSON.parse(init.body).variables.id;
+      const target = issues.find((i) => i.node_id === id);
+      if (!target) return reply(200, { errors: [{ message: 'Could not resolve' }] });
+      target.deleted = true;
+      return reply(200, { data: { deleteIssue: { clientMutationId: null } } });
+    }
     if (!path.startsWith('/repos/club/bridge')) return reply(404, { message: 'Not Found' });
     const rest = path.replace('/repos/club/bridge', '');
     let m: RegExpExecArray | null;
-    if (rest.startsWith('/issues?')) return reply(200, [...issues].reverse());
+    if (rest.startsWith('/issues?')) return reply(200, [...issues].filter((i) => !i.deleted).reverse());
     if (rest === '/issues' && method === 'POST') {
       if (!login) return reply(401, {});
       const b = JSON.parse(init.body);
-      const issue = { number: issues.length + 1, title: b.title, body: b.body, state: 'open', state_reason: null, comments: 0, user: { login }, html_url: `https://github.com/club/bridge/issues/${issues.length + 1}` };
+      const issue = { number: issues.length + 1, node_id: `NODE_${issues.length + 1}`, title: b.title, body: b.body, state: 'open', state_reason: null, comments: 0, user: { login }, html_url: `https://github.com/club/bridge/issues/${issues.length + 1}` };
       issues.push(issue);
       return reply(201, issue);
     }
@@ -339,5 +351,92 @@ describe('GitHub directory', () => {
   it('explains a rate limit clearly', async () => {
     const d = new Directory('club/bridge', null, async () => ({ ok: false, status: 403, json: async () => ({}), headers: { get: () => '0' } }));
     await expect(d.list()).rejects.toThrow(/rate limit/i);
+  });
+});
+
+describe('clearing away abandoned tournaments', () => {
+  /** A tournament that started long enough ago to count as abandoned. */
+  const longAgo = { ...base, name: 'Abandoned', start: '2026-11-01T19:00' };
+  const after = Date.parse(makeMeta(longAgo).startUtc) + playingWindowMs(makeMeta(longAgo)) + 1000;
+
+  it('deletes the issue outright when the token may', async () => {
+    const gh = fakeGitHub({ canDelete: true });
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta(longAgo));
+    await d.create(makeMeta({ ...base, name: 'Upcoming', start: '2026-12-20T19:00' }));
+
+    const before = await d.list(after);
+    expect(before.map((l) => l.meta.name)).toEqual(['Upcoming']);
+    expect(d.abandoned.map((l) => l.meta.name)).toEqual(['Abandoned']);
+
+    expect(await d.sweepAbandoned()).toEqual([{ number: 1, name: 'Abandoned', outcome: 'deleted' }]);
+    /* Gone from GitHub, not merely hidden: a fresh listing cannot see it. */
+    expect(gh.issues.find((i: any) => i.number === 1).deleted).toBe(true);
+    expect((await d.list(after)).map((l) => l.meta.name)).toEqual(['Upcoming']);
+    expect(d.abandoned).toEqual([]);
+  });
+
+  it('closes the issue instead when deleting is refused', async () => {
+    const gh = fakeGitHub({ canDelete: false });
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta(longAgo));
+    await d.list(after);
+
+    expect(await d.sweepAbandoned()).toEqual([{ number: 1, name: 'Abandoned', outcome: 'closed' }]);
+    const issue = gh.issues.find((i: any) => i.number === 1);
+    expect(issue.deleted).toBeUndefined();
+    expect(issue).toMatchObject({ state: 'closed', state_reason: 'not_planned' });
+    /* Closed as not planned, so it reads as cancelled rather than abandoned. */
+    expect((await d.list(after))[0]).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('leaves everything else alone', async () => {
+    const gh = fakeGitHub();
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta({ ...base, name: 'Upcoming', start: '2026-12-20T19:00' }));
+    await d.create(makeMeta({ ...base, name: 'Under way', start: '2026-11-20T19:00' }));
+
+    const duringSecond = Date.parse(makeMeta({ ...base, start: '2026-11-20T19:00' }).startUtc) + 60000;
+    await d.list(duringSecond);
+    expect(d.abandoned).toEqual([]);
+    expect(await d.sweepAbandoned()).toEqual([]);
+    expect(gh.issues.every((i: any) => !i.deleted && i.state === 'open')).toBe(true);
+  });
+
+  it('never removes a tournament that has results', async () => {
+    const gh = fakeGitHub();
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    const number = await d.create(makeMeta(longAgo));
+    await d.publishResults(number, { v: 1, finishedAt: '2026-11-01T22:00:00Z', tables: 1, boards: 2, rankings: [] });
+
+    const list = await d.list(after);
+    /* Results make it finished, so it is not swept at all. */
+    expect(list[0]).toMatchObject({ status: 'finished' });
+    expect(d.abandoned).toEqual([]);
+    await expect(d.remove({ ...list[0]!, status: 'aborted' })).rejects.toThrow(/results/);
+    expect(gh.issues[0].deleted).toBeUndefined();
+  });
+
+  it('reports a failure and carries on with the rest', async () => {
+    const gh = fakeGitHub({ canDelete: false });
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta(longAgo));
+    await d.create(makeMeta({ ...base, name: 'Abandoned too', start: '2026-10-28T19:00' }));
+    await d.list(after);
+    expect(d.abandoned).toHaveLength(2);
+
+    /* The first issue belongs to someone else, so closing it is refused. */
+    gh.issues[0].user.login = 'someone-else';
+    const done = await d.sweepAbandoned();
+    expect(done.map((x) => x.outcome).sort()).toEqual(['closed', 'failed']);
+  });
+
+  it('refuses to remove anything without a token', async () => {
+    const gh = fakeGitHub();
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta(longAgo));
+    const list = await d.list(after);
+    const reader = new Directory('club/bridge', null, gh.fetcher);
+    await expect(reader.remove({ ...list[0]!, ...d.abandoned[0]! })).rejects.toThrow(/token/);
   });
 });

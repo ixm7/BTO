@@ -106,6 +106,8 @@ export interface Listing {
   partners: PartnersData | null;
   /** Peer-to-peer room name for this tournament. */
   roomId: string;
+  /** GitHub's global id for the issue; needed to delete it. */
+  nodeId?: string;
 }
 
 export interface Repo { owner: string; repo: string }
@@ -352,6 +354,8 @@ type FetchLike = (url: string, init?: { method?: string; headers?: Record<string
 interface RawIssue {
   number: number; title: string; body: string | null; html_url: string; state: string; state_reason?: string | null;
   comments: number; user: { login: string } | null; pull_request?: unknown;
+  /** Needed to delete the issue, which only the GraphQL API can do. */
+  node_id?: string;
 }
 
 export class GitHubError extends Error {
@@ -425,6 +429,7 @@ export class Directory {
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
       status: deriveStatus(meta, issue, results, now), registrations, results, partners, roomId: this.roomId(issue.number),
+      ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }
 
@@ -438,9 +443,52 @@ export class Directory {
       if (meta) found.push({ issue, meta });
     }
     const out = await Promise.all(found.map(({ issue, meta }) => this.toListing(issue, meta, now)));
+    /* Remember what was left off the list so it can be swept away later; the
+       caller decides whether to, and the next listing recomputes this anyway. */
+    this.abandoned = out.filter((l) => l.status === 'aborted');
     /* Newest first, so what is still to come is at the top of the page. */
     return out.filter((l) => visibleInList(l, now))
       .sort((a, b) => Date.parse(b.meta.startUtc) - Date.parse(a.meta.startUtc));
+  }
+
+  /** Abandoned tournaments found by the last `list()`, ready to be removed. */
+  abandoned: Listing[] = [];
+
+  /**
+   * Remove an abandoned tournament for good. Deleting an issue is a GraphQL-only
+   * operation and needs admin rights on the repository, so where that is refused
+   * this falls back to closing the issue as not planned — which takes it off
+   * GitHub's own default view as well as ours.
+   */
+  async remove(l: Listing): Promise<'deleted' | 'closed'> {
+    if (!this.token) throw new Error('No GitHub token set');
+    if (l.results) throw new Error('That tournament has results and will not be removed');
+    if (l.nodeId) {
+      try {
+        const r = await this.req<{ errors?: { message: string }[] }>(
+          'https://api.github.com/graphql', 'POST',
+          { query: 'mutation($id:ID!){deleteIssue(input:{issueId:$id}){clientMutationId}}', variables: { id: l.nodeId } },
+        );
+        if (!r.errors?.length) return 'deleted';
+      } catch { /* no admin rights, or GraphQL unavailable to this token */ }
+    }
+    await this.req(this.api(`/issues/${l.number}`), 'PATCH', { state: 'closed', state_reason: 'not_planned' });
+    return 'closed';
+  }
+
+  /**
+   * Clear away every abandoned tournament the last listing turned up. Returns
+   * what became of each. A failure on one is reported and the rest go on, so a
+   * single stubborn issue cannot block the sweep.
+   */
+  async sweepAbandoned(): Promise<{ number: number; name: string; outcome: 'deleted' | 'closed' | 'failed' }[]> {
+    const done: { number: number; name: string; outcome: 'deleted' | 'closed' | 'failed' }[] = [];
+    for (const l of this.abandoned) {
+      try { done.push({ number: l.number, name: l.meta.name, outcome: await this.remove(l) }); }
+      catch { done.push({ number: l.number, name: l.meta.name, outcome: 'failed' }); }
+    }
+    this.abandoned = [];
+    return done;
   }
 
   async get(number: number, now: number = Date.now()): Promise<Listing> {

@@ -97,8 +97,32 @@ async function refresh(): Promise<void> {
       updated = await applyAutoRegister(d, updated);
       syncListing(updated);
     }
+    await sweepAbandoned(d);
   } catch (e) { errorMsg = (e as Error).message; }
   loading = false; render();
+}
+
+/** Tournaments a sweep has already dealt with, or tried and failed to. */
+const sweptAlready = new Set<number>();
+
+/**
+ * Clear abandoned tournaments off GitHub, not merely out of the list. Only
+ * someone holding a token can do this, and an issue is tried once per session
+ * so that a failure does not turn every refresh into another attempt.
+ */
+async function sweepAbandoned(d: Directory): Promise<void> {
+  if (!d.canWrite) return;
+  d.abandoned = d.abandoned.filter((l) => !sweptAlready.has(l.number));
+  if (d.abandoned.length === 0) return;
+  for (const l of d.abandoned) sweptAlready.add(l.number);
+
+  const done = await d.sweepAbandoned();
+  const gone = done.filter((x) => x.outcome !== 'failed');
+  if (gone.length === 0) return;
+  const deleted = gone.filter((x) => x.outcome === 'deleted').length;
+  notice = `Cleared ${gone.length} abandoned tournament${gone.length === 1 ? '' : 's'}: ${gone.map((x) => x.name).join(', ')}.`
+    + (deleted < gone.length ? ' Some were closed rather than deleted, which needs admin rights on the repository.' : '');
+  listings = await d.list();
 }
 
 function when(l: Listing): HTMLElement {
