@@ -125,10 +125,15 @@ button.pc:disabled { opacity: 1; }
 .auction th { font-weight: 600; opacity: .8; } .auction th.vul { color: #ff9d94; }
 .auction .r { color: #ffb3ac; }
 
-.bidbox { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-top: 10px; }
-.bidbox .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; max-width: 360px; }
-.bidbox button { padding: 6px 0; font-weight: 600; }
-.bidbox .calls { display: flex; gap: 6px; margin-top: 8px; max-width: 360px; }
-.bidbox .calls button { flex: 1; }
-.bidbox .pass { background: #e4efe8; } .bidbox .dbl { background: #f7d9d6; } .bidbox .rdbl { background: #d9e4f7; }
+.bidbox2 { display: grid; gap: 8px; margin-top: 10px; max-width: 360px; }
+.bidbox2 .callrow, .bidbox2 .levelrow, .bidbox2 .suitrow { display: flex; gap: 6px; min-height: 42px; }
+.bidbox2 button {
+  flex: 1; border-radius: 10px; border: 1px solid var(--line); background: #fff;
+  font-weight: 700; font-size: 1.05rem; padding: 0;
+}
+.bidbox2 .callrow .pass { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bidbox2 .callrow .dbl { background: var(--red); border-color: var(--red); color: #fff; }
+.bidbox2 .levelrow button.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
+.bidbox2 .suitrow button { border-radius: 20px; font-size: 1.15rem; }
+.bidbox2 .suitrow button.red { color: var(--red); }
 .status-line { margin-top: 10px; min-height: 1.5em; }

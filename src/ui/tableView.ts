@@ -1,5 +1,5 @@
 import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf, rankChar, sideOf, sortForDisplay, type Card, type Seat } from '../engine/cards';
-import { illegalReason, type Call } from '../engine/bidding';
+import { legalCalls, type AuctionState, type Call } from '../engine/bidding';
 import { isVulnerable } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
 import { contractToString } from '../engine/scoring';
@@ -17,6 +17,40 @@ function cardFace(card: Card, onPlay?: () => void, extraClass = ''): HTMLElement
   return onPlay
     ? h(`button.${cls}`, { onclick: onPlay, title: `Play ${label}`, 'aria-label': `Play ${label}` }, rank, h('small', SUIT_SYMBOLS[suit]))
     : h(`div.${cls}`, { 'aria-label': label }, rank, h('small', SUIT_SYMBOLS[suit]));
+}
+
+/**
+ * Two-step bidding box: pick a level, then a strain. Only levels that have at
+ * least one legal strain are shown, and once a level is picked only the
+ * strains that would actually outbid the last bid are offered.
+ */
+function renderBidBox(auction: AuctionState, onCall: (call: Call) => void): HTMLElement {
+  const legal = legalCalls(auction);
+  const bids = legal.filter((c): c is Extract<Call, { type: 'bid' }> => c.type === 'bid');
+  const levels = [...new Set(bids.map((c) => c.level))].sort((x, y) => x - y);
+
+  const callRow = h('div.callrow',
+    h('button.pass', { onclick: () => onCall({ type: 'pass' }) }, 'Pass'),
+    legal.some((c) => c.type === 'double') ? h('button.dbl', { onclick: () => onCall({ type: 'double' }) }, 'Dbl') : null,
+    legal.some((c) => c.type === 'redouble') ? h('button.dbl.rdbl', { onclick: () => onCall({ type: 'redouble' }) }, 'Rdbl') : null);
+
+  const suitRow = h('div.suitrow');
+  const levelButtons = new Map<number, HTMLButtonElement>();
+
+  const pickLevel = (level: number): void => {
+    for (const [lv, btn] of levelButtons) btn.classList.toggle('selected', lv === level);
+    const strains = bids.filter((c) => c.level === level).map((c) => c.strain);
+    suitRow.replaceChildren(...STRAINS.filter((s) => strains.includes(s)).map((s) =>
+      h(`button.suit${isRed(s) ? '.red' : ''}`, { onclick: () => onCall({ type: 'bid', level, strain: s }), 'aria-label': `Bid ${level} ${s === 'N' ? 'no trump' : s}` }, SUIT_SYMBOLS[s])));
+  };
+
+  const levelRow = h('div.levelrow', levels.map((level) => {
+    const btn = h('button', { onclick: () => pickLevel(level) }, String(level)) as HTMLButtonElement;
+    levelButtons.set(level, btn);
+    return btn;
+  }));
+
+  return h('div.bidbox2', callRow, levelRow, suitRow);
 }
 
 function callCell(call: Call): HTMLElement {
@@ -125,20 +159,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   out.append(h('div.status-line', { role: 'status' }, iControl ? h('b', status) : status));
 
   if (iControl && turn?.phase === 'auction' && table.auction && mySeat) {
-    const a = table.auction;
-    const ok = (c: Call): boolean => illegalReason(a, mySeat, c) === null;
-    const grid = h('div.grid');
-    for (let level = 1; level <= 7; level++) {
-      for (const strain of STRAINS) {
-        const c: Call = { type: 'bid', level, strain };
-        grid.append(h('button', { disabled: !ok(c), onclick: () => o.onCall(c), 'aria-label': `Bid ${level} ${strain === 'N' ? 'no trump' : strain}` },
-          `${level}`, h('span', { class: isRed(strain) ? 'red' : '' }, SUIT_SYMBOLS[strain])));
-      }
-    }
-    out.append(h('div.bidbox', grid, h('div.calls',
-      h('button.pass', { onclick: () => o.onCall({ type: 'pass' }) }, 'Pass'),
-      h('button.dbl', { disabled: !ok({ type: 'double' }), onclick: () => o.onCall({ type: 'double' }) }, 'Double'),
-      h('button.rdbl', { disabled: !ok({ type: 'redouble' }), onclick: () => o.onCall({ type: 'redouble' }) }, 'Redouble'))));
+    out.append(renderBidBox(table.auction, (c) => o.onCall(c)));
   }
   return out;
 }
