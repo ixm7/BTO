@@ -15,7 +15,7 @@ import { controllerOf } from '../engine/play';
 import type { Transport } from '../net/transport';
 import {
   buildConfig, findSeat, reduce, turnAt,
-  type LobbyPlayer, type TEvent, type TState, type TableState,
+  type BoardResult, type LobbyPlayer, type TEvent, type TState, type TableState, type TournamentConfig,
 } from './state';
 
 export interface Me {
@@ -32,6 +32,14 @@ export interface Me {
 export interface NodeOptions {
   /** Delay before a robot acts, so humans can follow the play. */
   botDelayMs?: number;
+  /**
+   * Index of the only table this node takes part in. When set, the node plays
+   * robots and enforces the inactivity rule there and nowhere else: the other
+   * tables are in its state so that boards can be scored against them, but
+   * they are being played in rooms this node is not in. Left unset, the node
+   * runs the whole field, which is what a single shared room does.
+   */
+  tableIndex?: number;
   /** How long a human may be disconnected before a robot plays for them. */
   absentGraceMs?: number;
   /**
@@ -102,13 +110,14 @@ export class TournamentNode {
   /** Per table, which position we are waiting on and since when. */
   private waitingSince = new Map<number, { key: string; at: number }>();
   private closed = false;
-  private readonly o: Required<Omit<NodeOptions, 'persist'>> & Pick<NodeOptions, 'persist'>;
+  private readonly o: Required<Omit<NodeOptions, 'persist' | 'tableIndex'>> & Pick<NodeOptions, 'persist' | 'tableIndex'>;
   /** Last reason an action of ours was rejected locally (for the UI). */
   lastError: string | null = null;
 
   constructor(readonly transport: Transport, readonly me: Me, opts: NodeOptions = {}) {
     this.o = {
       botDelayMs: opts.botDelayMs ?? 700,
+      tableIndex: opts.tableIndex,
       absentGraceMs: opts.absentGraceMs ?? 20000,
       idleTimeoutMs: opts.idleTimeoutMs ?? 60000,
       peerTimeoutMs: opts.peerTimeoutMs ?? 12000,
@@ -173,6 +182,32 @@ export class TournamentNode {
 
   mySeat(): { table: TableState; seat: Seat } | null {
     return this.state ? findSeat(this.state, this.me.playerId) : null;
+  }
+
+  /**
+   * The tables this node is responsible for driving. With a table of its own
+   * it drives only that one; the rest are in its state to be scored against,
+   * but they are played in rooms it is not in, and acting on them would put
+   * cards into a log nobody else at that table will ever see.
+   */
+  private myTables(): TableState[] {
+    if (!this.state) return [];
+    const only = this.o.tableIndex;
+    if (only === undefined) return [...this.state.tables];
+    const table = this.state.tables[only];
+    return table ? [table] : [];
+  }
+
+  /**
+   * Begin from a configuration worked out ahead of time rather than from who
+   * happens to be in the room. Each table's host does this with the same
+   * derived plan, which is how tables that never meet still agree on the
+   * seating, the deals and the movement.
+   */
+  startWithConfig(config: TournamentConfig): void {
+    if (!this.isCoordinator) throw new Error('Only the current host can start the tournament');
+    if (this.state) throw new Error('Tournament already started');
+    this.append({ t: 'start', config });
   }
 
   /** Start the tournament with whoever is present. Only the coordinator may do this. */
@@ -326,11 +361,43 @@ export class TournamentNode {
   /* ----------------------------------------------------------- log & acts */
 
   private applyLocal(ev: TEvent, save: boolean): void {
+    const before = this.state?.results.length ?? 0;
     this.state = reduce(this.state, ev);
     this.log.push(ev);
     if (this.pending && sameEvent(this.pending, ev)) this.pending = null;
     if (save) this.o.persist?.save(this.log);
+    /* A board our own table has just finished is the rest of the field's only
+       sight of us, so hand it straight to whoever is carrying results. */
+    const mine = this.o.tableIndex;
+    if (mine !== undefined && this.state.results.length > before) {
+      for (const r of this.state.results.slice(before)) {
+        if (r.table === mine) for (const cb of this.resultCbs) cb(r);
+      }
+    }
   }
+
+  private resultCbs: ((r: BoardResult) => void)[] = [];
+
+  /** Called with each board this node's own table finishes. */
+  onResult(cb: (r: BoardResult) => void): void { this.resultCbs.push(cb); }
+
+  /**
+   * Record a board another table played. Only the table's coordinator is in
+   * the room where these arrive; putting it in the table's log is what lets
+   * the other three players at the table see it too.
+   */
+  importResult(result: BoardResult): void {
+    if (!this.state || !this.isCoordinator) return;
+    /* Deduplication is by board, not by table: an earlier round played at this
+       same table was played by different people and still has to be taken in.
+       Anything this table itself produced is already recorded, so it is caught
+       here rather than by refusing our own table's index. */
+    if (this.state.results.some((x) => x.table === result.table && x.board === result.board)) return;
+    this.append({ t: 'result', result });
+  }
+
+  /** Every board recorded so far, for handing a newly arrived host the backlog. */
+  knownResults(): BoardResult[] { return this.state ? [...this.state.results] : []; }
 
   /** Coordinator only: validate, append and broadcast. Returns false if the event was illegal. */
   private append(ev: TEvent): boolean {
@@ -352,6 +419,9 @@ export class TournamentNode {
        Results arrive from the tables that played them, over the results room,
        never as an intent from somebody sitting at this table. */
     if (ev.t === 'start' || ev.t === 'retire' || ev.t === 'result' || !this.state) return;
+    /* This room is one table's room; a card for any other table is not ours to
+       accept, whoever sent it. */
+    if (this.o.tableIndex !== undefined && ev.table !== this.o.tableIndex) return;
     const table = this.state.tables[ev.table];
     const playerId = this.playerOf(from);
     if (!table || !playerId) return;
@@ -406,7 +476,7 @@ export class TournamentNode {
     if (this.closed || !this.isCoordinator || !this.ready || !this.state || this.state.finished) return;
     const now = this.o.now();
     let robotsWaiting = false;
-    for (const table of [...this.state.tables]) {
+    for (const table of this.myTables()) {
       const turn = turnAt(table);
       if (!turn || table.boardNo === null) continue;
       const player = table.seats[turn.controller];
