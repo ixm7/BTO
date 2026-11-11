@@ -18,8 +18,8 @@
   /* Cards butt together with no gaps, so a hand is thirteen of these wide.
      Dropping the gaps bought back enough room to make each card larger than
      before while the hand as a whole still takes far less of the table. */
-  --card-w: clamp(34px, 3.6vw, 66px);
-  --card-h: clamp(45px, 4.7vw, 87px);
+  --card-w: clamp(33px, 3.5vw, 64px);
+  --card-h: clamp(44px, 4.69vw, 86px);
   --card-font: clamp(1.05rem, 1.5vw, 1.85rem);
   /* Two card heights, plus clearance between them and a strip for the message,
      so the played cards never land on top of one another. */
@@ -229,13 +229,16 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; }
 .hand .suit-group { display: flex; gap: 0; margin: 0; }
 .pc {
-  width: var(--card-w); aspect-ratio: 19 / 25; flex: 0 0 auto;
+  width: var(--card-w); aspect-ratio: 59 / 79; flex: 0 0 auto;
   border-radius: 0; border: 1px solid #14201a;
   /* Adjacent cards share one hairline instead of drawing two. */
   margin-right: -1px;
   background: #fff; color: #14201a;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
-  line-height: .8; font-weight: 800; font-size: var(--card-font); padding: 0;
+  line-height: .78; font-weight: 700; font-size: var(--card-font); padding: 0;
+  /* The face is set in Arial, as BBO's is: its digits are narrower than the
+     interface font's, which is what lets the rank be this large. */
+  font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
 }
 .pc.red { border-color: var(--red); }
 .hand .pc:last-child { margin-right: 0; }
@@ -271,8 +274,8 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .center .pc { font-size: calc(var(--card-w) * .5); }
 /* Rank and suit sit tight against each other, as on a BBO card: the glyph
    boxes are trimmed so the gap is the one the design wants, not leading. */
-.pc .rank { font-size: 1.14em; line-height: .76; display: block; }
-.pc .suit { font-size: 1.04em; line-height: .76; font-weight: 400; display: block; margin-top: .03em; }
+.pc .rank { font-size: 1.51em; line-height: .72; display: block; }
+.pc .suit { font-size: 1.70em; line-height: .72; font-weight: 400; display: block; margin-top: -.025em; }
 .pc.red { color: var(--red); }
 .pc.black { color: #14201a; }
 button.pc:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 2.5px var(--gold), 0 2px 6px rgba(0,0,0,.3); transform: translateY(-5px); }
