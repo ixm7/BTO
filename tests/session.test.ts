@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryHub, type Transport } from '../src/net/transport';
 import { TournamentSession } from '../src/ui/session';
-import { planConfig } from '../src/tournament/plan';
+import { planConfig, tableRoom } from '../src/tournament/plan';
 import { standings, turnAt, type LobbyPlayer } from '../src/tournament/state';
 import { chooseCall, chooseCard } from '../src/engine/bot';
 
@@ -95,8 +95,8 @@ describe('playing a tournament a table at a time', () => {
     for (const r of tableRooms) expect(net.hubs.get(r)!.ids().length).toBeLessThanOrEqual(4);
   }, 120000);
 
-  it('tells a player who is not in the draw', async () => {
-    const config = planConfig({ id: 'ses2', name: 'Session', seed: 'fixed', roster: roster(8), boardsPerRound: 1, rounds: 1 });
+  it('sits a player with no seat of their own at one table to watch', async () => {
+    const config = planConfig({ id: 'ses2', name: 'Session', seed: 'fixed', roster: roster(16), boardsPerRound: 1, rounds: 1 });
     const net = world();
     const s = new TournamentSession({
       config, botDelayMs: 0,
@@ -106,8 +106,73 @@ describe('playing a tournament a table at a time', () => {
     });
     live.push(s);
     await s.start();
+
+    /* No seat in the draw, so nothing to play — but they are in the room of a
+       single table, where a robot's seat might come free. */
     expect(s.notPlaying).toBe(true);
-    expect(s.node).toBeNull();
-    expect(net.joined).toEqual([]);
+    expect(s.watching).not.toBeNull();
+    expect(net.joined).toEqual([tableRoom(config.id, 0, s.watching!)]);
+    expect(s.node!.robotSeats()).toEqual([]);
   });
+
+  it('lets a latecomer take over a robot and carries the seat into the next round', async () => {
+    const config = planConfig({ id: 'ses4', name: 'Session', seed: 'fixed', roster: roster(8), boardsPerRound: 1, rounds: 2 });
+    const net = world();
+    const open = (id: string, name: string, score: number, seekIntervalMs = 200): TournamentSession => {
+      const s = new TournamentSession({
+        config, botDelayMs: 0, seekIntervalMs,
+        me: { playerId: id, name, deviceScore: score, isDirector: false },
+        connect: (room) => net.connect(room),
+        onChange: () => { /* the interface would redraw here */ },
+      });
+      live.push(s);
+      return s;
+    };
+
+    const sessions = roster(8).map((p) => open(p.id, p.name, Number(p.id.slice(1))));
+    await Promise.all(sessions.map((s) => s.start()));
+    await until(() => sessions.every((s) => s.node?.state));
+
+    /* One player at each table stands down, so whichever table the latecomer
+       looks at first has a robot playing somebody's cards. */
+    const perTable = new Map<number, TournamentSession>();
+    for (const s of sessions) {
+      const t = s.node!.mySeat()!.table.index;
+      if (!perTable.has(t)) perTable.set(t, s);
+    }
+    expect(perTable.size).toBe(config.tables);
+    for (const s of perTable.values()) s.node!.withdraw();
+
+    /* Boards here are played in milliseconds, so look again at that pace
+       rather than at the pace of a table of people. */
+    const late = open('late', 'Latecomer', 50, 200);
+    await late.start();
+    expect(late.notPlaying).toBe(true);
+    await until(() => late.node!.robotSeats().length > 0);
+    late.claimRobotSeat();
+
+    const tick = setInterval(() => {
+      for (const s of [...sessions, late]) {
+        const n = s.node;
+        const at = n?.mySeat();
+        if (!n || !at) continue;
+        const turn = turnAt(at.table);
+        if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) continue;
+        if (turn.phase === 'auction') n.call(chooseCall(at.table.deal![turn.seat], at.table.auction!, turn.seat));
+        else n.play(turn.seat, chooseCard(at.table.play!, turn.seat));
+      }
+    }, 4);
+
+    try {
+      /* The seat changes hands when the board in progress is over, never in
+         the middle of it. */
+      await until(() => late.node?.mySeat() != null, 30000);
+      expect(late.notPlaying).toBe(false);
+      /* And the stand-in follows that seat when the field moves round. */
+      await until(() => late.round === 1, 30000);
+      await until(() => late.node?.mySeat() != null, 30000);
+    } finally {
+      clearInterval(tick);
+    }
+  }, 120000);
 });

@@ -201,6 +201,15 @@ function callCell(call: Call, alert?: string): HTMLElement {
 export interface TableViewOptions {
   table: TableState;
   mySeat: Seat | null;
+  /**
+   * The seat whose cards are on show, for somebody who is not playing them: a
+   * player who has stood down and left a robot in their chair. Without it,
+   * nothing is on show but the dummy, so that watching a table is never a way
+   * of seeing hands that are still being played.
+   */
+  viewSeat?: Seat | null;
+  /** Every hand, for a board that is over and done with. */
+  revealAll?: boolean;
   onCall(call: Call, alert?: string): void;
   onPlay(seat: Seat, card: Card): void;
   isPresent(playerId: string): boolean;
@@ -209,7 +218,8 @@ export interface TableViewOptions {
 
 export function renderTable(o: TableViewOptions): HTMLElement {
   const { table, mySeat } = o;
-  const bottom: Seat = mySeat ?? 'S';
+  const view = mySeat ?? o.viewSeat ?? null;
+  const bottom: Seat = view ?? 'S';
   const pos: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
   pos[bottom] = 'bottom';
   pos[nextSeat(bottom)] = 'left';
@@ -225,7 +235,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const vul = isVulnerable(table.vul, sideOf(seat));
     const cards = play ? play.hands[seat] : table.deal?.[seat] ?? [];
     const isDummy = !!play && play.dummy === seat;
-    const visible = mySeat === null || seat === mySeat || (isDummy && !!play && isDummyVisible(play));
+    const visible = !!o.revealAll || seat === view || (isDummy && !!play && isDummyVisible(play));
     const canPlayHere = iControl && turn?.phase === 'play' && turn.seat === seat;
     const legal = canPlayHere && play ? new Set(legalPlays(play.hands[seat], play.trick)) : new Set<Card>();
     const away = !player.bot && !o.isPresent(player.id);
@@ -290,7 +300,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
 
   /* Tricks are counted from the viewer's own side, as they would be at a real
      table. A spectator has no side of their own, so they watch declarer's. */
-  const mySide = mySeat ? sideOf(mySeat) : play ? sideOf(play.contract.declarer) : 'NS';
+  const mySide = view ? sideOf(view) : play ? sideOf(play.contract.declarer) : 'NS';
   const declaring = play ? mySide === sideOf(play.contract.declarer) : false;
   const won = play ? (declaring ? play.declarerTricks : play.defenderTricks) : 0;
   const lost = play ? (declaring ? play.defenderTricks : play.declarerTricks) : 0;

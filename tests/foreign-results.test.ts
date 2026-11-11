@@ -43,7 +43,7 @@ describe('scoring from one table plus imported results', () => {
 
     for (const e of log.slice(1)) {
       replayed = reduce(replayed, e);
-      if (e.t !== 'retire' && e.t !== 'result' && e.t !== 'start' && e.table === mine) {
+      if ((e.t === 'call' || e.t === 'play') && e.table === mine) {
         solo = reduce(solo, e);
       }
       /* Whatever the rest of the field just finished reaches us as a result. */

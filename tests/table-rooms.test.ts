@@ -111,7 +111,7 @@ describe('one room per table', () => {
 
     /* Scored as a tournament, from boards played in twelve separate rooms. */
     const table = standings({
-      config, round: config.rounds - 1, tables: [], results, finished: true, aborted: false, retired: [],
+      config, round: config.rounds - 1, tables: [], results, finished: true, aborted: false, retired: [], substitutes: {}, pendingSeats: {},
     });
     expect(table).toHaveLength(config.pairs.length);
     const avg = table.reduce((a, r) => a + r.percent, 0) / table.length;

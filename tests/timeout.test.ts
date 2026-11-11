@@ -164,6 +164,41 @@ describe('replacing a player who stops responding', () => {
     expect(all[0]!.state!.retired).toEqual([]);
   });
 
+  it('lets a player stand themselves down from any device', async () => {
+    const hub = new MemoryHub();
+    const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `w${i}`, isDirector: i === 0 }, 0));
+    await until(() => all.every((n) => n.lobby().length === 4));
+    all[0]!.start({ id: 'tw', name: 'Withdraw', boardsPerRound: 1, rounds: 1, seed: 'fixed' });
+    await until(() => all.every((n) => n.state !== null));
+
+    /* Not the host, so the request has to travel and be allowed through. */
+    const quitter = all[3]!;
+    expect(quitter.isCoordinator).toBe(false);
+    quitter.withdraw();
+
+    await until(() => all.every((n) => n.state!.retired.includes('w3')), 5000);
+    /* A robot plays on in their place, as every peer sees it. */
+    for (const n of all) expect(humansLeft(n.state!)).toBe(3);
+    expect(quitter.mySeat()).toBeNull();
+  });
+
+  it('refuses a claim to be standing in for a player who is at the table', async () => {
+    const hub = new MemoryHub();
+    const all = [0, 1].map((i) => join(hub, { playerId: `y${i}`, isDirector: i === 0 }, 0));
+    await until(() => all.every((n) => n.lobby().length === 2));
+    all[0]!.start({ id: 't6', name: 'Impostor', boardsPerRound: 1, rounds: 1, seed: 'fixed' });
+    await until(() => all.every((n) => n.state !== null));
+
+    /* y1 says it is playing y0's cards. y0 is sitting right there. */
+    const victim = all[0]!.me.playerId;
+    all[1]!.declareStanding({ [victim]: { round: 0, retired: true, sub: { id: 'y1', name: 'y1' } } });
+
+    await sleep(300);
+    expect(all[0]!.state!.retired).not.toContain(victim);
+    expect(all[0]!.state!.substitutes).toEqual({});
+    expect(humansLeft(all[0]!.state!)).toBe(2);
+  });
+
   it('ignores a retirement a peer tries to force on someone else', async () => {
     const hub = new MemoryHub();
     const all = [0, 1].map((i) => join(hub, { playerId: `x${i}`, isDirector: i === 0 }, 0));

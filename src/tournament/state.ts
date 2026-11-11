@@ -48,8 +48,16 @@ export type TEvent =
   | { t: 'start'; config: TournamentConfig }
   | { t: 'call'; table: number; board: number; seat: Seat; call: Call; alert?: string }
   | { t: 'play'; table: number; board: number; seat: Seat; card: Card }
-  /** A player who stopped responding; a robot takes their seat for the rest of the event. */
+  /** A player who stopped responding, or stood down; a robot takes their seat. */
   | { t: 'retire'; playerId: string }
+  /**
+   * Somebody is to sit in the seat the entry list gave `forPlayerId`: that
+   * player returning to their own seat, or a newcomer taking over from the
+   * robot filling it. `player` null hands the seat back to its owner.
+   * Takes effect when the next board is dealt, never mid-hand.
+   */
+  | { t: 'seat'; forPlayerId: string; player: PlayerRef | null }
+  | { t: 'seating'; seating: Seating }
   /**
    * A board another table finished. A player only sees the cards played at
    * their own table, but a board cannot be scored until the other tables have
@@ -122,6 +130,19 @@ export interface TState {
    * are re-seated for the next round.
    */
   retired: string[];
+  /**
+   * Who is sitting in a seat that its original owner is not filling: a player
+   * who came back for their own seat, or one who arrived late and took over
+   * from a robot. Keyed by the id the entry list gave that seat, because that
+   * is what the movement is worked out from — a stand-in follows the seat,
+   * round by round, exactly as its owner would have done.
+   */
+  substitutes: Record<string, PlayerRef>;
+  /**
+   * Seat changes asked for but not yet made. A hand in progress is not
+   * interrupted: these are applied when the next board is dealt.
+   */
+  pendingSeats: Record<string, PlayerRef | null>;
 }
 
 /** Longest explanation kept for an alerted call. */
@@ -137,6 +158,82 @@ export const firstBoardOfRound = (c: TournamentConfig, round: number): number =>
  */
 export function ewPairAt(c: TournamentConfig, table: number, round: number): number {
   return 2 * ((table + round) % c.tables) + 1;
+}
+
+/**
+ * Put into effect every seat change that was asked for while the last board
+ * was being played. Doing it here is what keeps the promise that a change
+ * lands on the next hand and never interrupts one.
+ */
+/**
+ * What has become of one seat's original occupant: whether they have stood
+ * down, and who, if anyone, is playing their cards instead.
+ *
+ * Each round is played in a room of its own, with a log of its own, so the
+ * next room would otherwise put everybody back in the seat the entry list
+ * gave them. This is the little that has to travel: a table's host states the
+ * standing of its own four players, and `round` settles which statement is
+ * the newer one when two hosts have seen the same player.
+ */
+export interface SeatNews { round: number; retired: boolean; sub: PlayerRef | null }
+export type Seating = Record<string, SeatNews>;
+
+/** The newer word about each player wins; within a round, the arriving one. */
+export function mergeSeating(into: Seating, from: Seating): Seating {
+  const out: Seating = { ...into };
+  for (const [id, news] of Object.entries(from)) {
+    const have = out[id];
+    if (!have || news.round >= have.round) out[id] = news;
+  }
+  return out;
+}
+
+/** Put everyone in the seat the retirements and stand-ins say they are in. */
+function reseat(state: TState): void {
+  const gone = new Set(state.retired);
+  for (const t of state.tables) {
+    const seats = { ...t.seats };
+    for (const s of SEATS) {
+      const original = originalAt(state.config, t, s);
+      if (original) seats[s] = occupant(original, gone, state.substitutes);
+    }
+    t.seats = seats;
+  }
+  refreshActivity(state);
+}
+
+function applyPendingSeats(state: TState): void {
+  const pending = Object.entries(state.pendingSeats);
+  if (pending.length === 0) return;
+
+  const subs = { ...state.substitutes };
+  let retired = state.retired;
+  for (const [id, player] of pending) {
+    if (player === null) {
+      delete subs[id];
+      /* Handing a seat back to its owner also ends their retirement. */
+      retired = retired.filter((x) => x !== id);
+    } else {
+      subs[id] = player;
+    }
+  }
+  state.substitutes = subs;
+  state.retired = retired;
+  state.pendingSeats = {};
+  reseat(state);
+}
+
+/** The id the entry list gave a seat, which is what seat changes are keyed by. */
+export function originalSeatId(c: TournamentConfig, table: TableState, seat: Seat): string | undefined {
+  return originalAt(c, table, seat)?.id;
+}
+
+/** The player the entry list put in this seat, before anyone stood in. */
+function originalAt(c: TournamentConfig, table: TableState, seat: Seat): PlayerRef | undefined {
+  const ns = c.pairs[table.nsPair]?.players;
+  const ew = c.pairs[table.ewPair]?.players;
+  if (!ns || !ew) return undefined;
+  return seat === 'N' ? ns[0] : seat === 'S' ? ns[1] : seat === 'E' ? ew[0] : ew[1];
 }
 
 function setBoard(c: TournamentConfig, table: TableState, boardNo: number | null): void {
@@ -158,11 +255,39 @@ function setBoard(c: TournamentConfig, table: TableState, boardNo: number | null
  * is derived from theirs so the other players can see who it stood in for, and
  * the id from theirs so every peer produces exactly the same seat.
  */
-export function standIn(p: PlayerRef): PlayerRef {
-  return { id: `bot:${p.id}`, name: `Robot for ${p.name.split(/\s+/)[0] || p.name}`, bot: true };
+/** The entry list's own player for a seat id, if there is one. */
+export function ownerOf(c: TournamentConfig, playerId: string): PlayerRef | undefined {
+  for (const pair of c.pairs) for (const p of pair.players) if (p.id === playerId) return p;
+  return undefined;
 }
 
-function seatTables(c: TournamentConfig, round: number, previous?: TableState[], retired: readonly string[] = []): TableState[] {
+/** Where the given tables' original occupants now stand, to carry onward. */
+export function seatingOf(state: TState, tables: readonly TableState[]): Seating {
+  const out: Seating = {};
+  for (const t of tables) {
+    for (const s of SEATS) {
+      const id = originalSeatId(state.config, t, s);
+      if (!id) continue;
+      out[id] = { round: state.round, retired: state.retired.includes(id), sub: state.substitutes[id] ?? null };
+    }
+  }
+  return out;
+}
+
+export function standIn(p: PlayerRef): PlayerRef {
+  const who = p.name.trim().slice(0, 24) || p.id;
+  return { id: `bot:${p.id}`, name: `Robot for ${who}`, bot: true };
+}
+
+/**
+ * Who actually sits in a seat: whoever has taken it over, else a robot if its
+ * owner has gone, else the owner.
+ */
+function occupant(ref: PlayerRef, retired: ReadonlySet<string>, subs: Record<string, PlayerRef>): PlayerRef {
+  return subs[ref.id] ?? (retired.has(ref.id) ? standIn(ref) : ref);
+}
+
+function seatTables(c: TournamentConfig, round: number, previous?: TableState[], retired: readonly string[] = [], subs: Record<string, PlayerRef> = {}): TableState[] {
   const tables: TableState[] = [];
   const gone = new Set(retired);
   for (let t = 0; t < c.tables; t++) {
@@ -174,7 +299,7 @@ function seatTables(c: TournamentConfig, round: number, previous?: TableState[],
     /* Whether humans were dealt into this table, before any of them were
        replaced: a table that lost its players still counts as having had them. */
     const hadHuman = SEATS.some((s) => !seated[s].bot);
-    for (const s of SEATS) if (gone.has(seated[s].id)) seated[s] = standIn(seated[s]);
+    for (const s of SEATS) seated[s] = occupant(seated[s], gone, subs);
     const table: TableState = {
       index: t, nsPair, ewPair,
       seats: seated,
@@ -233,6 +358,7 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
   table.lastResult = result;
   const lastOfRound = firstBoardOfRound(c, state.round) + c.boardsPerRound - 1;
   setBoard(c, table, boardNo < lastOfRound ? boardNo + 1 : null);
+  applyPendingSeats(state);
   advanceIfRoundOver(state);
 }
 
@@ -248,7 +374,7 @@ function advanceIfRoundOver(state: TState): void {
     return;
   }
   state.round++;
-  state.tables = seatTables(c, state.round, state.tables, state.retired);
+  state.tables = seatTables(c, state.round, state.tables, state.retired, state.substitutes);
   refreshActivity(state);
 }
 
@@ -273,7 +399,7 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
   if (ev.t === 'start') {
     if (prev) throw new Error('Tournament already started');
     validateConfig(ev.config);
-    return { config: ev.config, round: 0, tables: seatTables(ev.config, 0), results: [], finished: false, aborted: false, retired: [] };
+    return { config: ev.config, round: 0, tables: seatTables(ev.config, 0), results: [], finished: false, aborted: false, retired: [], substitutes: {}, pendingSeats: {} };
   }
   if (!prev) throw new Error('Tournament has not started');
   if (prev.finished) throw new Error('Tournament is over');
@@ -289,6 +415,52 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
     state.results = [...state.results, r];
     creditForeignBoard(state, table);
     advanceIfRoundOver(state);
+    return state;
+  }
+
+  if (ev.t === 'seat') {
+    const owner = ownerOf(state.config, ev.forPlayerId);
+    if (!owner) throw new Error('No such seat');
+    if (ev.player === null) {
+      /* Only the seat's own owner may ask for it back. */
+      state.pendingSeats = { ...state.pendingSeats, [ev.forPlayerId]: null };
+      return state;
+    }
+    /* A seat with somebody in it is not up for grabs. */
+    const held = state.substitutes[ev.forPlayerId];
+    const retiredOwner = state.retired.includes(ev.forPlayerId);
+    const vacant = (retiredOwner || owner.bot) && !held;
+    if (!vacant && held?.id !== ev.player.id) throw new Error('Somebody is already in that seat');
+
+    if (state.pendingSeats[ev.forPlayerId] !== undefined) throw new Error('That seat has already been taken');
+    /* Nobody may sit in two seats at once. */
+    const taker = ev.player;
+    const already = Object.values({ ...state.substitutes, ...state.pendingSeats })
+      .some((p) => p !== null && p !== undefined && p.id === taker.id);
+    const seatedAlready = state.tables.some((t) => SEATS.some((s) => t.seats[s].id === taker.id));
+    if (already || seatedAlready) throw new Error('You are already at a table');
+    state.pendingSeats = { ...state.pendingSeats, [ev.forPlayerId]: taker };
+    return state;
+  }
+
+  if (ev.t === 'seating') {
+    /* Brought in by a table's host as a round's room opens, so that a player
+       who stood down in the last round is not handed their cards again, and a
+       stand-in keeps the seat they took on. It states a standing rather than
+       asking for a change, so it is applied at once — which is safe only
+       because it arrives before the round's first card. */
+    const retired = new Set(state.retired);
+    const subs = { ...state.substitutes };
+    for (const [id, news] of Object.entries(ev.seating)) {
+      if (!ownerOf(state.config, id)) continue; // not a seat in this tournament
+      if (news.retired) retired.add(id); else retired.delete(id);
+      if (news.sub) subs[id] = news.sub; else delete subs[id];
+    }
+    /* Held in the entry list's order, so every peer's state is the same. */
+    const order = state.config.pairs.flatMap((pair) => pair.players.map((p) => p.id));
+    state.retired = order.filter((id) => retired.has(id));
+    state.substitutes = subs;
+    reseat(state);
     return state;
   }
 

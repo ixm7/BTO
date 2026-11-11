@@ -8,14 +8,14 @@
  * lowest peer id), so when it disappears the next one takes over without any
  * vote. The coordinator also plays for robots and for players who have dropped.
  */
-import type { Card, Seat } from '../engine/cards';
+import { SEATS, type Card, type Seat } from '../engine/cards';
 import type { Call } from '../engine/bidding';
 import { chooseCall, chooseCard } from '../engine/bot';
 import { controllerOf } from '../engine/play';
 import type { Transport } from '../net/transport';
 import {
-  buildConfig, findSeat, reduce, turnAt,
-  type BoardResult, type LobbyPlayer, type TEvent, type TState, type TableState, type TournamentConfig,
+  buildConfig, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
+  type BoardResult, type LobbyPlayer, type Seating, type TEvent, type TState, type TableState, type TournamentConfig,
 } from './state';
 
 export interface Me {
@@ -224,6 +224,84 @@ export class TournamentNode {
     this.append({ t: 'start', config });
   }
 
+  /**
+   * Stand down and let a robot play on. The same thing the clock does to a
+   * player who stops responding, asked for rather than imposed.
+   */
+  withdraw(): void {
+    if (!this.state) return;
+    this.submit({ t: 'retire', playerId: this.me.playerId });
+  }
+
+  /**
+   * Ask for a seat from the next board: your own one back, or one a robot is
+   * keeping warm. `forPlayerId` is the id the entry list gave that seat.
+   */
+  takeSeat(forPlayerId: string): void {
+    if (!this.state) return;
+    const mine = forPlayerId === this.me.playerId;
+    this.submit({
+      t: 'seat', forPlayerId,
+      player: mine ? null : { id: this.me.playerId, name: this.me.name },
+    });
+  }
+
+  /**
+   * Where this table's four players stand: who has stood down, and who is
+   * playing their cards. Carried to the next round's room, which has a log of
+   * its own and would otherwise seat everyone as the entry list first did.
+   */
+  seating(): Seating {
+    return this.state ? seatingOf(this.state, this.myTables()) : {};
+  }
+
+  /** Bring a round's fresh room up to date with who is sitting where. */
+  importSeating(seating: Seating): void {
+    const state = this.state;
+    if (!state || !this.isCoordinator) return;
+    /* Only what this room does not already have, so that hosts telling each
+       other the same thing does not grow the log for nothing. */
+    const news: Seating = {};
+    for (const [id, item] of Object.entries(seating)) {
+      if (!ownerOf(state.config, id)) continue;
+      const retired = state.retired.includes(id);
+      const sub = state.substitutes[id]?.id ?? null;
+      if (item.retired === retired && (item.sub?.id ?? null) === sub) continue;
+      news[id] = item;
+    }
+    if (Object.keys(news).length === 0) return;
+    this.append({ t: 'seating', seating: news });
+  }
+
+  /**
+   * Say where I stand, for a room that has not heard. A round is played in a
+   * fresh room, and the one person certain to be in the new room with this
+   * knowledge is the player it is about: somebody standing in for an absent
+   * player, or somebody who has stood down and whose robot should play on.
+   */
+  declareStanding(seating: Seating): void {
+    if (!this.state || Object.keys(seating).length === 0) return;
+    this.submit({ t: 'seating', seating });
+  }
+
+  /** Seats a robot is filling, which somebody could take over. */
+  robotSeats(): { forPlayerId: string; table: number; seat: Seat; name: string }[] {
+    if (!this.state) return [];
+    const out: { forPlayerId: string; table: number; seat: Seat; name: string }[] = [];
+    /* Only this node's own table: a seat at a table whose room we are not in
+       would be claimed in a log the people playing there never see. */
+    for (const t of this.myTables()) {
+      if (!t.active) continue;
+      for (const s of SEATS) {
+        const sitting = t.seats[s];
+        if (!sitting.bot) continue;
+        const owner = originalSeatId(this.state.config, t, s);
+        if (owner) out.push({ forPlayerId: owner, table: t.index, seat: s, name: sitting.name });
+      }
+    }
+    return out;
+  }
+
   /** `alert` explains a non-standard call to the opponents; blank means none. */
   call(call: Call, alert?: string): void {
     const at = this.mySeat();
@@ -414,11 +492,49 @@ export class TournamentNode {
   }
 
   private handleIntent(ev: TEvent, from: string): void {
-    /* Retirement is the coordinator's own judgement about who has stopped
-       responding; accepting it from a peer would let anyone evict anyone.
-       Results arrive from the tables that played them, over the results room,
+    /* Results arrive from the tables that played them, over the results room,
        never as an intent from somebody sitting at this table. */
-    if (ev.t === 'start' || ev.t === 'retire' || ev.t === 'result' || !this.state) return;
+    if (ev.t === 'start' || ev.t === 'result' || !this.state) return;
+    if (ev.t === 'retire') {
+      /* Standing down is the one retirement a peer may ask for, and only its
+         own. The clock's verdict on somebody else is the host's alone;
+         accepting that from a peer would let anyone evict anyone. */
+      if (this.playerOf(from) === ev.playerId) this.append(ev);
+      return;
+    }
+
+    /* A request to sit down comes from the player wanting the seat, so unlike
+       the rest it is expected from a peer — but only on their own behalf. */
+    if (ev.t === 'seating') {
+      /* A peer may only speak about itself: that it has stood down, or that
+         it is standing in for somebody who is not at the table. Taking over
+         an absent player is no more than the clock would do for them in a
+         minute, so this only saves the wait; a player who is here keeps
+         their seat whatever anybody claims. */
+      const asker = this.playerOf(from);
+      if (!asker) return;
+      const mine: Seating = {};
+      for (const [id, news] of Object.entries(ev.seating)) {
+        const stoodDown = id === asker && news.retired && !news.sub;
+        /* Their seat is open if they have stood down, or if they are not
+           here — which the clock would see to in a minute anyway. */
+        const open = this.state.retired.includes(id) || !this.isPresent(id);
+        const standingIn = news.sub?.id === asker && open;
+        if (stoodDown || standingIn) mine[id] = news;
+      }
+      this.importSeating(mine);
+      return;
+    }
+
+    if (ev.t === 'seat') {
+      const asker = this.playerOf(from);
+      if (!asker) return;
+      const forThemselves = ev.player === null ? asker === ev.forPlayerId : asker === ev.player.id;
+      if (!forThemselves) return;
+      this.append(ev);
+      return;
+    }
+
     /* This room is one table's room; a card for any other table is not ours to
        accept, whoever sent it. */
     if (this.o.tableIndex !== undefined && ev.table !== this.o.tableIndex) return;

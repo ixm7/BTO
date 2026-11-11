@@ -6,7 +6,8 @@ import { planConfig } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
-import { standings, type Standing, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
+import { originalSeatId, ownerOf, standings, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
+import { SEATS } from '../engine/cards';
 import { h, loadSettings, saveSettings, type Settings } from './dom';
 import { renderTable } from './tableView';
 
@@ -721,8 +722,10 @@ function waitingRoom(info: RoomInfo): HTMLElement {
 
   if (session?.notPlaying) {
     return h('div', head, h('div.panel',
-      h('h3', 'Not in this tournament'),
-      h('p', 'The entry list was closed before you registered, so there is no seat for you in this one.')));
+      h('h3', 'Looking for a seat'),
+      h('p', 'The entry list was closed before you registered, so there is no seat of your own in this one. '
+        + 'Where a player has dropped out and left a robot playing their cards, you can take that seat over: '
+        + 'this looks at one table after another until it finds one.')));
   }
   if (session?.moving || session) {
     return h('div', head, h('div.panel',
@@ -757,6 +760,80 @@ function waitingRoom(info: RoomInfo): HTMLElement {
       : h('p.muted', `Waiting for ${l?.meta.director ?? 'the director'} to start the tournament.`)));
 }
 
+/** The name of whoever the entry list paired this player with. */
+function partnerName(state: TState, playerId: string): string | null {
+  const pair = state.config.pairs.find((x) => x.players.some((p) => p.id === playerId));
+  return pair?.players.find((p) => p.id !== playerId)?.name ?? null;
+}
+
+/**
+ * Leaving a seat and coming back to one. A player at the table may stand down
+ * and let a robot play on; one who has stood down may ask for their own seat
+ * back; and anyone with no seat at all may offer to take a robot's place.
+ * Either way the change waits for the next board, so no hand is interrupted.
+ */
+function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElement | null {
+  if (state.finished) return null;
+  const me = n.me.playerId;
+
+  /* In the demo you are the only player, so standing down would leave the
+     tournament with nobody in it and end it there and then. */
+  if (n.mySeat()) {
+    if (demo) return null;
+    return h('button', { title: 'Please replace me with a Robot', onclick: () => { n.withdraw(); render(); } }, 'Withdraw');
+  }
+
+  /* A seat already asked for is given out when the board in progress ends. */
+  const asked = Object.entries(state.pendingSeats)
+    .some(([id, who]) => (who === null ? id === me : who?.id === me));
+  if (asked) return h('span.muted', 'You sit down when this board is over.');
+
+  if (state.retired.includes(me) && !state.substitutes[me]) {
+    const mate = partnerName(state, me);
+    return h('button.primary', {
+      title: `Reseat me on next hand with${mate ? ` ${mate}` : ''}`,
+      onclick: () => { n.takeSeat(me); render(); },
+    }, 'Reseat me');
+  }
+
+  /* No seat: a latecomer, or somebody whose own seat was taken on while they
+     were away. Either way, a robot's seat is there for the asking. */
+  const free = n.robotSeats();
+  return h('div.row',
+    h('button.primary', {
+      disabled: free.length === 0, title: 'Please replace a random Robot with me',
+      onclick: () => { claimRobotSeat(n); render(); },
+    }, 'Replace a Robot'),
+    h('span.muted', free.length
+      ? `${free.length} robot seat${free.length === 1 ? '' : 's'} free here.`
+      : session?.notPlaying
+        ? 'No robot is playing at this table; looking at another one shortly.'
+        : 'No robot is playing at this table.'));
+}
+
+/** Sit down in place of one of the robots, from the next board. */
+function claimRobotSeat(n: TournamentNode): void {
+  if (session) { session.claimRobotSeat(); return; }
+  const free = n.robotSeats();
+  const pick = free[Math.floor(Math.random() * free.length)];
+  if (pick) n.takeSeat(pick.forPlayerId);
+}
+
+/** Who has left this table, and who is playing their cards now. */
+function replacedPanel(state: TState, table: TableState): HTMLElement | null {
+  const rows = SEATS.map((seat) => {
+    const owner = originalSeatId(state.config, table, seat);
+    if (!owner) return null;
+    const sitting = table.seats[seat];
+    if (sitting.id === owner) return null;
+    return h('tr', h('td', ownerOf(state.config, owner)?.name ?? owner), h('td.muted', '→'), h('td', sitting.name));
+  }).filter((x): x is HTMLElement => x !== null);
+  if (rows.length === 0) return null;
+  return h('div.panel', h('h3', 'Stood down'),
+    h('table.list', h('tbody', rows)),
+    h('p.muted', { style: 'margin:6px 0 0' }, 'A player who comes back takes their own seat again from the next board.'));
+}
+
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
@@ -767,6 +844,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
           title: 'Look back over the boards: all four hands, the bidding, and what every other table did' },
         reviewing ? 'Back to the table' : 'Hand records')
       : null,
+    state ? seatControls(n, state, info.demo) : null,
     info.demo ? null : h('span.muted', `Host: ${n.coordinatorName}${n.isCoordinator ? ' (this device)' : ''} · ${n.lobby().length} connected`));
 
   if (state && reviewing) {
@@ -828,14 +906,20 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
           : h('span.muted', 'Add a token in Settings to publish the results to the tournament page.')));
     }
   } else {
-    const table = at?.table ?? state.tables[Math.min(watchTable, state.tables.length - 1)];
-    if (!at && state.tables.length > 1) {
+    /* A latecomer looking for a seat watches the one table whose room they
+       are in, which is the only one their state really knows about. */
+    const watched = session?.notPlaying && session.watching !== null ? session.watching : watchTable;
+    const table = at?.table ?? state.tables[Math.min(watched, state.tables.length - 1)];
+    if (!at && !session && state.tables.length > 1) {
       main.append(h('div.row', { style: 'margin-bottom:8px' }, h('span.muted', 'Watching:'),
         state.tables.map((t) => h('button', { disabled: t.index === watchTable, onclick: () => { watchTable = t.index; render(); } }, `Table ${t.index + 1}`))));
     }
     if (table && table.boardNo !== null) {
+      /* Somebody who has stood down still sees their own hand — a robot is
+         playing those cards for them — but no more than that. */
+      const ownSeat = at?.seat ?? SEATS.find((x) => originalSeatId(state.config, table, x) === n.me.playerId) ?? null;
       main.append(renderTable({
-        table, mySeat: at?.seat ?? null,
+        table, mySeat: at?.seat ?? null, viewSeat: ownSeat,
         onCall: (c, alert) => n.call(c, alert), onPlay: (seat, card) => n.play(seat, card),
         isPresent: (id) => n.isPresent(id),
         playerNotes: n.playerNotes(),
@@ -845,6 +929,8 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       main.append(h('div.panel', h('h3', 'Round complete at your table'), h('p.muted', 'Waiting for the other tables to finish this round…')));
     }
     if (table) {
+      const left = replacedPanel(state, table);
+      if (left) side.append(left);
       side.append(h('div.panel', h('h3', `Round ${state.round + 1} of ${state.config.rounds} · Table ${table.index + 1}`),
         h('div.muted', `${state.results.length} of ${state.config.tables * state.config.rounds * state.config.boardsPerRound} boards played in the room`),
         table.lastResult ? h('p', { style: 'margin:8px 0 0' }, `Last board (${table.lastResult.board}): `, h('b', table.lastResult.text),
