@@ -98,6 +98,9 @@ form.grid small { color: var(--muted); }
 .levels label.check { display: inline-flex; align-items: center; gap: 5px; font-weight: 400; white-space: nowrap; }
 .levels label.check input { margin: 0; }
 
+/* Carries a tooltip for a control that cannot have one: a disabled button. */
+span.tip { display: inline-flex; }
+
 /* Tournament Director subsection in Settings */
 details.director-section { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 details.director-section summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--ink); padding: 4px 0; }

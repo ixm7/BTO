@@ -97,12 +97,24 @@ function startPolling(): void {
   pollTimer = setInterval(() => { if (!node) void refresh(); }, 15000);
 }
 
-async function refresh(): Promise<void> {
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
+
+/**
+ * Reload the tournament list. `expect` is the number of a tournament just
+ * created: the list takes a moment to catch up with a brand new one, so
+ * rather than showing a list without it, wait and ask again.
+ */
+async function refresh(expect?: number): Promise<void> {
   const d = directory();
   if (!d) { listings = null; render(); return; }
   loading = true; errorMsg = null; render();
   try {
     listings = await d.list();
+    for (let tries = 0; expect !== undefined && tries < 8; tries++) {
+      if (listings.some((l) => l.number === expect)) break;
+      await sleep(900);
+      listings = await d.list();
+    }
     if (detail) {
       let updated = listings.find((l) => l.number === detail?.number) ?? detail;
       updated = await applyAutoRegister(d, updated);
@@ -224,10 +236,16 @@ function detailView(l: Listing): HTMLElement {
   /* A tournament set aside for particular levels of player. Saying so plainly
      is kinder than letting somebody register and be turned away later. */
   const welcome = amRegistered || welcomes(l.meta, settings.skill);
-  if (open && !welcome) {
-    actions.append(h('p.muted', { style: 'margin:0' }, settings.skill === ''
-      ? `This tournament is for ${levelPhrase(l.meta)}. Set your skill level in Settings, and if it matches you are very welcome to register here.`
-      : `This tournament is for ${levelPhrase(l.meta)}, and your settings say ${settings.skill}, so registration is closed for this one. Do have a look at the others on the list — or start a private room and play with whoever you invite.`));
+  /* Why the page is read-only, said once at the top where it is read first,
+     and again on the button that is greyed out. */
+  const whyNot = !open || welcome ? null : settings.skill === ''
+    ? `This tournament is for ${levelPhrase(l.meta)}. Set your skill level in Settings, and if it matches you are very welcome to register here.`
+    : `This tournament is for ${levelPhrase(l.meta)}, and your settings say ${settings.skill}, so registration is closed for this one. Do have a look at the others on the list — or start a private room and play with whoever you invite.`;
+  if (whyNot) {
+    /* The tooltip hangs on the wrapper: a disabled button receives no mouse
+       events of its own, so a title on it is never shown. */
+    actions.append(h('span.tip', { title: whyNot }, h('button.primary', { disabled: true }, 'Register')),
+      h('span.muted', 'Not open to your level.'));
   }
   if (open && welcome) {
     if (d.canWrite) {
@@ -255,6 +273,7 @@ function detailView(l: Listing): HTMLElement {
        from this view, and where it cannot — registering without a token — the
        link sits with the action it belongs to. */
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
+    whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
@@ -507,9 +526,15 @@ function openCreate(): void {
         if (d.canWrite) {
           const number = await d.create(meta);
           close();
-          notice = `Tournament created (issue #${number}).`;
+          notice = 'Creating the tournament…';
           location.hash = `t=${number}`;
-          await refresh();
+          /* Only say it is done once it is on the list, so that going back to
+             the list shows it there. */
+          await refresh(number);
+          notice = listings?.some((x) => x.number === number)
+            ? 'Tournament created.'
+            : 'Tournament created. It may take a moment to appear on the list.';
+          render();
         } else {
           window.open(d.newIssueUrl(meta), '_blank', 'noopener');
           close();
