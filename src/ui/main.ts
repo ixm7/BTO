@@ -1,8 +1,10 @@
-import { DEFAULT_IDLE_SEC, Directory, LEVELS, MAX_IDLE_SEC, MIN_IDLE_SEC, idleSecOf, inviteCode, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, Directory, LEVELS, MAX_IDLE_SEC, MIN_IDLE_SEC, idleSecOf, inviteCode, pinnedRoster, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
+import { TournamentSession } from './session';
+import { planConfig } from '../tournament/plan';
 import { TournamentNode, deviceScore } from '../tournament/node';
-import { standings, type Standing, type TEvent, type TState } from '../tournament/state';
+import { standings, type Standing, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { h, loadSettings, saveSettings, type Settings } from './dom';
 import { renderTable } from './tableView';
 
@@ -534,11 +536,70 @@ function joinByCode(): void {
 
 /* ------------------------------------------------------------------ room */
 
+/**
+ * A tournament whose field has been settled is played a table at a time: the
+ * session joins only the room of the table this player is sitting at, and
+ * moves itself on between rounds. Everything else — private rooms, the demo,
+ * and a tournament whose director has not called the start yet — keeps to a
+ * single room, which is all a handful of players needs.
+ */
+let session: TournamentSession | null = null;
+let awaitingStart = false;
+let startPoll: ReturnType<typeof setInterval> | null = null;
+
+function stopStartPoll(): void {
+  if (startPoll) { clearInterval(startPoll); startPoll = null; }
+}
+
 function leaveRoom(): void {
   node?.close();
+  session?.close();
+  stopStartPoll();
   // The saved log only exists to survive a page refresh; leaving on purpose discards it.
   if (room) { try { sessionStorage.removeItem(`bridge-p2p:log:${room.id}`); } catch { /* storage unavailable */ } }
-  node = null; room = null; published = false; watchTable = 0;
+  node = null; session = null; awaitingStart = false; room = null; published = false; watchTable = 0;
+  render();
+}
+
+/** The field, as it stood when the director closed the entry list. */
+function pinnedPlan(l: Listing): TournamentConfig | null {
+  if (!l.pinned) return null;
+  const entries = pinnedRoster(l);
+  if (entries.length < 4) return null;
+  return planConfig({
+    id: l.roomId, name: l.meta.name, seed: l.pinned.seed,
+    roster: entries.map((r) => ({ id: r.login, name: r.name, pairCode: r.pairCode, joinedAt: Date.parse(r.at) })),
+    boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity,
+    idleTimeoutMs: idleSecOf(l.meta) * 1000,
+  });
+}
+
+/** Join the table we are sitting at, once there is a field to sit in. */
+async function openSession(l: Listing): Promise<void> {
+  const config = pinnedPlan(l);
+  if (!config || session) return;
+  stopStartPoll();
+  awaitingStart = false;
+  node?.close();
+  node = null;
+
+  const me = {
+    playerId: settings.githubLogin.trim().toLowerCase() || settings.playerId,
+    name: settings.name.trim() || 'Guest',
+    deviceScore: deviceScore(),
+    isDirector: !!settings.githubLogin && l.initiatorLogin.toLowerCase() === settings.githubLogin.trim().toLowerCase(),
+    pairCode: settings.pairCode || undefined,
+    note: settings.partnerNote || undefined,
+  };
+  session = new TournamentSession({
+    config, me,
+    connect: async (roomName) => settings.transport === 'local'
+      ? localTransport(roomName)
+      : (await import('../net/trystero')).trysteroTransport(roomName),
+    onChange: () => { node = session?.node ?? null; render(); },
+  });
+  await session.start();
+  node = session.node;
   render();
 }
 
@@ -564,7 +625,24 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
 
 async function enterRoom(info: RoomInfo): Promise<void> {
   node?.close();
+  session?.close();
+  session = null;
+  stopStartPoll();
   errorMsg = null; notice = null; published = false;
+
+  /* A listed tournament plays a table at a time once its field is settled.
+     Until the director calls the start there is nothing to join, so we wait
+     and look again rather than gathering everyone into one room. */
+  if (info.listing && !info.demo) {
+    room = info;
+    const current = info.listing;
+    if (pinnedPlan(current)) { await openSession(current); return; }
+    awaitingStart = true;
+    render();
+    startPoll = setInterval(() => { void lookForStart(); }, 8000);
+    return;
+  }
+
   try {
     let transport: Transport;
     if (settings.transport === 'local') transport = localTransport(info.id);
@@ -575,6 +653,19 @@ async function enterRoom(info: RoomInfo): Promise<void> {
     node = attach(transport, info, isDirector, 900);
     render();
   } catch (e) { fail(e); }
+}
+
+/** Has the director called the start yet? */
+async function lookForStart(): Promise<void> {
+  const d = directory();
+  const info = room;
+  if (!d || !info?.listing || session) { stopStartPoll(); return; }
+  try {
+    const fresh = await d.get(info.listing.number);
+    info.listing = fresh;
+    syncListing(fresh);
+    if (pinnedPlan(fresh)) await openSession(fresh);
+  } catch { /* a refresh that fails just means waiting a little longer */ }
 }
 
 function startDemo(): void {
@@ -605,6 +696,55 @@ function toResults(state: TState): TournamentResults {
     boards: state.config.rounds * state.config.boardsPerRound,
     rankings: standings(state).map((s) => ({ rank: s.rank, players: pairNames(s), direction: s.direction, percent: s.percent, matchpoints: s.matchpoints, maxMatchpoints: s.maxMatchpoints })),
   };
+}
+
+/**
+ * Before the field is settled there is no table to join, so this shows who has
+ * entered and lets the director call the start. It also covers the moment
+ * between rounds, when the old table has broken up and the new one is forming.
+ */
+function waitingRoom(info: RoomInfo): HTMLElement {
+  const l = info.listing;
+  const d = directory();
+  const head = h('div.row', { style: 'margin-bottom:10px' },
+    h('button', { onclick: leaveRoom }, '← Leave'), h('h2', info.name), h('span.spacer'));
+
+  if (session?.notPlaying) {
+    return h('div', head, h('div.panel',
+      h('h3', 'Not in this tournament'),
+      h('p', 'The entry list was closed before you registered, so there is no seat for you in this one.')));
+  }
+  if (session?.moving || session) {
+    return h('div', head, h('div.panel',
+      h('h3', `Round ${(session.round ?? 0) + 1}`),
+      h('p.muted', 'Finding your next table. The other three players are on their way to it too.')));
+  }
+
+  const entries = l?.registrations ?? [];
+  const iAmDirector = !!l && !!settings.githubLogin
+    && l.initiatorLogin.toLowerCase() === settings.githubLogin.trim().toLowerCase();
+  const tables = Math.floor(entries.length / 4);
+
+  return h('div', head, h('div.panel',
+    h('h3', 'Waiting room'),
+    h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until the director starts. Entries so far:'),
+    h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === settings.githubLogin.trim().toLowerCase() ? '.me' : ''}`,
+      h('td.num', i + 1), h('td', r.name), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : '')))))),
+    h('p', entries.length < 4
+      ? 'At least four players are needed to start.'
+      : `Starting now would make ${tables} table${tables === 1 ? '' : 's'}; robots fill any empty seats.`),
+    iAmDirector && d?.canWrite
+      ? h('div.row', h('button.primary', { disabled: entries.length < 4, onclick: () => {
+          void (async () => {
+            try {
+              await (d as Directory).pinStart((l as Listing).number);
+              notice = 'The entry list is closed and the tournament has started.';
+              await lookForStart();
+            } catch (e) { fail(e); }
+          })();
+        } }, 'Start tournament'),
+        h('span.muted', 'This closes the entry list and fixes the deals.'))
+      : h('p.muted', `Waiting for ${l?.meta.director ?? 'the director'} to start the tournament.`)));
 }
 
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
@@ -694,7 +834,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
 /* ---------------------------------------------------------------- render */
 
 function render(): void {
-  const view = node && room ? roomView(node, room) : detail ? detailView(detail) : directoryView();
+  const view = room && (awaitingStart || session) && !node ? waitingRoom(room)
+    : node && room ? roomView(node, room)
+    : detail ? detailView(detail) : directoryView();
   root.replaceChildren(h('div.wrap',
     h('header.top',
       h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),

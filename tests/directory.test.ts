@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, Directory, KEEP_FINISHED_MS, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, Directory, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', level: 'Intermediate' as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -440,5 +440,45 @@ describe('clearing away abandoned tournaments', () => {
     const list = await d.list(after);
     const reader = new Directory('club/bridge', null, gh.fetcher);
     await expect(reader.remove({ ...list[0]!, ...d.abandoned[0]! })).rejects.toThrow(/token/);
+  });
+});
+
+describe('closing the entry list', () => {
+  const c = (login: string, body: string, sec: number) =>
+    ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(sec).padStart(2, '0')}Z` });
+
+  it('takes the start only from the director, and only the first one', () => {
+    const comments = [
+      c('mallory', '/start aaaaaaaa', 1),
+      c('ido', '/start bbbbbbbb', 2),
+      c('ido', '/start cccccccc', 3),
+    ];
+    expect(parseStart(comments, 'ido')).toEqual({ seed: 'bbbbbbbb', at: '2026-11-01T00:00:02Z' });
+    /* A redraw by anyone else, or a second one, must not move the field. */
+    expect(parseStart([c('mallory', '/start aaaaaaaa', 1)], 'ido')).toBeNull();
+    expect(parseStart([], 'ido')).toBeNull();
+    expect(parseStart([c('ido', 'starting soon!', 1)], 'ido')).toBeNull();
+  });
+
+  it('freezes the field at that moment, and in a settled order', () => {
+    const regs = parseRegistrations([
+      c('ann', '/register Ann', 1),
+      c('bob', '/register Bob', 2),
+      c('cat', '/register Cat', 9),
+    ]);
+    const pinned = { seed: 'seedseed', at: '2026-11-01T00:00:05Z' };
+    const roster = pinnedRoster({ registrations: regs, pinned });
+    /* Cat entered after the director called time, so Cat is not in the draw. */
+    expect(roster.map((r) => r.login)).toEqual(['ann', 'bob']);
+    /* Until the start is called there is no field at all. */
+    expect(pinnedRoster({ registrations: regs, pinned: null })).toEqual([]);
+  });
+
+  it('refuses a seed that could not have come from us', () => {
+    const d = new Directory('club/bridge', 'ido', async () => ({ ok: true, status: 200, json: async () => ({}), headers: { get: () => null } }));
+    expect(() => d.pinStart(1, 'short')).toThrow(/seed/i);
+    expect(() => d.pinStart(1, 'has spaces in it')).toThrow(/seed/i);
+    expect(randomSeed()).toMatch(/^[a-z0-9]{12}$/);
+    expect(randomSeed()).not.toBe(randomSeed());
   });
 });

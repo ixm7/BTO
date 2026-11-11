@@ -106,6 +106,8 @@ export interface Listing {
   partners: PartnersData | null;
   /** Peer-to-peer room name for this tournament. */
   roomId: string;
+  /** Set once the director has closed the entry list and fixed the deals. */
+  pinned: PinnedStart | null;
   /** GitHub's global id for the issue; needed to delete it. */
   nodeId?: string;
 }
@@ -137,6 +139,18 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
   }
   const startUtc = zonedToUtc(input.start, input.timeZone).toISOString();
   return { v: 1, scoring: 'matchpoints', ...input, name, director: input.director.trim(), startUtc };
+}
+
+/**
+ * The entry list as it stood when the director closed it: everyone registered
+ * at or before that moment, in the order they entered. Every player derives
+ * the same list, so every player derives the same draw.
+ */
+export function pinnedRoster(l: { registrations: Registration[] | null; pinned: PinnedStart | null }): Registration[] {
+  if (!l.pinned || !l.registrations) return [];
+  return l.registrations
+    .filter((r) => r.at <= (l.pinned as PinnedStart).at)
+    .sort((a, b) => a.at.localeCompare(b.at) || a.login.localeCompare(b.login));
 }
 
 /** The tournament's inactivity limit in seconds, defaulted for older entries. */
@@ -185,6 +199,37 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
         : {}),
     };
   } catch { return null; }
+}
+
+/**
+ * The moment the field was fixed. The director posts this, and from then on
+ * the entry list is closed: everyone registered at or before it is in the
+ * draw, and the seed settles the deals. Every player works the seating out
+ * from these two facts alone, which is what lets them go straight to their own
+ * table instead of gathering in one room to be told.
+ */
+export interface PinnedStart {
+  seed: string;
+  at: string;
+}
+
+const START_RE = /^\s*\/start\s+([A-Za-z0-9_-]{6,64})\s*$/im;
+
+/** A fresh seed for the deals, unguessable before the director posts it. */
+export function randomSeed(): string {
+  const b = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(b);
+  return Array.from(b, (x) => 'abcdefghijklmnopqrstuvwxyz0123456789'[x % 36]).join('');
+}
+
+/** The director's start command, if they have given it. The first one wins. */
+export function parseStart(comments: readonly RawComment[], directorLogin: string): PinnedStart | null {
+  for (const c of [...comments].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if ((c.user?.login ?? '').toLowerCase() !== directorLogin.toLowerCase()) continue;
+    const m = START_RE.exec(c.body ?? '');
+    if (m) return { seed: m[1] as string, at: c.created_at };
+  }
+  return null;
 }
 
 export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
@@ -418,6 +463,7 @@ export class Directory {
     let registrations: Registration[] | null = [];
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [] };
+    let pinned: PinnedStart | null = null;
     if (issue.comments > 0) {
       try {
         const cs = await this.comments(issue.number);
@@ -426,11 +472,13 @@ export class Directory {
         const trusted = new Set([issue.user?.login, ...registrations.map((r) => r.login)]);
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
         partners = parsePartners(cs);
+        pinned = parseStart(cs, issue.user?.login ?? '');
       } catch { registrations = null; partners = null; }
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
       status: deriveStatus(meta, issue, results, now), registrations, results, partners, roomId: this.roomId(issue.number),
+      pinned,
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }
@@ -532,6 +580,16 @@ export class Directory {
   }
 
   withdraw(number: number): Promise<unknown> { return this.comment(number, '/withdraw'); }
+
+  /**
+   * Close the entry list and fix the deals. Only the director's own start
+   * counts, and only the first one, so this cannot be re-run to redraw a
+   * tournament that is already under way.
+   */
+  pinStart(number: number, seed: string = randomSeed()): Promise<unknown> {
+    if (!/^[A-Za-z0-9_-]{6,64}$/.test(seed)) throw new Error('Bad seed');
+    return this.comment(number, `/start ${seed}`);
+  }
 
   /** Join (or update your note on) the "looking for a partner" list for this tournament. */
   seekPartner(number: number, note?: string): Promise<unknown> {
