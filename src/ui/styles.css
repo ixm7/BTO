@@ -275,6 +275,9 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 /* Rank and suit sit tight against each other, as on a BBO card: the glyph
    boxes are trimmed so the gap is the one the design wants, not leading. */
 .pc .rank { font-size: 1.51em; line-height: .72; display: block; }
+/* Draw the ten's two figures close enough to read as one rank rather than as
+   a one beside a nought. It stays centred on the card without compensation. */
+.pc .rank.ten { letter-spacing: -.09em; }
 .pc .suit { font-size: 1.70em; line-height: .72; font-weight: 400; display: block; margin-top: -.025em; }
 .pc.red { color: var(--red); }
 .pc.black { color: #14201a; }

@@ -36,7 +36,9 @@ function cardFace(card: Card, onPlay?: () => void, extraClass = ''): HTMLElement
   const colorCls = isRed(suit) ? '.red' : '.black';
   const cls = `pc${colorCls}${extraClass}`;
   const label = `${rank} of ${{ S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' }[suit]}`;
-  const inner = [h('span.rank', rank), h('span.suit', SUIT_SYMBOLS[suit])];
+  /* Ten is the only two-character rank, and the default gap between the
+     figures makes it read as two things rather than one. */
+  const inner = [h(`span.rank${rank === '10' ? '.ten' : ''}`, rank), h('span.suit', SUIT_SYMBOLS[suit])];
   return onPlay
     ? h(`button.${cls}`, { onclick: onPlay, title: `Play ${label}`, 'aria-label': `Play ${label}` }, inner)
     : h(`div.${cls}`, { 'aria-label': label }, inner);
