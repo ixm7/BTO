@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryHub, type Transport } from '../src/net/transport';
 import { TournamentSession } from '../src/ui/session';
+import { SEATS } from '../src/engine/cards';
 import { planConfig, tableRoom } from '../src/tournament/plan';
 import { standings, turnAt, type LobbyPlayer } from '../src/tournament/state';
 import { chooseCall, chooseCard } from '../src/engine/bot';
@@ -171,6 +172,17 @@ describe('playing a tournament a table at a time', () => {
       /* And the stand-in follows that seat when the field moves round. */
       await until(() => late.round === 1, 30000);
       await until(() => late.node?.mySeat() != null, 30000);
+
+      /* The player who stood down stays stood down in the new room, even
+         though their browser is still connected and the entry list still
+         gives them that seat. Otherwise they would be dealt back in and the
+         stand-in turned out. */
+      const state = late.node!.state!;
+      const owner = Object.entries(state.substitutes).find(([, who]) => who.id === 'late')![0];
+      expect(state.retired).toContain(owner);
+      for (const t of state.tables) {
+        for (const seat of SEATS) expect(t.seats[seat].id).not.toBe(owner);
+      }
     } finally {
       clearInterval(tick);
     }

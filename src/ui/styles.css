@@ -118,6 +118,15 @@ input.masked { -webkit-text-security: disc; text-security: disc; }
 .help-steps p.muted { margin: 8px 0 0; font-size: .8rem; }
 .token-help:empty { display: none; }
 
+/* The About dialog: a page of prose, so it wants a wider, calmer measure
+   than a form does, and a scroll of its own rather than a very tall box. */
+dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
+.about { display: grid; gap: 10px; max-height: min(70vh, 760px); overflow-y: auto; padding-right: 4px; }
+.about h3 { margin: 8px 0 0; font-size: 1em; }
+.about p, .about ul, .about ol { margin: 0; }
+.about ul, .about ol { padding-left: 20px; display: grid; gap: 6px; }
+.about li { line-height: 1.45; }
+
 /* ---------------------------------------------------------------- room */
 .room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(250px, 15vw, 330px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }

@@ -210,8 +210,11 @@ export class TournamentSession {
     for (const [id, news] of Object.entries(this.seating)) {
       if (news.sub?.id === me) {
         if (state.substitutes[id]?.id !== me) mine[id] = news;
-      } else if (id === me && news.retired && !news.sub && !state.retired.includes(me)) {
-        mine[id] = news;
+      } else if (id === me && news.retired && !state.retired.includes(me)) {
+        /* I stood down in an earlier round and this room has not heard. What
+           became of my seat afterwards is not mine to say, so I say only
+           that I stood down. */
+        mine[id] = { ...news, sub: null };
       }
     }
     /* Saying it once is usually enough, but a seat may only come free when

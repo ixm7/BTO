@@ -515,12 +515,15 @@ export class TournamentNode {
       if (!asker) return;
       const mine: Seating = {};
       for (const [id, news] of Object.entries(ev.seating)) {
-        const stoodDown = id === asker && news.retired && !news.sub;
         /* Their seat is open if they have stood down, or if they are not
            here — which the clock would see to in a minute anyway. */
         const open = this.state.retired.includes(id) || !this.isPresent(id);
-        const standingIn = news.sub?.id === asker && open;
-        if (stoodDown || standingIn) mine[id] = news;
+        if (news.sub?.id === asker && open) { mine[id] = news; continue; }
+        /* Standing down is a word about yourself only, and it never turns
+           out somebody who is already sitting in for you. */
+        if (id === asker && news.retired) {
+          mine[id] = { ...news, retired: true, sub: this.state.substitutes[id] ?? null };
+        }
       }
       this.importSeating(mine);
       return;
