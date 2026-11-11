@@ -1,5 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#1f5c45"/>
-  <text x="32" y="26" text-anchor="middle" font-family="serif" font-weight="800" font-size="22" fill="#fff">B</text>
-  <text x="32" y="52" text-anchor="middle" font-size="20" fill="#fff">♠♥♦♣</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Bridge Break">
+  <!--
+    One shape, no detail: at sixteen pixels anything smaller than this is mud.
+    A dark red on white rather than on the old green tile — red against green is
+    the very pair that red-green colour blindness cannot separate. This red is
+    dark enough that it still clears a 4.5:1 contrast ratio against the white
+    under simulated protanopia, deuteranopia and tritanopia, all of which keep
+    lightness even when they lose hue.
+  -->
+  <rect width="64" height="64" rx="12" fill="#ffffff"/>
+  <rect x="1" y="1" width="62" height="62" rx="11" fill="none" stroke="#aa0a0a" stroke-width="2"/>
+  <g transform="translate(8.5,12) scale(1.47)">
+    <path fill="#aa0a0a" d="M23.6,0c-3.4,0-6.3,2.7-7.6,5.6C14.7,2.7,11.8,0,8.4,0C3.8,0,0,3.8,0,8.4c0,9.4,9.5,11.9,16,21.2c6.1-9.3,16-12.1,16-21.2C32,3.8,28.2,0,23.6,0z"/>
+  </g>
 </svg>
