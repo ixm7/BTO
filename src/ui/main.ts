@@ -6,8 +6,9 @@ import { planConfig } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
-import { originalSeatId, ownerOf, standings, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
+import { originalSeatId, ownerOf, standings, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
+import { armSound, cardSwoosh, setSound, turnChime } from './sound';
 import { h, loadSettings, saveSettings, type Settings } from './dom';
 import { renderTable } from './tableView';
 
@@ -524,12 +525,14 @@ function openSettings(): void {
     const form = h('form.grid', { onsubmit: async (e: Event) => {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
-      Object.assign(settings, { name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
+      Object.assign(settings, { sound: (f.elements.namedItem('sound') as HTMLInputElement | null)?.checked !== false,
+        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
       if (settings.token && settings.repo) {
         try { settings.githubLogin = await new Directory(settings.repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
       }
       saveSettings(settings);
+      setSound(settings.sound);
       close();
       void refresh();
     } },
@@ -540,6 +543,8 @@ function openSettings(): void {
         h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
         SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
         'Some tournaments are open only to certain levels.'),
+      h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
+        h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
       field('Connection', h('select', { name: 'transport' },
         h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet'),
         h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
@@ -933,6 +938,35 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
     h('p.muted', { style: 'margin:6px 0 0' }, 'A player who comes back takes their own seat again from the next board.'));
 }
 
+/* What the table sounded like last time it was drawn, so that a sound marks
+   something happening rather than the page being redrawn. */
+let heardBoard = '';
+let heardCards = 0;
+let heardMyTurn = false;
+
+/**
+ * The table speaks up twice: when it is your turn, so you can look away
+ * between hands, and as each card goes down, which is the sound a table
+ * makes anyway.
+ */
+function soundCues(n: TournamentNode, table: TableState): void {
+  const board = `${table.index}:${table.boardNo ?? 0}`;
+  const cards = table.play?.cardsPlayed ?? 0;
+  if (board !== heardBoard) {
+    /* A new board: start again rather than reading the reset as play. */
+    heardBoard = board;
+    heardCards = cards;
+    heardMyTurn = false;
+  }
+  if (cards > heardCards) cardSwoosh();
+  heardCards = cards;
+
+  const turn = turnAt(table);
+  const mine = !!turn && table.seats[turn.controller].id === n.me.playerId;
+  if (mine && !heardMyTurn) turnChime();
+  heardMyTurn = mine;
+}
+
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
@@ -1017,6 +1051,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       /* Somebody who has stood down still sees their own hand — a robot is
          playing those cards for them — but no more than that. */
       const ownSeat = at?.seat ?? SEATS.find((x) => originalSeatId(state.config, table, x) === n.me.playerId) ?? null;
+      /* Only our own table is worth listening to; a watched one is not ours
+         to be prompted about. */
+      if (at) soundCues(n, table);
       main.append(renderTable({
         table, mySeat: at?.seat ?? null, viewSeat: ownSeat,
         onCall: (c, alert) => n.call(c, alert), onPlay: (seat, card) => n.play(seat, card),
@@ -1075,6 +1112,10 @@ async function route(): Promise<void> {
   }
 }
 
+setSound(settings.sound);
+/* A browser will not make a sound until the page has been touched, so the
+   audio waits for that first click rather than being refused now. */
+armSound();
 window.addEventListener('hashchange', () => { if (!node) void route(); else render(); });
 window.addEventListener('pagehide', () => node?.close());
 render();

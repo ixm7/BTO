@@ -33,6 +33,8 @@ export interface Settings {
   name: string;
   /** How the player describes their own game; '' until they have said. */
   skill: MaybeSkill;
+  /** Whether the table chimes when it is your turn. */
+  sound: boolean;
   repo: string;
   githubLogin: string;
   token: string;
@@ -51,7 +53,8 @@ export function loadSettings(defaultRepo: string): Settings {
   let saved: Partial<Settings> = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>; } catch { /* first visit */ }
   const s: Settings = {
-    name: saved.name ?? '', skill: toSkill(saved.skill) ?? '', repo: saved.repo ?? defaultRepo,
+    name: saved.name ?? '', skill: toSkill(saved.skill) ?? '', sound: saved.sound !== false,
+    repo: saved.repo ?? defaultRepo,
     githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
     transport: saved.transport === 'local' ? 'local' : 'p2p',
