@@ -447,7 +447,7 @@ function openSettings(): void {
         h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
 
       h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
-        h('summary', 'Tournament Director'),
+        h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
         h('div.grid',
           field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' })),
           h('label', 'Token ',
