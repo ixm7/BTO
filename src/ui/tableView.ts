@@ -284,8 +284,14 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   if (play && showingLast && play.lastWinner) center.append(h('div.msg', `${SEAT_NAMES[play.lastWinner]} won the trick`));
   else if (play && play.cardsPlayed === 0) center.append(h('div.msg', `${SEAT_NAMES[play.turn]} to make the opening lead`));
 
-  /* Auction grid (BBO-style: W N E S columns, centred in the play area). */
-  const order: Seat[] = ['W', 'N', 'E', 'S'];
+  /* Auction grid, centred in the play area. The columns run clockwise, as
+     the bidding does, but they are turned so that the seat the table is
+     being watched from is the right-hand one. Your own calls are then always
+     in the same column whichever seat you draw, which is how BBO does it:
+     one less thing to work out every time you look. */
+  const clockwise: Seat[] = ['W', 'N', 'E', 'S'];
+  const last = clockwise.indexOf(bottom);
+  const order: Seat[] = [...clockwise.slice(last + 1), ...clockwise.slice(0, last + 1)];
   const cells: HTMLElement[] = [];
   if (table.auction) {
     for (let i = 0; i < order.indexOf(table.auction.dealer); i++) cells.push(h('td', ''));
