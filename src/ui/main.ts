@@ -137,6 +137,9 @@ function when(l: Listing): HTMLElement {
 const badge = (status: string): HTMLElement => h(`span.badge.${status.replace(' ', '-')}`, status);
 const playersCell = (l: Listing): string => `${l.registrations ? l.registrations.length : '?'} / ${l.meta.capacity}`;
 
+/** What becomes of you if you enter without a partner, shown wherever you enter. */
+const PARTNERING_NOTE = 'Registered players without a partner will be assigned a player at random (or a robot if no partner is available).';
+
 /** Still to be played, and with room for another player. */
 const openToJoin = (l: Listing): boolean =>
   l.status === 'upcoming' && (l.registrations?.length ?? 0) < l.meta.capacity;
@@ -218,9 +221,9 @@ function detailView(l: Listing): HTMLElement {
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
           }, 'You have unregistered.') }, 'Unregister')
-        : h('button.primary', { disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode), 'You are registered.') }, full ? 'Full' : 'Register'));
+        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode), 'You are registered.') }, full ? 'Full' : 'Register'));
     } else {
-      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener' }, 'Register on the tournament page'),
+      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
     actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => enterRoom({
