@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 // `base: './'` keeps asset URLs relative, so the same build works both at the
-// site's own domain (https://bridgebreak.org/) and from a GitHub Pages
+// site's own domain (https://www.bridgebreak.org/) and from a GitHub Pages
 // sub-path (https://<user>.github.io/<repo>/).
 //
 // `public/CNAME` names that domain and is copied into `dist` by every build,
