@@ -8,7 +8,7 @@
 import { SEATS, type Card, type Seat } from '../engine/cards';
 import {
   applyCall, currentBidder, finalContract, isAuctionOver, newAuction,
-  type AuctionState, type Call, type Contract,
+  type AuctionEntry, type AuctionState, type Call, type Contract,
 } from '../engine/bidding';
 import { dealBoard, dealerForBoard, seededRandom, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
 import { applyPlay, controllerOf, isPlayOver, startPlay, type PlayState } from '../engine/play';
@@ -67,6 +67,13 @@ export interface BoardResult {
   declarerTricks: number;
   nsScore: number;
   text: string;
+  /**
+   * How the contract was reached. The auction is otherwise thrown away when
+   * the board ends, and results are the only thing that travels between
+   * tables, so keeping it here is what lets anyone look back at the bidding —
+   * their own, and every other table's on the same board.
+   */
+  auction?: AuctionEntry[];
 }
 
 export interface TableState {
@@ -219,6 +226,8 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
     contract, declarerTricks,
     nsScore: nsScore(contract, table.vul, declarerTricks),
     text: resultToString(contract, declarerTricks),
+    /* Taken before setBoard clears it for the next board. */
+    ...(table.auction && table.auction.calls.length > 0 ? { auction: [...table.auction.calls] } : {}),
   };
   state.results = [...state.results, result];
   table.lastResult = result;

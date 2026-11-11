@@ -6,14 +6,16 @@ export type Call =
   | { type: 'redouble' }
   | { type: 'bid'; level: number; strain: Strain };
 
+/**
+ * One call, with the explanation its bidder offered the opponents, if any.
+ * An alert is a courtesy rather than a rule of bridge, so nothing in this
+ * module reads it; it travels with the call so the two cannot drift apart.
+ */
+export interface AuctionEntry { seat: Seat; call: Call; alert?: string }
+
 export interface AuctionState {
   dealer: Seat;
-  /**
-   * Each call, with the explanation its bidder offered the opponents, if any.
-   * An alert is a courtesy rather than a rule of bridge, so nothing in this
-   * module reads it; it travels with the call so the two cannot drift apart.
-   */
-  calls: { seat: Seat; call: Call; alert?: string }[];
+  calls: AuctionEntry[];
 }
 
 export interface Contract {

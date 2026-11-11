@@ -3,6 +3,8 @@ import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
 import { planConfig } from '../tournament/plan';
+import { pairOf } from '../tournament/review';
+import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
 import { standings, type Standing, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { h, loadSettings, saveSettings, type Settings } from './dom';
@@ -31,6 +33,11 @@ let detail: Listing | null = null;
 let node: TournamentNode | null = null;
 let room: RoomInfo | null = null;
 let watchTable = 0;
+/** When set, the room shows hand records instead of the table. */
+let reviewing = false;
+let recBoard: number | null = null;
+let recTable: number | null = null;
+let recMode: RecordsMode = 'mine';
 let published = false;
 /** While a tournament detail page is open, poll it so a partner's invite/accept/unregister
  * elsewhere shows up here without the person having to hit Refresh themselves. */
@@ -752,9 +759,23 @@ function waitingRoom(info: RoomInfo): HTMLElement {
 
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
+  const myPair = state ? pairOf(state, n.me.playerId) : null;
   const head = h('div.row', { style: 'margin-bottom:10px' },
     h('button', { onclick: leaveRoom }, '← Leave'), h('h2', info.name), h('span.spacer'),
+    state && state.results.length > 0
+      ? h('button', { onclick: () => { reviewing = !reviewing; recBoard = null; recTable = null; recMode = 'mine'; render(); },
+          title: 'Look back over the boards: all four hands, the bidding, and what every other table did' },
+        reviewing ? 'Back to the table' : 'Hand records')
+      : null,
     info.demo ? null : h('span.muted', `Host: ${n.coordinatorName}${n.isCoordinator ? ' (this device)' : ''} · ${n.lobby().length} connected`));
+
+  if (state && reviewing) {
+    return h('div', head, renderRecords(state, myPair, { board: recBoard, table: recTable, mode: recMode }, {
+      pickBoard: (b) => { recBoard = b; recTable = null; render(); },
+      pickTable: (t) => { recTable = t; render(); },
+      setMode: (m) => { recMode = m; recTable = null; render(); },
+    }));
+  }
 
   if (!state) {
     const lobby = n.lobby();

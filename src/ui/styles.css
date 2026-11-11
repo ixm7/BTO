@@ -397,3 +397,42 @@ button.pc:disabled { opacity: 1; }
 .bidbox .alert-text::placeholder { color: #8a8a80; }
 .bidbox .alert-text:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .status-line { margin-top: 10px; min-height: 1.5em; }
+
+/* ---- hand records: the scorecard, the deal, and the other tables ---- */
+.scorecard tfoot td { border-top: 2px solid var(--line); background: #fbf6e6; }
+.list tr.me > td { background: #fbf3dc; }
+
+/* The deal laid out as a hand record prints it, each hand against its seat. */
+.deal {
+  display: grid; gap: 10px; justify-content: center;
+  grid-template-columns: repeat(3, minmax(0, max-content));
+  grid-template-areas: ". top ." "left mid right" ". bottom .";
+}
+.deal .d-top { grid-area: top; } .deal .d-left { grid-area: left; }
+.deal .d-right { grid-area: right; } .deal .d-bottom { grid-area: bottom; }
+.deal .d-mid {
+  grid-area: mid; align-self: center; justify-self: center; text-align: center;
+  font-size: .85rem; line-height: 1.5;
+}
+.handblock {
+  min-width: clamp(118px, 11vw, 168px);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: #fff;
+  font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+}
+.handblock .hname { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.handblock .hl { display: flex; gap: 6px; line-height: 1.32; font-size: clamp(.9rem, 1vw, 1.08rem); }
+.handblock .hl.r { color: var(--red); }
+.handblock .hs { width: 1em; text-align: center; }
+.handblock .hr { letter-spacing: .06em; font-weight: 700; }
+
+/* The auction shown in a record is read, not played, so it sits on paper. */
+.review-auction table { background: #fff; color: var(--ink); max-width: 320px; }
+.review-auction th { background: #eceade; color: var(--ink); }
+.review-auction td.r { color: var(--red); }
+.review-auction td.alerted { background: #e3e3e3; cursor: help; }
+.list tr.pick { cursor: pointer; }
+.list tr.pick:hover > td { background: #f3efe2; }
+.list tr.sel > td { background: #e4eee7; box-shadow: inset 2px 0 0 var(--accent); }
+.list tr.me.sel > td { background: #efe6cd; }
+.deal-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.handblock.me { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,92,69,.15); }
