@@ -17,6 +17,12 @@ export interface PlayState {
   lastTrick: TrickCard[] | null;
   lastWinner: Seat | null;
   turn: Seat;
+  /**
+   * Every card played so far, in order. Each of them was seen by all four
+   * players as it hit the table, so this is public knowledge and not a peek
+   * into anyone's hand; it is what lets a player work out what is still out.
+   */
+  played: Card[];
   declarerTricks: number;
   defenderTricks: number;
   cardsPlayed: number;
@@ -30,6 +36,7 @@ export function startPlay(contract: Contract, hands: Hands): PlayState {
     trick: [],
     lastTrick: null,
     lastWinner: null,
+    played: [],
     turn: nextSeat(contract.declarer),
     declarerTricks: 0,
     defenderTricks: 0,
@@ -74,7 +81,7 @@ export function applyPlay(p: PlayState, seat: Seat, card: Card): PlayState {
   if (why) throw new Error(why);
   const hands: Hands = { ...p.hands, [seat]: p.hands[seat].filter((c) => c !== card) };
   const trick = [...p.trick, { seat, card }];
-  const next: PlayState = { ...p, hands, trick, cardsPlayed: p.cardsPlayed + 1, turn: nextSeat(seat) };
+  const next: PlayState = { ...p, hands, trick, played: [...p.played, card], cardsPlayed: p.cardsPlayed + 1, turn: nextSeat(seat) };
   if (trick.length === 4) {
     const winner = trickWinner(trick, p.contract.strain);
     next.lastTrick = trick;

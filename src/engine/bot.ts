@@ -3,9 +3,9 @@
  * who drop out, so a table never stalls. It bids a few natural calls and plays
  * sensible-but-basic cards. It is not a strong player.
  */
-import { SUITS, cardRank, cardSuit, hcp, legalPlays, partnerOf, sideOf, suitLengths, type Card, type Seat, type Suit } from './cards';
+import { SUITS, cardRank, cardSuit, hcp, legalPlays, makeCard, partnerOf, sideOf, suitLengths, type Card, type Seat, type Suit } from './cards';
 import { PASS, illegalReason, lastBid, type AuctionState, type Call } from './bidding';
-import { trickWinner, type PlayState } from './play';
+import { isDummyVisible, trickWinner, type PlayState } from './play';
 
 function longestSuit(hand: readonly Card[]): Suit {
   const len = suitLengths(hand);
@@ -36,7 +36,15 @@ export function chooseCall(hand: readonly Card[], auction: AuctionState, seat: S
     if (!lb && points >= 15 && points <= 17 && isBalanced(hand)) return pick({ type: 'bid', level: 1, strain: 'N' });
     const suit: Suit = len.S >= 5 && len.S >= len.H ? 'S' : len.H >= 5 ? 'H' : len.D >= len.C ? 'D' : 'C';
     if (lb && len[suit] < 5) return PASS;
-    return pick({ type: 'bid', level: 1, strain: suit });
+    const one: Call = { type: 'bid', level: 1, strain: suit };
+    if (legal(one)) return one;
+    /* They have taken the one level away. With an opening hand and a suit of
+         five, coming in at the two level still measured better than passing. */
+    if (lb && len[suit] >= 5) {
+      const two: Call = { type: 'bid', level: 2, strain: suit };
+      if (legal(two)) return two;
+    }
+    return PASS;
   }
 
   // Responding to partner's first bid.
@@ -72,6 +80,38 @@ export function chooseCall(hand: readonly Card[], auction: AuctionState, seat: S
 }
 
 const lowest = (cards: readonly Card[]): Card => [...cards].sort((a, b) => cardRank(a) - cardRank(b) || a - b)[0] as Card;
+const highest = (cards: readonly Card[]): Card => [...cards].sort((a, b) => cardRank(b) - cardRank(a) || b - a)[0] as Card;
+
+/**
+ * The cards of one suit this player cannot account for: not in their own
+ * hand, not in dummy once dummy is face up, and not yet played. Everything
+ * here was seen by the whole table, so working it out is not a peek into
+ * anyone's hand — it is what any player does when they count.
+ */
+function unseen(play: PlayState, seat: Seat, suit: Suit): Card[] {
+  const seen = new Set<Card>([...play.played, ...play.hands[seat], ...play.trick.map((t) => t.card)]);
+  const canSeeDummy = seat === play.contract.declarer || (isDummyVisible(play) && seat !== play.dummy);
+  if (canSeeDummy) for (const c of play.hands[play.dummy]) seen.add(c);
+  const out: Card[] = [];
+  for (let r = 2; r <= 14; r++) {
+    const c = makeCard(suit, r);
+    if (!seen.has(c)) out.push(c);
+  }
+  return out;
+}
+
+/** True when nobody else can still hold a higher card of the same suit. */
+function isWinner(play: PlayState, seat: Seat, card: Card): boolean {
+  const suit = cardSuit(card);
+  return unseen(play, seat, suit).every((c) => cardRank(c) < cardRank(card));
+}
+
+/** Whether the opponents still hold a trump. */
+function opponentsHaveTrumps(play: PlayState, seat: Seat): boolean {
+  const trump = play.contract.strain;
+  if (trump === 'N') return false;
+  return unseen(play, seat, trump).length > 0;
+}
 
 /** Choose a card for `seat` (the seat whose turn it is, which may be dummy). */
 export function chooseCard(play: PlayState, seat: Seat): Card {
@@ -79,9 +119,19 @@ export function chooseCard(play: PlayState, seat: Seat): Card {
   const options = legalPlays(hand, play.trick);
   if (options.length === 1) return options[0] as Card;
   const trump = play.contract.strain;
+  const declaring = sideOf(seat) === sideOf(play.contract.declarer);
 
   if (play.trick.length === 0) {
-    // Lead: top of a sequence-ish holding in the longest side suit, else low from it.
+    /* Leading. Declarer pulls the opponents' trumps first, so they cannot
+       ruff the side suits later. */
+    if (declaring && trump !== 'N' && opponentsHaveTrumps(play, seat)) {
+      const trumps = options.filter((c) => cardSuit(c) === trump);
+      if (trumps.length > 0) return highest(trumps);
+    }
+    /* Then take the tricks that are already yours: a card no one can beat. */
+    const sure = options.filter((c) => isWinner(play, seat, c) && (trump === 'N' || cardSuit(c) !== trump));
+    if (sure.length > 0) return highest(sure);
+
     const side = options.filter((c) => cardSuit(c) !== trump);
     const pool = side.length > 0 ? side : options;
     const suit = longestSuit(pool);
@@ -100,11 +150,21 @@ export function chooseCard(play: PlayState, seat: Seat): Card {
   if (partnerWinning && (lastToPlay || winning.length === 0)) return lowest(options);
   if (winning.length > 0) {
     if (partnerWinning) return lowest(options);
-    // Win as cheaply as possible; prefer not to spend a trump when a plain card wins.
+    /* Win as cheaply as the position allows. Playing second of four, a card
+       the opponents can still beat is usually wasted, so keep it back unless
+       it settles the trick outright. */
     const plain = winning.filter((c) => cardSuit(c) !== trump);
-    return lowest(plain.length > 0 ? plain : winning);
+    const pool = plain.length > 0 ? plain : winning;
+    if (play.trick.length === 1 && !lastToPlay) {
+      const certain = pool.filter((c) => isWinner(play, seat, c));
+      if (certain.length === 0) return lowest(options);
+      return lowest(certain);
+    }
+    return lowest(pool);
   }
-  // Cannot win: throw the lowest non-trump if possible.
-  const discards = options.filter((c) => cardSuit(c) !== trump);
-  return lowest(discards.length > 0 ? discards : options);
+  /* Cannot win: throw the lowest card, sparing trumps and sure winners. */
+  const spare = options.filter((c) => cardSuit(c) !== trump && !isWinner(play, seat, c));
+  if (spare.length > 0) return lowest(spare);
+  const plain = options.filter((c) => cardSuit(c) !== trump);
+  return lowest(plain.length > 0 ? plain : options);
 }
