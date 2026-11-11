@@ -432,7 +432,10 @@ function openPartners(initial: Listing): void {
 function dialog(title: string, build: (close: () => void) => HTMLElement, onClose?: () => void): void {
   const dlg = h('dialog') as HTMLDialogElement;
   const close = (): void => { dlg.close(); dlg.remove(); onClose?.(); };
-  dlg.append(h('h2', title), build(close));
+  /* The cross is the same door as Escape and as whatever button the dialog
+     carries at its foot — useful when that foot is a scroll away. */
+  dlg.append(h('div.dlg-head', h('h2', title),
+    h('button.x', { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: close }, '\u00d7')), build(close));
   dlg.addEventListener('cancel', () => { dlg.remove(); onClose?.(); });
   document.body.append(dlg);
   dlg.showModal();
@@ -470,10 +473,6 @@ function openAbout(): void {
     h('p', 'Bridge Break runs ', h('b', 'duplicate bridge tournaments'), ' in your browser. '
       + 'It is free, there is nothing to install, and there are no accounts to make — '
       + 'you choose a name and sit down.'),
-    h('p', 'There is no game server. Once a table starts, the cards travel directly '
-      + 'between the players\u2019 browsers, and every table scores the same boards the way a '
-      + 'duplicate club does: your result on a board is compared with every other pair '
-      + 'who played it, so a modest contract bid well can beat a grand slam played badly.'),
 
     h('h3', 'What it does'),
     h('ul',
@@ -483,12 +482,11 @@ function openAbout(): void {
       h('li', h('b', 'Robots.'), ' They fill any empty seat, so a table is never held up by somebody who '
         + 'had to leave. You can hand your seat to a robot and take it back later, and a latecomer can '
         + 'take a robot\u2019s place.'),
-      h('li', h('b', 'Alerts.'), ' Explain an unusual bid as you make it; the explanation shows to the '
-        + 'other players when they look at it, as it would at the table.'),
       h('li', h('b', 'Hand records.'), ' After each board, see all four hands, the auction and the play, '
         + 'and what every other table did with the same cards.'),
       h('li', h('b', 'Your own tournaments.'), ' Anyone can host: set the boards, rounds, capacity and '
-        + 'which levels of player it is for. Settings explains the one-time setup it needs.')),
+        + 'which levels of player it is for. In order to act as a tournament director, expand the '
+        + 'Tournament Director section in the Settings dialog and follow the instructions to generate a token.')),
 
     h('h3', 'First steps'),
     h('ol',
@@ -496,21 +494,20 @@ function openAbout(): void {
         + 'A skill level and a short description of your game are optional, and both are useful '
         + 'to the people you sit down with.'),
       h('li', 'Click ', h('b', 'Play a demo vs robots'), '. Nothing is at stake and nobody is waiting '
-        + 'for you, which makes it the right place to learn the table: bid by choosing a level and then '
-        + 'a strain, play a card by clicking it.'),
+        + 'for you, which makes it the right place to learn how bidding, alerting, and playing works.'),
       h('li', 'When you are ready for real opponents, either ', h('b', 'Join private room'), ' with friends '
         + '\u2014 one of you invents a code and shares it \u2014 or pick a tournament from the list and ',
         h('b', 'Register'), '.'),
-      h('li', 'Registered players enter the playing room when the director starts the tournament. '
-        + 'Your seat and opponents change every round, as they do at a club.')),
+      h('li', 'If you exceed the timeout limit set by the tournament director for each bid or play, '
+        + 'you will be replaced by a Robot. ',
+        h('b', 'However, you can re-select the tournament and click an option to be reseated to '
+          + 'rejoin your partner.'))),
 
     h('h3', 'Who made it'),
     h('p', 'Bridge Break is written by Ido Millet, owner of Millet Software (',
       h('a', { href: `https://${SITE}`, target: '_blank', rel: 'noopener' }, SITE), ').'),
     h('p', 'Feedback and ideas for features are genuinely welcome \u2014 write to ',
-      h('a', { href: `mailto:${MAIL}` }, MAIL),
-      '. If something went wrong at the table, say what you were doing when it happened; '
-      + 'that is usually enough to find it.'),
+      h('a', { href: `mailto:${MAIL}` }, MAIL), '.'),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
 }
 

@@ -89,6 +89,15 @@ dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
 
 dialog { border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; width: min(520px, calc(100vw - 32px)); background: var(--card); color: var(--ink); }
 dialog::backdrop { background: rgba(20, 30, 25, .45); }
+/* Title and its close cross, which sits clear of the content below it. */
+.dlg-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 2px; }
+.dlg-head h2 { flex: 1 1 auto; min-width: 0; }
+.dlg-head .x {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0; line-height: 1;
+  font-size: 1.4rem; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.dlg-head .x:hover { background: #ece8da; color: var(--ink); border-color: var(--line); }
 form.grid { display: grid; gap: 10px; margin-top: 12px; }
 form.grid label { display: grid; gap: 3px; font-size: .85rem; color: var(--muted); }
 form.grid input, form.grid select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
