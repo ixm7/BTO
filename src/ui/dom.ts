@@ -1,3 +1,5 @@
+import { toSkill, type MaybeSkill } from '../directory/github';
+
 type Child = Node | string | number | null | undefined | false | Child[];
 type Attrs = Record<string, unknown>;
 
@@ -29,6 +31,8 @@ export function h(spec: string, attrs?: Attrs | Child, ...children: Child[]): HT
 
 export interface Settings {
   name: string;
+  /** How the player describes their own game; '' until they have said. */
+  skill: MaybeSkill;
   repo: string;
   githubLogin: string;
   token: string;
@@ -47,7 +51,8 @@ export function loadSettings(defaultRepo: string): Settings {
   let saved: Partial<Settings> = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>; } catch { /* first visit */ }
   const s: Settings = {
-    name: saved.name ?? '', repo: saved.repo ?? defaultRepo, githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
+    name: saved.name ?? '', skill: toSkill(saved.skill) ?? '', repo: saved.repo ?? defaultRepo,
+    githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
     transport: saved.transport === 'local' ? 'local' : 'p2p',
   };

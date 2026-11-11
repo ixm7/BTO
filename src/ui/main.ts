@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, Directory, LEVELS, MAX_IDLE_SEC, MIN_IDLE_SEC, idleSecOf, inviteCode, pinnedRoster, makeMeta, type Invitation, type Level, type Listing, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, Directory, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -77,6 +77,7 @@ async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
   const open = l.status === 'upcoming' || l.status === 'in progress';
   const myLogin = settings.githubLogin.trim().toLowerCase();
   if (!open || !myLogin || !l.partners) return l;
+  if (!welcomes(l.meta, settings.skill)) return l; // not a tournament for us
   const accepted = l.partners.invitations.find((i) =>
     i.status === 'accepted' && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
   if (!accepted) return l;
@@ -85,7 +86,7 @@ async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
   const mine = l.registrations?.find((r) => r.login.toLowerCase() === myLogin);
   if (mine && mine.pairCode?.trim().toLowerCase() === code) return l; // already registered together
   try {
-    await d.register(l.number, settings.name, code);
+    await d.register(l.number, settings.name, code, settings.skill);
     return await d.get(l.number);
   } catch { return l; } // offline, rate-limited, etc. — try again on the next refresh
 }
@@ -175,7 +176,7 @@ function directoryView(): HTMLElement {
         h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
         h('td', 'Matchpoints'),
         h('td', when(l)),
-        h('td', l.meta.level),
+        h('td', levelText(l.meta)),
         h('td.num', playersCell(l)),
         h('td', badge(l.status)),
         h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.rankings[0].percent.toFixed(1)}%)` : h('span.muted', '—')),
@@ -220,7 +221,15 @@ function detailView(l: Listing): HTMLElement {
     : null;
 
   const actions = h('div.row');
-  if (open) {
+  /* A tournament set aside for particular levels of player. Saying so plainly
+     is kinder than letting somebody register and be turned away later. */
+  const welcome = amRegistered || welcomes(l.meta, settings.skill);
+  if (open && !welcome) {
+    actions.append(h('p.muted', { style: 'margin:0' }, settings.skill === ''
+      ? `This tournament is for ${levelPhrase(l.meta)}. Set your skill level in Settings, and if it matches you are very welcome to register here.`
+      : `This tournament is for ${levelPhrase(l.meta)}, and your settings say ${settings.skill}, so registration is closed for this one. Do have a look at the others on the list — or start a private room and play with whoever you invite.`));
+  }
+  if (open && welcome) {
     if (d.canWrite) {
       actions.append(amRegistered
         ? h('button', { onclick: act(async () => {
@@ -229,7 +238,7 @@ function detailView(l: Listing): HTMLElement {
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
           }, 'You have unregistered.') }, 'Unregister')
-        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode), 'You are registered.') }, full ? 'Full' : 'Register'));
+        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill), 'You are registered.') }, full ? 'Full' : 'Register'));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
@@ -238,7 +247,7 @@ function detailView(l: Listing): HTMLElement {
       id: l.roomId, name: l.meta.name, boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity, listing: l, demo: false,
     }) }, 'Enter playing room'));
   }
-  if (open) actions.append(h('button', { onclick: () => openPartners(l) }, 'Partners list'));
+  if (open && welcome) actions.append(h('button', { onclick: () => openPartners(l) }, 'Partners list'));
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
 
   return h('div',
@@ -253,7 +262,7 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Type'), h('dd', 'Matchpoints'),
         h('dt', 'Start'), h('dd', when(l)),
         h('dt', 'Time zone'), h('dd', l.meta.timeZone),
-        h('dt', 'Level'), h('dd', l.meta.level),
+        h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
         h('dt', 'Format'), h('dd', `${l.meta.rounds} round(s) × ${l.meta.boardsPerRound} board(s)`)),
@@ -262,6 +271,7 @@ function detailView(l: Listing): HTMLElement {
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
         h('td.num', i + 1), h('td', r.name), h('td.muted', `@${r.login}`),
+        h('td.muted', r.skill ?? ''),
         h('td.muted', partnerNameOf(r) ? `Partner: ${partnerNameOf(r)}` : ''),
         h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
         : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
@@ -438,7 +448,7 @@ function openSettings(): void {
     const form = h('form.grid', { onsubmit: async (e: Event) => {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
-      Object.assign(settings, { name: val(f, 'name'), partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
+      Object.assign(settings, { name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
       if (settings.token && settings.repo) {
         try { settings.githubLogin = await new Directory(settings.repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
@@ -450,6 +460,10 @@ function openSettings(): void {
       field('Your name (shown at the table)', h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' })),
       field('Player description', h('input', { name: 'note', value: settings.partnerNote, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }),
         'Visible to other players when they click your name at the table.'),
+      field('Skill level', h('select', { name: 'skill', title: 'How you would describe your own game. Some tournaments are set aside for particular levels.' },
+        h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
+        SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
+        'Some tournaments are open only to certain levels.'),
       field('Connection', h('select', { name: 'transport' },
         h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet'),
         h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
@@ -485,7 +499,8 @@ function openCreate(): void {
       try {
         const meta = makeMeta({
           name: val(f, 'name'), director: val(f, 'director'), start: val(f, 'start'), timeZone: val(f, 'tz'),
-          level: val(f, 'level') as Level, capacity: Number(val(f, 'capacity')),
+          levels: SKILLS.filter((x) => (f.elements.namedItem(`lvl-${x}`) as HTMLInputElement | null)?.checked),
+          capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
         });
@@ -507,7 +522,9 @@ function openCreate(): void {
       field('Director (your name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
       h('div.two',
         field('Type', h('select', { name: 'type' }, h('option', 'Matchpoints'))),
-        field('Player level', h('select', { name: 'level' }, LEVELS.map((x) => h('option', x))))),
+        field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
+          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))),
+          'Players who describe themselves otherwise cannot register. Leave them all ticked to welcome everyone.')),
       h('div.two',
         field('Start time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
         field('Time zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),

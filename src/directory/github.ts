@@ -11,8 +11,45 @@
  */
 import { zonedToUtc } from './time';
 
-export const LEVELS = ['Open', 'Novice', 'Intermediate', 'Advanced', 'Expert'] as const;
-export type Level = (typeof LEVELS)[number];
+/**
+ * How a player describes their own game, from the Settings dialog, and the
+ * levels a tournament is open to.
+ */
+export const SKILLS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'] as const;
+export type Skill = (typeof SKILLS)[number];
+
+/** The skill a player has set, if any: an empty string means they have not said. */
+export type MaybeSkill = Skill | '';
+
+/** Read a level written by hand, whatever its capitals or spacing. */
+export function toSkill(text: unknown): Skill | null {
+  const want = String(text ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return SKILLS.find((x) => x.toLowerCase() === want) ?? null;
+}
+
+/** The levels a tournament welcomes, in the order they are listed above. */
+export function skillList(levels: readonly Skill[]): Skill[] {
+  return SKILLS.filter((x) => levels.includes(x));
+}
+
+/** How the welcome reads on a card: 'All levels', or the ones named. */
+export function levelText(meta: { levels: readonly Skill[] }): string {
+  return meta.levels.length >= SKILLS.length ? 'All levels' : meta.levels.join(', ');
+}
+
+/** The same list as it reads in a sentence: 'Advanced, Expert and World Class'. */
+export function levelPhrase(meta: { levels: readonly Skill[] }): string {
+  const list = skillList(meta.levels);
+  if (list.length >= SKILLS.length) return 'players of any level';
+  if (list.length === 1) return `${list[0] as string} players`;
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1] as string} players`;
+}
+
+/** Is this player's own description of their game one the tournament asks for? */
+export function welcomes(meta: { levels: readonly Skill[] }, skill: MaybeSkill): boolean {
+  if (meta.levels.length >= SKILLS.length) return true;
+  return skill !== '' && meta.levels.includes(skill);
+}
 
 export interface TournamentMeta {
   v: 1;
@@ -25,7 +62,8 @@ export interface TournamentMeta {
   timeZone: string;
   /** The same instant in UTC (ISO 8601). */
   startUtc: string;
-  level: Level;
+  /** The levels of player this tournament is open to. */
+  levels: Skill[];
   /** Maximum number of players. */
   capacity: number;
   boardsPerRound: number;
@@ -48,6 +86,8 @@ export interface Registration {
   login: string;
   name: string;
   pairCode?: string;
+  /** How they describe their own game, when they have said. */
+  skill?: Skill;
   at: string;
 }
 
@@ -125,11 +165,12 @@ export function parseRepo(s: string): Repo {
 const META_RE = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/;
 const RESULTS_RE = /<!--\s*bridge-results\s*([\s\S]*?)-->/;
 
-export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc'>): TournamentMeta {
+export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc' | 'levels'> & { levels: readonly Skill[] }): TournamentMeta {
   const name = input.name.trim();
   if (!name) throw new Error('Tournament name is required');
   if (!input.director.trim()) throw new Error('Director name is required');
-  if (!LEVELS.includes(input.level)) throw new Error('Unknown player level');
+  const levels = skillList(input.levels);
+  if (levels.length === 0) throw new Error('Choose at least one level of player');
   if (!Number.isInteger(input.capacity) || input.capacity < 4 || input.capacity > 200) throw new Error('Capacity must be between 4 and 200 players');
   if (!Number.isInteger(input.boardsPerRound) || input.boardsPerRound < 1 || input.boardsPerRound > 8) throw new Error('Boards per round must be 1-8');
   if (!Number.isInteger(input.rounds) || input.rounds < 1 || input.rounds > 20) throw new Error('Rounds must be 1-20');
@@ -138,7 +179,7 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
     throw new Error(`Inactivity timeout must be between ${MIN_IDLE_SEC} and ${MAX_IDLE_SEC} seconds`);
   }
   const startUtc = zonedToUtc(input.start, input.timeZone).toISOString();
-  return { v: 1, scoring: 'matchpoints', ...input, name, director: input.director.trim(), startUtc };
+  return { v: 1, scoring: 'matchpoints', ...input, levels, name, director: input.director.trim(), startUtc };
 }
 
 /**
@@ -165,12 +206,12 @@ export function issueBody(meta: TournamentMeta): string {
     `| **Director** | ${meta.director} |`,
     '| **Scoring** | Matchpoints |',
     `| **Start** | ${meta.start.replace('T', ' ')} (${meta.timeZone}) — ${meta.startUtc.slice(0, 16).replace('T', ' ')} UTC |`,
-    `| **Level** | ${meta.level} |`,
+    `| **Open to** | ${levelText(meta)} |`,
     `| **Capacity** | ${meta.capacity} players |`,
     `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
     `| **Inactivity limit** | ${idleSecOf(meta)} seconds, then a robot takes the seat |`,
     '',
-    'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered).',
+    'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered — and `level:Your Level`).',
     'To withdraw, comment `/withdraw`.',
     '',
     'Looking for a partner? Comment `/seek-partner` (an optional note after it is fine), or `/seek-partner cancel` to leave that list.',
@@ -190,7 +231,11 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
     return {
       v: 1, name: j.name, director: String(j.director ?? ''), scoring: 'matchpoints',
       start: String(j.start ?? j.startUtc.slice(0, 16)), timeZone: String(j.timeZone ?? 'UTC'), startUtc: j.startUtc,
-      level: LEVELS.includes(j.level as Level) ? (j.level as Level) : 'Open',
+      /* An entry made before levels were a thing is open to everyone. */
+      levels: (() => {
+        const list = Array.isArray(j.levels) ? skillList(j.levels.map(toSkill).filter((x): x is Skill => x !== null)) : [];
+        return list.length ? list : [...SKILLS];
+      })(),
       capacity: Number(j.capacity) || 0, boardsPerRound: Number(j.boardsPerRound) || 2, rounds: Number(j.rounds) || 2,
       /* The issue body can be edited by hand on GitHub, so an out-of-range
          limit is pulled back into range rather than failing the whole entry. */
@@ -247,10 +292,21 @@ export function parseRegistrations(comments: readonly RawComment[]): Registratio
       if (!m) continue;
       let rest = (m[1] as string).trim();
       let pairCode: string | undefined;
-      const pm = /\bpair:\s*(\S+)\s*$/i.exec(rest);
-      if (pm) { pairCode = pm[1]; rest = rest.slice(0, pm.index).trim(); }
+      let skill: Skill | undefined;
+      /* `pair:` and `level:` may come in either order after the name. */
+      for (;;) {
+        const pm = /\bpair:\s*(\S+)\s*$/i.exec(rest);
+        if (pm) { pairCode = pm[1]; rest = rest.slice(0, pm.index).trim(); continue; }
+        const sm = /\blevel:\s*([A-Za-z][A-Za-z ]*?)\s*$/i.exec(rest);
+        const named = sm ? toSkill(sm[1]) : null;
+        if (sm && named) { skill = named; rest = rest.slice(0, sm.index).trim(); continue; }
+        break;
+      }
       const prev = reg.get(login);
-      reg.set(login, { login, name: rest || login, ...(pairCode ? { pairCode } : {}), at: prev?.at ?? c.created_at });
+      reg.set(login, {
+        login, name: rest || login, ...(pairCode ? { pairCode } : {}), ...(skill ? { skill } : {}),
+        at: prev?.at ?? c.created_at,
+      });
     }
   }
   return [...reg.values()].sort((a, b) => a.at.localeCompare(b.at));
@@ -573,10 +629,11 @@ export class Directory {
     return this.req(this.api(`/issues/${number}/comments`), 'POST', { body });
   }
 
-  register(number: number, name: string, pairCode?: string): Promise<unknown> {
+  register(number: number, name: string, pairCode?: string, skill?: MaybeSkill): Promise<unknown> {
     const clean = name.replace(/[\r\n]/g, ' ').trim();
     const code = pairCode?.trim().replace(/\s+/g, '-');
-    return this.comment(number, `/register ${clean}${code ? ` pair:${code}` : ''}`);
+    const level = skill ? ` level:${skill}` : '';
+    return this.comment(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}`);
   }
 
   withdraw(number: number): Promise<unknown> { return this.comment(number, '/withdraw'); }

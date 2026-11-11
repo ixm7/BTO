@@ -1,8 +1,63 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, Directory, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, Directory, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
-const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', level: 'Intermediate' as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
+const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
+
+describe('levels of player', () => {
+  const open = { levels: [...SKILLS] };
+
+  it('reads a level written by hand, whatever the capitals', () => {
+    expect(toSkill('world class')).toBe('World Class');
+    expect(toSkill('  EXPERT ')).toBe('Expert');
+    expect(toSkill('World  Class')).toBe('World Class');
+    expect(toSkill('Grandmaster')).toBeNull();
+    expect(toSkill(undefined)).toBeNull();
+  });
+
+  it('welcomes everybody when every level is listed', () => {
+    expect(levelText(open)).toBe('All levels');
+    expect(welcomes(open, '')).toBe(true);
+    expect(welcomes(open, 'Beginner')).toBe(true);
+  });
+
+  it('turns away a player whose level is not one of them', () => {
+    const meta = { levels: ['Advanced', 'Expert'] as const };
+    expect(levelText(meta)).toBe('Advanced, Expert');
+    expect(levelPhrase(meta)).toBe('Advanced and Expert players');
+    expect(levelPhrase({ levels: ['Beginner'] })).toBe('Beginner players');
+    expect(levelPhrase(open)).toBe('players of any level');
+    expect(welcomes(meta, 'Expert')).toBe(true);
+    expect(welcomes(meta, 'Beginner')).toBe(false);
+    /* Somebody who has not said is not turned away from an open tournament,
+       but cannot claim a seat set aside for a level. */
+    expect(welcomes(meta, '')).toBe(false);
+  });
+
+  it('keeps the listed levels in one order, whatever order they are given in', () => {
+    expect(makeMeta({ ...base, levels: ['Expert', 'Beginner', 'Expert'] }).levels).toEqual(['Beginner', 'Expert']);
+    expect(() => makeMeta({ ...base, levels: [] })).toThrow(/at least one/i);
+  });
+
+  it('treats a tournament made before levels existed as open to everyone', () => {
+    const body = `<!-- bridge-tournament ${JSON.stringify({ v: 1, name: 'Old', startUtc: '2026-11-21T00:30:00.000Z', level: 'Novice', capacity: 16 })} -->`;
+    expect(parseMeta(body)?.levels).toEqual([...SKILLS]);
+  });
+
+  it('carries the level a player gave when they registered', () => {
+    const c = (login: string, body: string) => ({ user: { login }, body, created_at: '2026-11-01T00:00:01Z' });
+    const regs = parseRegistrations([
+      c('ann', '/register Ann A pair:blue level:World Class'),
+      c('bob', '/register Bob level:expert pair:red'),
+      c('cat', '/register Cat level:Grandmaster'),
+    ]);
+    expect(regs.find((r) => r.login === 'ann')).toMatchObject({ name: 'Ann A', pairCode: 'blue', skill: 'World Class' });
+    expect(regs.find((r) => r.login === 'bob')).toMatchObject({ name: 'Bob', pairCode: 'red', skill: 'Expert' });
+    /* Not a level we know, so it stays part of the name rather than vanishing. */
+    expect(regs.find((r) => r.login === 'cat')).toMatchObject({ name: 'Cat level:Grandmaster' });
+    expect(regs.find((r) => r.login === 'cat')?.skill).toBeUndefined();
+  });
+});
 
 describe('time zones', () => {
   it('converts wall time in a zone to UTC, including daylight saving', () => {
@@ -246,7 +301,7 @@ describe('GitHub directory', () => {
     expect(list.map((l) => l.meta.name)).toEqual(['Friday Pairs', 'Earlier']);
     const t = list[0]!;
     expect(t).toMatchObject({ number, initiatorLogin: 'ido', status: 'upcoming', roomId: `club/bridge#${number}` });
-    expect(t.meta).toMatchObject({ director: 'Ido', scoring: 'matchpoints', level: 'Intermediate', capacity: 16, timeZone: 'America/New_York' });
+    expect(t.meta).toMatchObject({ director: 'Ido', scoring: 'matchpoints', levels: ['Intermediate', 'Advanced'], capacity: 16, timeZone: 'America/New_York' });
     expect(t.registrations!.map((r) => r.name)).toEqual(['Ann', 'Bob']);
     expect(t.registrations![0]!.pairCode).toBe('red-team');
     expect(list[1]!.registrations).toEqual([]);
