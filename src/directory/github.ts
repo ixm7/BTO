@@ -460,7 +460,17 @@ interface RawIssue {
 }
 
 export class GitHubError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly resetAt: Date | null = null) { super(message); }
+  /** Nothing is wrong except that we have asked too often. */
+  get rateLimited(): boolean { return this.resetAt !== null; }
+}
+
+/** 'in 12 minutes', for telling somebody when the list will answer again. */
+function inWords(until: Date): string {
+  const mins = Math.max(1, Math.round((until.getTime() - Date.now()) / 60000));
+  if (mins < 60) return `in ${mins} minute${mins === 1 ? '' : 's'}`;
+  const hours = Math.round(mins / 60);
+  return `in about ${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
 export class Directory {
@@ -484,16 +494,21 @@ export class Directory {
     const res = await this.fetcher(url, { method, headers, cache: 'no-store', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     if (!res.ok) {
       const limited = res.status === 403 || res.status === 429 ? res.headers.get('x-ratelimit-remaining') === '0' : false;
+      const stamp = Number(res.headers.get('x-ratelimit-reset'));
+      /* When the count starts again, so the player is told rather than left
+         to guess. A missing header means we simply do not know. */
+      const resetAt = limited && Number.isFinite(stamp) && stamp > 0 ? new Date(stamp * 1000) : null;
       let detail = '';
       try { detail = String(((await res.json()) as { message?: string }).message ?? ''); } catch { /* no body */ }
       /* These reach the player as-is, so they say what to do rather than
          naming the service the tournament list happens to be kept on. */
       throw new GitHubError(
-        limited ? 'Too many requests just now. Adding a token in Settings raises the limit a long way; otherwise try again in a little while.'
+        limited ? `The tournament list has been asked for too often from this network${resetAt ? ` — it will answer again ${inWords(resetAt)}` : ''}. `
+          + 'Without a token everyone sharing your connection shares one small allowance; adding your own in Settings raises it a long way.'
           : res.status === 401 ? 'That token was rejected.'
           : res.status === 404 ? `Tournament list not found (${this.slug}). Check the name in Settings, and that the list is public.`
           : `Could not reach the tournament list (error ${res.status})${detail ? `: ${detail}` : ''}`,
-        res.status,
+        res.status, resetAt,
       );
     }
     return (await res.json()) as T;

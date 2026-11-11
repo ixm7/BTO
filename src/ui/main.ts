@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, Directory, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, Directory, GitHubError, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -92,10 +92,28 @@ async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
   } catch { return l; } // offline, rate-limited, etc. — try again on the next refresh
 }
 
+/**
+ * How often to ask the tournament list for news.
+ *
+ * Without a token every visitor on a network shares one small allowance of
+ * requests an hour, so a page left open must ask sparingly or spend it for
+ * everybody. A token of one's own has an allowance hundreds of times larger,
+ * and can afford to keep up.
+ */
+const pollEvery = (): number => (settings.token ? 15000 : 120000);
+
+/** Set while the list has told us to stop asking, until it will answer again. */
+let quietUntil = 0;
+
 function stopPolling(): void { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 function startPolling(): void {
   stopPolling();
-  pollTimer = setInterval(() => { if (!node) void refresh(); }, 15000);
+  pollTimer = setInterval(() => {
+    /* A page nobody is looking at has no news to miss, and asking anyway is
+       what empties the allowance before the player comes back to it. */
+    if (node || document.hidden || Date.now() < quietUntil) return;
+    void refresh();
+  }, pollEvery());
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
@@ -122,7 +140,13 @@ async function refresh(expect?: number): Promise<void> {
       syncListing(updated);
     }
     await sweepAbandoned(d);
-  } catch (e) { errorMsg = (e as Error).message; }
+  } catch (e) {
+    errorMsg = (e as Error).message;
+    /* Asked too often: stop asking until it will answer again, and leave the
+       list we already have on screen rather than replacing it with an error. */
+    const until = e instanceof GitHubError ? e.resetAt : null;
+    if (until) quietUntil = until.getTime() + 2000;
+  }
   loading = false; render();
 }
 
@@ -529,7 +553,14 @@ function openSettings(): void {
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
       }
       saveSettings(settings);
-      setSound(settings.sound);
+      /* A tab that was left in the background has not been asking for news; catch
+   up the moment it is looked at again. */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || node || !pollTimer || Date.now() < quietUntil) return;
+  void refresh();
+});
+
+setSound(settings.sound);
       close();
       void refresh();
     } },
@@ -751,7 +782,9 @@ async function enterRoom(info: RoomInfo): Promise<void> {
     if (pinnedPlan(current)) { await openSession(current); return; }
     awaitingStart = true;
     render();
-    startPoll = setInterval(() => { void lookForStart(); }, 8000);
+    /* Same allowance, same restraint: this one runs while somebody sits and
+       waits, which is exactly when it could run all day. */
+    startPoll = setInterval(() => { void lookForStart(); }, settings.token ? 8000 : 45000);
     return;
   }
 
@@ -1108,6 +1141,13 @@ async function route(): Promise<void> {
     } catch (e) { fail(e); }
   }
 }
+
+/* A tab that was left in the background has not been asking for news; catch
+   up the moment it is looked at again. */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || node || !pollTimer || Date.now() < quietUntil) return;
+  void refresh();
+});
 
 setSound(settings.sound);
 /* A browser will not make a sound until the page has been touched, so the

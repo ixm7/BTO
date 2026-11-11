@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, Directory, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -404,10 +404,29 @@ describe('GitHub directory', () => {
   });
 
   it('explains a rate limit in words a player will understand', async () => {
-    const d = new Directory('club/bridge', null, async () => ({ ok: false, status: 403, json: async () => ({}), headers: { get: () => '0' } }));
-    await expect(d.list()).rejects.toThrow(/too many requests/i);
+    const reset = Math.floor(Date.now() / 1000) + 17 * 60;
+    const headers = (reset_: number | null) => ({
+      get: (k: string) => (k === 'x-ratelimit-remaining' ? '0' : reset_ === null ? null : String(reset_)),
+    });
+    const at = (r: number | null) => new Directory('club/bridge', null,
+      async () => ({ ok: false, status: 403, json: async () => ({}), headers: headers(r) }));
+
+    /* What went wrong, when it will right itself, and what to do about it. */
+    await expect(at(reset).list()).rejects.toThrow(/asked for too often/i);
+    await expect(at(reset).list()).rejects.toThrow(/answer again in 17 minutes/i);
+    await expect(at(reset).list()).rejects.toThrow(/token/i);
     /* Players are not expected to know what the list is kept on. */
-    await expect(d.list()).rejects.not.toThrow(/github/i);
+    await expect(at(reset).list()).rejects.not.toThrow(/github/i);
+
+    /* The reset time is the service's to give; without it, say the rest. */
+    await expect(at(null).list()).rejects.toThrow(/asked for too often/i);
+    await expect(at(null).list()).rejects.not.toThrow(/answer again/i);
+
+    /* And the error carries that time, so the page can stop asking until then. */
+    const err = await at(reset).list().catch((e: unknown) => e as GitHubError);
+    expect(err).toBeInstanceOf(GitHubError);
+    expect((err as GitHubError).rateLimited).toBe(true);
+    expect(Math.round(((err as GitHubError).resetAt!.getTime() - Date.now()) / 60000)).toBe(17);
   });
 });
 
