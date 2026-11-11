@@ -52,7 +52,8 @@ function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }
       const c = e.call;
       const red = c.type === 'bid' && isRed(c.strain);
       const text = c.type === 'bid' ? `${c.level}${SUIT_SYMBOLS[c.strain]}` : callToString(c);
-      cells.push(h(`td${red ? '.r' : ''}${e.alert ? '.alerted' : ''}`, e.alert ? { title: e.alert } : {}, text));
+      const kind = c.type === 'bid' ? '.call-bid' : '.call-pass';
+      cells.push(h(`td${kind}${red ? '.r' : ''}${e.alert ? '.alerted' : ''}`, e.alert ? { title: e.alert } : {}, text));
     }
   }
   const rows: HTMLElement[] = [];

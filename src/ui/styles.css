@@ -30,7 +30,9 @@
   --alert-bg: #e3e3e3;
   --bidbox-bg: #d9d3a8;
   --who-font: clamp(.82rem, .85vw, 1.05rem);
-  --auction-font: clamp(.92rem, .95vw, 1.2rem);
+  /* Away from the bidding itself the auction is something to glance at, so
+     it is sized to be read rather than to carry the table. */
+  --auction-font: clamp(13px, 6.2cqw, 1.45rem);
   --back-color: #2980a8;
   --back-stripe: #2270a0;
 }
@@ -138,7 +140,10 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
   display: grid; gap: var(--felt-gap);
   /* Partner's hand gets a full-width row of its own, mirroring your own hand,
      so a revealed dummy is laid out at exactly the same size as declarer. */
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, 1.15fr);
+  /* The middle column is the wide one: it carries the auction, which is what
+     everyone is reading while the bidding goes on. The side hands are the
+     opponents' and face down, so they give up the width. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     "info info auction"
@@ -341,10 +346,16 @@ button.pc:disabled { opacity: 1; }
 .center.bidding {
   display: flex; flex-direction: column; align-items: stretch; justify-content: center;
   gap: 10px; padding: 10px; min-height: 0; align-self: center;
-  max-width: clamp(320px, 34vw, 560px);
+  max-width: clamp(320px, 40vw, 640px);
   background: rgba(0, 0, 0, .18);
 }
 .center.bidding .auction { grid-area: auto; width: 100%; }
+/* While the bidding is on, the auction is the thing everyone at the table is
+   reading, so a call is about a tenth of the panel's width — the proportion
+   BBO uses, measured from their table rather than guessed. */
+.center.bidding .auction table { font-size: clamp(16px, 10.3cqw, 2.6rem); }
+/* A long auction scrolls rather than stretching the table out of shape. */
+.center.bidding .auction { max-height: min(40vh, 330px); overflow-y: auto; }
 .center.bidding .bidbox { width: 100%; max-width: none; margin-top: 0; }
 .center .bidwait { text-align: center; font-size: .85rem; opacity: .85; padding: 4px 0 2px; }
 .center .pc { position: absolute; }
@@ -362,20 +373,27 @@ button.pc:disabled { opacity: 1; }
 .center.last .msg { align-items: flex-end; padding-bottom: 8px; font-size: .75rem; opacity: .9; }
 
 /* ---- auction history (BBO-style: pale blue panel, dark ink) ---- */
+.auction { container-type: inline-size; }
 .auction table {
   border-collapse: collapse; width: 100%; font-size: var(--auction-font);
   background: var(--auction-bg); color: var(--auction-ink);
-  border-radius: 8px; overflow: hidden;
+  border-radius: 8px; overflow: hidden; line-height: 1.16;
+  /* The same face the cards use, where a suit symbol is the weight and size
+     of the digit beside it rather than a smaller mark. */
+  font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
 }
-.auction th, .auction td { padding: clamp(4px, .35vw, 8px) clamp(6px, .5vw, 12px); text-align: center; width: 25%; }
+.auction th, .auction td { padding: .07em .1em; text-align: center; width: 25%; }
 .auction th {
   font-weight: 700; letter-spacing: .03em; background: #fff; color: #16211c;
   border-bottom: 1px solid rgba(0,0,0,.18);
 }
 .auction th.vul { background: var(--red); color: #fff; }
-.auction td { font-weight: 600; font-size: calc(var(--auction-font) * 1.05); }
-.auction .call-pass { opacity: .75; }
-.auction .call-bid { font-weight: 800; }
+.auction td { font-weight: 600; }
+/* BBO prints a pass as plainly as a bid; the tile is what marks a bid. */
+.auction .call-pass { opacity: .9; }
+/* A call that is a bid stands on a paler tile, as it does on BBO, so the
+   shape of the auction can be read without reading the words. */
+.auction .call-bid { font-weight: 700; background: #d6d6d6; border-radius: 4px; }
 .auction .call-bid.r, .auction .r { color: var(--red); }
 .auction .call-dbl, .auction .call-rdbl { color: var(--red); font-weight: 800; }
 .auction .call-rdbl { color: #1549a8; }
@@ -389,18 +407,20 @@ button.pc:disabled { opacity: 1; }
   container-type: inline-size; display: grid; gap: 6px; margin-top: 10px;
   background: var(--bidbox-bg); border-radius: 8px; padding: 8px;
 }
-.bidbox .bidrow, .bidbox .suitrow { display: flex; flex-wrap: nowrap; gap: 5px; min-height: clamp(36px, 2.6vw, 48px); }
+/* The box is sized from its own width too, so it keeps step with the
+   auction above it rather than shrinking into a strip of small buttons. */
+.bidbox .bidrow, .bidbox .suitrow { display: flex; flex-wrap: nowrap; gap: 5px; min-height: clamp(36px, 8cqw, 60px); }
 .bidbox button {
   flex: 1 1 0; min-width: 0; padding: 4px 2px;
   border-radius: 7px; border: 1.5px solid var(--line); background: #fff; color: var(--ink);
-  font-weight: 700; font-size: min(1.25rem, 5.5cqw); line-height: 1.1;
+  font-weight: 700; font-size: min(1.85rem, 6.7cqw); line-height: 1.1;
   cursor: pointer; transition: transform .1s, box-shadow .1s;
 }
 .bidbox button:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 .bidbox .calls .pass { flex: 2 1 0; background: var(--accent); border-color: var(--accent); color: #fff; }
 .bidbox .calls .dbl { background: var(--red); border-color: var(--red); color: #fff; }
 .bidbox .levels .lvl.selected { background: var(--gold); border-color: var(--gold); color: #1b1503; }
-.bidbox .suitrow button { border-radius: 18px; font-size: min(1.45rem, 7cqw); }
+.bidbox .suitrow button { border-radius: 18px; font-size: min(2.1rem, 8.2cqw); }
 .bidbox .suitrow button.red { color: var(--red); }
 
 /* Explanation offered to the opponents, attached to the next call made. */
@@ -443,7 +463,11 @@ button.pc:disabled { opacity: 1; }
 .handblock .hr { letter-spacing: .06em; font-weight: 700; }
 
 /* The auction shown in a record is read, not played, so it sits on paper. */
-.review-auction table { background: #fff; color: var(--ink); max-width: 320px; }
+/* In the hand records the auction is a reference, not the thing being read
+   across a table, so it keeps to a size the panel can hold. The container is
+   held to the table's own width so that the calls scale with the table. */
+.review-auction { width: min(320px, 100%); }
+.review-auction table { background: #fff; color: var(--ink); max-width: 320px; font-size: clamp(14px, 8cqw, 1.35rem); }
 .review-auction th { background: #eceade; color: var(--ink); }
 .review-auction td.r { color: var(--red); }
 .review-auction td.alerted { background: #e3e3e3; cursor: help; }
