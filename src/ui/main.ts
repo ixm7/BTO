@@ -510,7 +510,7 @@ function openCreate(): void {
           field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
       field('Inactivity limit (seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
-        `How long a player may keep the table waiting before a robot takes their seat. ${MIN_IDLE_SEC} seconds at the least.`),
+        'How long a player may keep the table waiting before a robot takes their seat.'),
       d.canWrite ? null : h('small', 'No token is set, so this opens the tournament page pre-filled for you to submit.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
