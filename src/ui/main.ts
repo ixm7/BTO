@@ -546,13 +546,10 @@ const SITE = 'www.MilletSoftware.com';
  */
 function openAbout(): void {
   dialog('About Bridge Break', (close) => h('div.about',
-    h('p', 'Bridge Break runs ', h('b', 'duplicate bridge tournaments'), ' in your browser. '
-      + 'It is free, and there is nothing to install.'),
+    h('p', 'Bridge Break runs ', h('b', 'free duplicate bridge tournaments'), ' in your browser.'),
 
     h('h3', 'What it does'),
     h('ul',
-      h('li', h('b', 'Open tournaments.'), ' Pick one from the list, register to be randomly paired '
-        + 'or join/use the Partnership List.'),
       h('li', h('b', 'Private rooms.'), ' Enter or share a private room code with the players you wish to invite.'),
       h('li', h('b', 'Robots.'), ' They fill any empty, timed-out, or withdrawn seat. You can hand your seat '
         + 'to a robot, and take it back later. Latecomers can take a robot\u2019s place.'),
@@ -565,7 +562,8 @@ function openAbout(): void {
     h('ol',
       h('li', 'Open ', h('b', 'Settings'), ' and enter a name, skill level, and a short description.'),
       h('li', 'Click ', h('b', 'Play a demo vs robots'), ' to learn how bidding, alerting, and playing works.'),
-      h('li', 'Pick a tournament from the list and ', h('b', 'Register'), '.'),
+      h('li', 'Pick a tournament from the list and ', h('b', 'Register'),
+        ' to be randomly paired or join/use the Partners List.'),
       h('li', 'If you exceed the timeout limit set by the tournament director for each bid/play, '
         + 'you will be replaced by a Robot. ',
         h('b', 'However, you can re-select the tournament and click an option to be reseated to '
