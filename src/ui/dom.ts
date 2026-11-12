@@ -64,7 +64,12 @@ export function loadSettings(defaultRepo: string): Settings {
     githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
     playerKey: /^[A-Za-z0-9_-]{32,128}$/.test(saved.playerKey ?? '') ? (saved.playerKey as string) : '',
-    transport: saved.transport === 'local' ? 'local' : 'p2p',
+    /* Players always connect over the Internet. A choice saved from when this
+       was a setting is ignored, so nobody is left on a mode they can no
+       longer see. `?transport=local` keeps several players in one browser,
+       for testing only. */
+    transport: typeof location !== 'undefined' && new URLSearchParams(location.search).get('transport') === 'local'
+      ? 'local' : 'p2p',
   };
   let fresh = false;
   if (!s.playerId) {

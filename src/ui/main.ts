@@ -599,7 +599,7 @@ function openSettings(): void {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
       Object.assign(settings, { sound: (f.elements.namedItem('sound') as HTMLInputElement | null)?.checked !== false,
-        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token'), transport: val(f, 'transport') === 'local' ? 'local' : 'p2p' });
+        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token') });
       if (settings.token && settings.repo) {
         try { settings.githubLogin = await new Directory(settings.repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
@@ -625,9 +625,6 @@ setSound(settings.sound);
         'Some tournaments are open only to certain levels.'),
       h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
         h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
-      field('Connection', h('select', { name: 'transport' },
-        h('option', { value: 'p2p', selected: settings.transport === 'p2p' }, 'Internet'),
-        h('option', { value: 'local', selected: settings.transport === 'local' }, 'This browser only (other tabs) — for testing'))),
 
       h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
         h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
