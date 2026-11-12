@@ -633,10 +633,12 @@ setSound(settings.sound);
         h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
         h('div.grid',
           field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' })),
-          h('label', 'Token ',
-            h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?'),
+          /* The word and its help mark share one line: the label lays out each
+             of its children as a row of its own. */
+          h('label', h('span', 'Token ',
+            h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?')),
             h('input.masked', { name: 'token', type: 'text', value: settings.token, autocomplete: 'off', spellcheck: false, placeholder: 'optional' }),
-            h('small', 'Lets you create tournaments, register and publish results from here.')),
+            h('small', 'Lets you create and run tournaments from here.')),
           helpPanel)),
 
       err,

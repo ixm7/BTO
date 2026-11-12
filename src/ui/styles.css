@@ -103,6 +103,11 @@ form.grid label { display: grid; gap: 3px; font-size: .85rem; color: var(--muted
 form.grid input, form.grid select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
 form.grid .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
 form.grid small { color: var(--muted); }
+/* A tick box sits on the same line as its words. The general rules above lay
+   every label out as a stack and stretch every input to full width, which is
+   right for a text box and wrong for a tick box. */
+form.grid label.check { display: flex; align-items: center; gap: 8px; }
+form.grid label.check input { width: auto; padding: 0; margin: 0; flex: none; }
 
 /* The levels a tournament is open to: a tick per level, wrapping if narrow. */
 .levels { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 4px 0; }
