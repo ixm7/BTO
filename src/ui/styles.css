@@ -152,28 +152,44 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
   /* The middle column is the wide one: it carries the auction, which is what
      everyone is reading while the bidding goes on. The side hands are the
      opponents' and face down, so they give up the width. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* The board's details run down a rail on the left rather than across a
+     band at the top: a landscape screen has width to spare and runs out of
+     height first, and a band at the top pushed your own hand off the
+     bottom of the window. */
+  --rail-w: clamp(128px, 9vw, 168px);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "info info auction"
-    "top top top"
-    "left center right"
-    "bottom bottom bottom";
+    "info top    top    top"
+    "info left   center right"
+    "info bottom bottom bottom";
   /* Landscape, but close to the proportions of a real table rather than a strip. */
   min-height: min(70vh, calc(var(--wrap-max) * .52));
 }
 @media (max-width: 640px) {
+  /* A phone has no width to spare for a rail, so the details become a strip
+     along the top again — but a single line of them, not a column. */
   .felt { grid-template-columns: 1fr 1fr; grid-template-rows: auto; min-height: 0;
-    grid-template-areas: "info auction" "top top" "left right" "center center" "bottom bottom"; }
+    grid-template-areas: "info info" "top top" "left right" "center center" "bottom bottom"; }
 }
-.felt .auction { grid-area: auction; }
 
 /* ---- board panel: table, vulnerability, contract and trick count ---- */
 /* A narrow rail in the corner, read top to bottom as on BBO. */
 .felt .info {
-  grid-area: info; font-size: var(--who-font);
+  grid-area: info; font-size: var(--who-font); align-self: start;
   display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
-  width: max-content;
+  min-width: 0;
+}
+/* The auction, once play has begun, is a reference at the foot of the rail. */
+.felt .info .auction { width: 100%; margin-top: 4px; }
+/* A phone has no width for a rail, so the details lie along one line at the
+   top instead, with the auction beneath them. (After the rules above, so as
+   to win over them.) */
+@media (max-width: 640px) {
+  .felt .info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .felt .info .tablename { flex: 1 1 100%; }
+  .felt .info .vulbadge { width: 54px; }
+  .felt .info .auction { flex: 1 1 100%; margin-top: 0; }
 }
 .felt .info .tablename { font-weight: 700; letter-spacing: .02em; opacity: .9; }
 

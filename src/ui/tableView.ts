@@ -314,11 +314,16 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   const won = play ? (declaring ? play.declarerTricks : play.defenderTricks) : 0;
   const lost = play ? (declaring ? play.defenderTricks : play.declarerTricks) : 0;
 
+  /* Everything about the board that is not a hand lives in one rail down the
+     left edge, as on BBO: the table, the vulnerability, the contract, the
+     tricks, and once the play has begun, the auction that led to it. Height
+     is what a landscape screen runs out of first, and a rail spends width. */
   const info = h('div.info',
     h('div.tablename', `Table ${table.index + 1}`),
     vulBadge(table.boardNo, table.vul, table.dealer),
     play ? contractBox(play.contract) : h('div.contract-box.pending', h('span.decl', 'Bidding')),
     play ? trickCounts(won, lost) : null,
+    play ? auction : null,
   );
 
   let status = '';
@@ -340,7 +345,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     }
   }
 
-  const felt = h('div.felt', info, play ? auction : null, SEATS.map(seatEl), center);
+  const felt = h('div.felt', info, SEATS.map(seatEl), center);
   const out = h('div', felt);
   out.append(h('div.status-line', { role: 'status' }, iControl ? h('b', status) : status));
   return out;
