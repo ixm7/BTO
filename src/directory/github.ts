@@ -150,6 +150,8 @@ export interface Listing {
   pinned: PinnedStart | null;
   /** GitHub's global id for the issue; needed to delete it. */
   nodeId?: string;
+  /** Display names of players who came through the relay, by their ~tag id. */
+  names?: Record<string, string>;
 }
 
 export interface Repo { owner: string; repo: string }
@@ -278,6 +280,55 @@ export function parseStart(comments: readonly RawComment[], directorLogin: strin
 }
 
 export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
+
+/* ------------------------------------------------------------ the relay */
+
+/**
+ * Players without a token of their own act through a relay that posts on
+ * their behalf with a token of its own. Every comment it posts is signed with
+ * a trailer naming the player by a tag that only their browser can produce,
+ * and the relay's own account is what makes that trailer worth believing.
+ */
+export interface Relay { url: string; login: string; key: string; name: string }
+
+const TRAILER_RE = /\n?<!--\s*player\s+(\{[^\n]*?\})\s*-->\s*$/;
+
+/** The public tag a private key signs as. Must match the relay's own derivation exactly. */
+export async function playerTag(key: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`bridgebreak:${key}`));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 20);
+}
+
+/**
+ * Rewrite each comment as coming from whoever it speaks for. A comment the
+ * relay posted becomes the player's own, under the id `~tag`, which no GitHub
+ * login can collide with. A trailer on anybody else's comment is ignored —
+ * the comment stays theirs — since only the relay's account can vouch for it.
+ */
+export function asActors(comments: readonly RawComment[], relayLogin: string): { comments: RawComment[]; names: Record<string, string> } {
+  const names: Record<string, string> = {};
+  const relay = relayLogin.trim().toLowerCase();
+  const out = comments.map((c) => {
+    const body = c.body ?? '';
+    const m = TRAILER_RE.exec(body);
+    if (!m || !relay || (c.user?.login ?? '').toLowerCase() !== relay) return c;
+    let tag = '';
+    let name = '';
+    try {
+      const j = JSON.parse(m[1] as string) as { t?: unknown; n?: unknown };
+      tag = String(j.t ?? '');
+      name = String(j.n ?? '');
+    } catch { return c; }
+    if (!/^[0-9a-f]{20}$/.test(tag)) return c;
+    const id = `~${tag}`;
+    if (name) names[id] = name;
+    return { ...c, user: { login: id }, body: body.slice(0, m.index) };
+  });
+  return { comments: out, names };
+}
+
+/** Is this the id of a player who came through the relay, rather than a GitHub login? */
+export const isRelayed = (id: string): boolean => id.startsWith('~');
 
 /** Fold the comment stream into the current registration list (each user's latest command wins). */
 export function parseRegistrations(comments: readonly RawComment[]): Registration[] {
@@ -475,13 +526,26 @@ function inWords(until: Date): string {
 
 export class Directory {
   readonly repo: Repo;
-  constructor(repo: string | Repo, private token: string | null = null, private fetcher: FetchLike = (u, i) => fetch(u, i)) {
+  constructor(
+    repo: string | Repo,
+    private token: string | null = null,
+    private fetcher: FetchLike = (u, i) => fetch(u, i),
+    private relay: Relay | null = null,
+  ) {
     this.repo = typeof repo === 'string' ? parseRepo(repo) : repo;
   }
 
+  /** Can write anything — create, start, publish. Only a token can. */
   get canWrite(): boolean { return !!this.token; }
+  /** Can do what a player does — register, withdraw, find a partner. A token or the relay. */
+  get canAct(): boolean { return !!this.token || !!this.relay; }
+  /** A token of one's own is used for everything; otherwise the relay, where there is one. */
+  private get viaRelay(): boolean { return !this.token && !!this.relay; }
   get slug(): string { return `${this.repo.owner}/${this.repo.repo}`; }
-  private api(path: string): string { return `https://api.github.com/repos/${this.repo.owner}/${this.repo.repo}${path}`; }
+  private api(path: string): string {
+    const base = this.viaRelay ? (this.relay as Relay).url.replace(/\/+$/, '') : 'https://api.github.com';
+    return `${base}/repos/${this.repo.owner}/${this.repo.repo}${path}`;
+  }
   roomId(number: number): string { return `${this.slug}#${number}`; }
 
   private async req<T>(url: string, method = 'GET', body?: unknown): Promise<T> {
@@ -499,7 +563,10 @@ export class Directory {
          to guess. A missing header means we simply do not know. */
       const resetAt = limited && Number.isFinite(stamp) && stamp > 0 ? new Date(stamp * 1000) : null;
       let detail = '';
-      try { detail = String(((await res.json()) as { message?: string }).message ?? ''); } catch { /* no body */ }
+      try {
+        const j = (await res.json()) as { message?: string; error?: string };
+        detail = String(j.message ?? j.error ?? '');
+      } catch { /* no body */ }
       /* These reach the player as-is, so they say what to do rather than
          naming the service the tournament list happens to be kept on. */
       throw new GitHubError(
@@ -535,9 +602,12 @@ export class Directory {
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [] };
     let pinned: PinnedStart | null = null;
+    let names: Record<string, string> = {};
     if (issue.comments > 0) {
       try {
-        const cs = await this.comments(issue.number);
+        const read = asActors(await this.comments(issue.number), this.relay?.login ?? '');
+        const cs = read.comments;
+        names = read.names;
         registrations = parseRegistrations(cs);
         // Only the director or a registered player can publish results.
         const trusted = new Set([issue.user?.login, ...registrations.map((r) => r.login)]);
@@ -549,7 +619,7 @@ export class Directory {
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
       status: deriveStatus(meta, issue, results, now), registrations, results, partners, roomId: this.roomId(issue.number),
-      pinned,
+      pinned, names,
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }
@@ -639,14 +709,35 @@ export class Directory {
     return this.req(this.api(`/issues/${number}/comments`), 'POST', { body });
   }
 
+  /**
+   * Something a player does on a tournament's page. With a token it is posted
+   * as written; without, the relay posts it, building the same line itself
+   * from the fields given here.
+   */
+  private async playerAct(number: number, line: string, act: string, fields: Record<string, unknown> = {}): Promise<unknown> {
+    if (this.token) return this.comment(number, line);
+    if (!this.relay) throw new Error('A token is needed to do this from here.');
+    const res = await this.fetcher(`${this.relay.url.replace(/\/+$/, '')}/act`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+      body: JSON.stringify({ issue: number, key: this.relay.key, name: this.relay.name, act, ...fields }),
+    });
+    if (!res.ok) {
+      let msg = '';
+      try { msg = String(((await res.json()) as { error?: string }).error ?? ''); } catch { /* no body */ }
+      throw new GitHubError(msg || `That did not go through (error ${res.status}).`, res.status);
+    }
+    return res.json();
+  }
+
   register(number: number, name: string, pairCode?: string, skill?: MaybeSkill): Promise<unknown> {
     const clean = name.replace(/[\r\n]/g, ' ').trim();
     const code = pairCode?.trim().replace(/\s+/g, '-');
     const level = skill ? ` level:${skill}` : '';
-    return this.comment(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}`);
+    return this.playerAct(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}`, 'register',
+      { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}) });
   }
 
-  withdraw(number: number): Promise<unknown> { return this.comment(number, '/withdraw'); }
+  withdraw(number: number): Promise<unknown> { return this.playerAct(number, '/withdraw', 'withdraw'); }
 
   /**
    * Close the entry list and fix the deals. Only the director's own start
@@ -661,25 +752,31 @@ export class Directory {
   /** Join (or update your note on) the "looking for a partner" list for this tournament. */
   seekPartner(number: number, note?: string): Promise<unknown> {
     const clean = (note ?? '').replace(/[\r\n]/g, ' ').trim();
-    return this.comment(number, `/seek-partner${clean ? ` ${clean}` : ''}`);
+    return this.playerAct(number, `/seek-partner${clean ? ` ${clean}` : ''}`, 'seek', clean ? { note: clean } : {});
   }
 
-  cancelSeekingPartner(number: number): Promise<unknown> { return this.comment(number, '/seek-partner cancel'); }
+  cancelSeekingPartner(number: number): Promise<unknown> {
+    return this.playerAct(number, '/seek-partner cancel', 'seek-cancel');
+  }
 
-  invitePartner(number: number, toLogin: string, note?: string): Promise<unknown> {
+  invitePartner(number: number, toId: string, note?: string): Promise<unknown> {
     const clean = (note ?? '').replace(/[\r\n]/g, ' ').trim();
-    return this.comment(number, `/invite @${toLogin}${clean ? ` ${clean}` : ''}`);
+    return this.playerAct(number, `/invite @${toId}${clean ? ` ${clean}` : ''}`, 'invite', { target: toId, ...(clean ? { note: clean } : {}) });
   }
 
-  cancelInvite(number: number, toLogin: string): Promise<unknown> { return this.comment(number, `/invite-cancel @${toLogin}`); }
-
-  /** Respond to an invitation you received from `fromLogin`. */
-  respondToInvite(number: number, fromLogin: string, accept: boolean): Promise<unknown> {
-    return this.comment(number, `${accept ? '/accept' : '/decline'} @${fromLogin}`);
+  cancelInvite(number: number, toId: string): Promise<unknown> {
+    return this.playerAct(number, `/invite-cancel @${toId}`, 'invite-cancel', { target: toId });
   }
 
-  /** Break up an already-accepted partnership with `otherLogin` (either side may call this). */
-  unpair(number: number, otherLogin: string): Promise<unknown> { return this.comment(number, `/unpair @${otherLogin}`); }
+  /** Respond to an invitation you received from `fromId`. */
+  respondToInvite(number: number, fromId: string, accept: boolean): Promise<unknown> {
+    return this.playerAct(number, `${accept ? '/accept' : '/decline'} @${fromId}`, accept ? 'accept' : 'decline', { target: fromId });
+  }
+
+  /** Break up an already-accepted partnership with `otherId` (either side may call this). */
+  unpair(number: number, otherId: string): Promise<unknown> {
+    return this.playerAct(number, `/unpair @${otherId}`, 'unpair', { target: otherId });
+  }
 
   /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */
   async publishResults(number: number, results: TournamentResults): Promise<{ closed: boolean }> {

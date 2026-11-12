@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, Directory, GitHubError, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -15,6 +15,50 @@ import { renderTable } from './tableView';
 const DEFAULT_REPO = (import.meta.env.VITE_DIRECTORY_REPO as string | undefined) ?? '';
 const root = document.getElementById('app') as HTMLElement;
 const settings: Settings = loadSettings(DEFAULT_REPO);
+
+/* Players without a token of their own act through the relay, when one is
+   set up for this site's tournament list. Its comments are believed only
+   when posted from the account it posts as. */
+const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) ?? '').trim();
+const RELAY_LOGIN = ((import.meta.env.VITE_RELAY_LOGIN as string | undefined) ?? '').trim()
+  || (DEFAULT_REPO.split('/')[0] ?? '');
+
+/** The tag this browser's key signs as, once worked out (it takes a moment). */
+let myTag = '';
+
+/**
+ * Whether the relay answered when the page loaded. Without it the site works
+ * exactly as it did before there was one: the list is read directly, and a
+ * player without a token registers on the tournament's own page. So the
+ * relay can be switched on, or fall over, without taking anything else down.
+ */
+let relayUp = false;
+async function probeRelay(): Promise<void> {
+  if (!RELAY_URL) return;
+  try {
+    const res = await fetch(`${RELAY_URL.replace(/\/+$/, '')}/`, { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+    relayUp = res.ok && ((await res.json()) as { ok?: unknown }).ok === true;
+  } catch { relayUp = false; }
+}
+void playerTag(settings.playerKey).then((t) => { myTag = t; render(); }).catch(() => { /* no Web Crypto: no relay */ });
+
+/**
+ * Who this player is on a tournament's page: their GitHub login when they
+ * have a token of their own, and otherwise the tag their private key signs.
+ */
+function myId(): string {
+  const login = settings.githubLogin.trim().toLowerCase();
+  /* Whichever way this player's actions are posted is who they are. */
+  const viaRelay = !settings.token && relayUp;
+  if (login && !viaRelay) return login;
+  return myTag ? `~${myTag}` : login;
+}
+
+/** A player as other players see them: by the name they gave, or their GitHub login. */
+function who(l: Listing, id: string): string {
+  if (isRelayed(id)) return l.names?.[id] ?? l.registrations?.find((r) => r.login === id)?.name ?? 'a player';
+  return `@${id}`;
+}
 
 interface RoomInfo {
   id: string;
@@ -50,7 +94,11 @@ let partnersSync: ((l: Listing) => void) | null = null;
 
 const directory = (): Directory | null => {
   if (!settings.repo.trim()) return null;
-  try { return new Directory(settings.repo, settings.token || null); } catch { return null; }
+  /* The relay serves this site's own list and nothing else. */
+  const relay = relayUp && settings.repo.trim().toLowerCase() === DEFAULT_REPO.toLowerCase()
+    ? { url: RELAY_URL, login: RELAY_LOGIN, key: settings.playerKey, name: settings.name.trim() }
+    : null;
+  try { return new Directory(settings.repo, settings.token || null, undefined, relay); } catch { return null; }
 };
 
 const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message : String(e); render(); };
@@ -74,9 +122,9 @@ function syncListing(l: Listing): void {
  * refreshes (on a timer, or by opening the Partners dialog).
  */
 async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
-  if (!d.canWrite || !settings.name.trim()) return l;
+  if (!d.canAct || !settings.name.trim()) return l;
   const open = l.status === 'upcoming' || l.status === 'in progress';
-  const myLogin = settings.githubLogin.trim().toLowerCase();
+  const myLogin = myId();
   if (!open || !myLogin || !l.partners) return l;
   if (!welcomes(l.meta, settings.skill)) return l; // not a tournament for us
   const accepted = l.partners.invitations.find((i) =>
@@ -239,7 +287,7 @@ function directoryView(): HTMLElement {
 
 function detailView(l: Listing): HTMLElement {
   const d = directory() as Directory;
-  const myLogin = settings.githubLogin.trim().toLowerCase();
+  const myLogin = myId();
   const regs = l.registrations;
   const amRegistered = !!myLogin && !!regs?.some((r) => r.login.toLowerCase() === myLogin);
   const full = !!regs && regs.length >= l.meta.capacity;
@@ -277,7 +325,7 @@ function detailView(l: Listing): HTMLElement {
       h('span.muted', 'Not open to your level.'));
   }
   if (open && welcome) {
-    if (d.canWrite) {
+    if (d.canAct) {
       actions.append(amRegistered
         ? h('button', { onclick: act(async () => {
             await d.withdraw(l.number);
@@ -318,7 +366,7 @@ function detailView(l: Listing): HTMLElement {
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
-        h('td.num', i + 1), h('td', r.name), h('td.muted', `@${r.login}`),
+        h('td.num', i + 1), h('td', r.name), h('td.muted', isRelayed(r.login) ? '' : `@${r.login}`),
         h('td.muted', r.skill ?? ''),
         h('td.muted', partnerNameOf(r) ? `Partner: ${partnerNameOf(r)}` : ''),
         h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
@@ -348,7 +396,7 @@ function openPartners(initial: Listing): void {
 
   dialog(`Partners — ${initial.meta.name}`, (close) => {
     const body = h('div');
-    const myLogin = settings.githubLogin.trim().toLowerCase();
+    const myLogin = myId();
 
     const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
       if (busy) return;
@@ -378,7 +426,7 @@ function openPartners(initial: Listing): void {
       const rows: (HTMLElement | null)[] = [
         h('p.muted', { style: 'margin-top:0' }, 'Players here are looking for a partner for this tournament. Add yourself, then invite someone — or wait to be invited.'),
         err ? h('div.error', err) : null,
-        !d.canWrite
+        !d.canAct
           ? h('div.note', 'Add a token in Settings to do this from here. Until then, comment directly on ',
               h('a', { href: current.url, target: '_blank', rel: 'noopener' }, 'the tournament page'), ': ',
               h('code', '/seek-partner'), ', ', h('code', '/invite @username'), ', ', h('code', '/accept @username'), ' or ', h('code', '/decline @username'), '.')
@@ -391,7 +439,7 @@ function openPartners(initial: Listing): void {
         const toMe = p.invitations.filter((i) => i.status === 'pending' && !!myLogin && i.to.toLowerCase() === myLogin);
         if (toMe.length) {
           const inviteRow = (i: Invitation): HTMLElement => h('tr',
-            h('td', h('b', `@${i.from}`), i.note ? h('div.muted', i.note) : null),
+            h('td', h('b', who(current, i.from)), i.note ? h('div.muted', i.note) : null),
             h('td', h('div.row',
               h('button.primary', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, true)) }, 'Accept'),
               h('button', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
@@ -405,9 +453,9 @@ function openPartners(initial: Listing): void {
           if (settings.pairCode !== code) { settings.pairCode = code; saveSettings(settings); }
           const mine = current.registrations?.find((r) => r.login.toLowerCase() === myLogin);
           const registered = !!mine && mine.pairCode?.trim().toLowerCase() === code;
-          rows.push(h('div.note', `You and @${partner} are partnered!`,
+          rows.push(h('div.note', `You and ${who(current, partner)} are partnered!`,
             registered ? ' You are both registered together — see Unregister on the tournament page to split up.'
-              : d.canWrite ? ' Registering you both automatically…'
+              : d.canAct ? ' Registering you both automatically…'
               : ` Comment “/register ${settings.name.trim() || 'Your Name'} pair:${code}” on the issue to register.`));
         }
 
@@ -422,12 +470,12 @@ function openPartners(initial: Listing): void {
                 const partnered = p.invitations.find((i) => i.status === 'accepted' && withThem(i));
                 const sentPending = p.invitations.find((i) => i.status === 'pending' && i.from.toLowerCase() === myLogin && i.to.toLowerCase() === s.login.toLowerCase());
                 return h('tr',
-                  h('td', h('b', `@${s.login}`), isMe ? ' (you)' : '', s.note ? h('div.muted', s.note) : null),
+                  h('td', h('b', who(current, s.login)), isMe ? ' (you)' : '', s.note ? h('div.muted', s.note) : null),
                   h('td', isMe ? null
                     : partnered ? h('span.badge.upcoming', 'Partnered')
                     : sentPending
                       ? h('button', { disabled: busy, onclick: act(() => d.cancelInvite(current.number, s.login)) }, 'Cancel invite')
-                      : h('button', { disabled: busy || !myLogin, onclick: () => openNoteDialog(`Invite @${s.login}`, 'Send invite', (note) => void act(() => d.invitePartner(current.number, s.login, note))()) }, 'Invite')));
+                      : h('button', { disabled: busy || !myLogin, onclick: () => openNoteDialog(`Invite ${who(current, s.login)}`, 'Send invite', (note) => void act(() => d.invitePartner(current.number, s.login, note))()) }, 'Invite')));
               })))));
 
         rows.push(h('div.row', { style: 'margin-top:10px' },
@@ -725,7 +773,7 @@ async function openSession(l: Listing): Promise<void> {
   node = null;
 
   const me = {
-    playerId: settings.githubLogin.trim().toLowerCase() || settings.playerId,
+    playerId: myId() || settings.playerId,
     name: settings.name.trim() || 'Guest',
     deviceScore: deviceScore(),
     isDirector: !!settings.githubLogin && l.initiatorLogin.toLowerCase() === settings.githubLogin.trim().toLowerCase(),
@@ -873,7 +921,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   return h('div', head, h('div.panel',
     h('h3', 'Waiting room'),
     h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until the director starts. Entries so far:'),
-    h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === settings.githubLogin.trim().toLowerCase() ? '.me' : ''}`,
+    h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === myId() ? '.me' : ''}`,
       h('td.num', i + 1), h('td', r.name), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : '')))))),
     h('p', entries.length < 4
       ? 'At least four players are needed to start.'
@@ -1154,5 +1202,7 @@ armSound();
 window.addEventListener('hashchange', () => { if (!node) void route(); else render(); });
 window.addEventListener('pagehide', () => node?.close());
 render();
-void refresh().then(route);
+/* Ask the relay first — it answers in a few milliseconds, or not at all — so
+   the very first look at the list already goes the right way. */
+void probeRelay().then(() => refresh()).then(route);
 if (!settings.name) openSettings();

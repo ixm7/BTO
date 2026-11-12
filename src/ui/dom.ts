@@ -40,6 +40,12 @@ export interface Settings {
   token: string;
   pairCode: string;
   playerId: string;
+  /**
+   * Private to this browser: it signs this player's registrations and partner
+   * requests, so that nobody else can withdraw them or speak for them. Never
+   * shown to other players or posted anywhere.
+   */
+  playerKey: string;
   /** Remembered from the last time you added yourself to a "looking for a partner"
    * list, so it's offered again as the default next time rather than starting blank. */
   partnerNote: string;
@@ -57,14 +63,24 @@ export function loadSettings(defaultRepo: string): Settings {
     repo: saved.repo ?? defaultRepo,
     githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
+    playerKey: /^[A-Za-z0-9_-]{32,128}$/.test(saved.playerKey ?? '') ? (saved.playerKey as string) : '',
     transport: saved.transport === 'local' ? 'local' : 'p2p',
   };
+  let fresh = false;
   if (!s.playerId) {
     const b = new Uint8Array(9);
     crypto.getRandomValues(b);
     s.playerId = 'u' + Array.from(b, (x) => x.toString(36)).join('');
-    saveSettings(s);
+    fresh = true;
   }
+  if (!s.playerKey) {
+    const b = new Uint8Array(32);
+    crypto.getRandomValues(b);
+    /* base64url, the alphabet the relay accepts. */
+    s.playerKey = btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    fresh = true;
+  }
+  if (fresh) saveSettings(s);
   return s;
 }
 
