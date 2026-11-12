@@ -560,8 +560,7 @@ function openAbout(): void {
         + 'take a robot\u2019s place.'),
       h('li', h('b', 'Hand records.'), ' After each board, see all four hands, the auction and the play, '
         + 'and what every other table did with the same cards.'),
-      h('li', h('b', 'Your own tournaments.'), ' Anyone can host: set the boards, rounds, capacity and '
-        + 'which levels of player it is for. In order to act as a tournament director, expand the '
+      h('li', h('b', 'Your own tournaments.'), ' To create your own tournaments, expand the '
         + 'Tournament Director section in the Settings dialog and follow the instructions to generate a token.')),
 
     h('h3', 'First steps'),
@@ -582,7 +581,7 @@ function openAbout(): void {
     h('h3', 'Who made it'),
     h('p', 'Bridge Break is written by Ido Millet, owner of Millet Software (',
       h('a', { href: `https://${SITE}`, target: '_blank', rel: 'noopener' }, SITE), ').'),
-    h('p', 'Feedback and ideas for features are genuinely welcome \u2014 write to ',
+    h('p', 'Please email feedback and suggestions to ',
       h('a', { href: `mailto:${MAIL}` }, MAIL), '.'),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
 }
