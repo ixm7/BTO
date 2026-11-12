@@ -547,33 +547,26 @@ const SITE = 'www.MilletSoftware.com';
 function openAbout(): void {
   dialog('About Bridge Break', (close) => h('div.about',
     h('p', 'Bridge Break runs ', h('b', 'duplicate bridge tournaments'), ' in your browser. '
-      + 'It is free, there is nothing to install, and there are no accounts to make — '
-      + 'you choose a name and sit down.'),
+      + 'It is free, and there is nothing to install.'),
 
     h('h3', 'What it does'),
     h('ul',
-      h('li', h('b', 'Open tournaments.'), ' Pick one from the list, register, and play when it starts. '
-        + 'Come with a partner or register alone and be paired with somebody who did the same.'),
-      h('li', h('b', 'Private rooms.'), ' Share a room code and play with exactly the people you invite.'),
-      h('li', h('b', 'Robots.'), ' They fill any empty seat, so a table is never held up by somebody who '
-        + 'had to leave. You can hand your seat to a robot and take it back later, and a latecomer can '
-        + 'take a robot\u2019s place.'),
-      h('li', h('b', 'Hand records.'), ' After each board, see all four hands, the auction and the play, '
-        + 'and what every other table did with the same cards.'),
-      h('li', h('b', 'Your own tournaments.'), ' To create your own tournaments, expand the '
-        + 'Tournament Director section in the Settings dialog and follow the instructions to generate a token.')),
+      h('li', h('b', 'Open tournaments.'), ' Pick one from the list, register to be randomly paired '
+        + 'or join/use the Partnership List.'),
+      h('li', h('b', 'Private rooms.'), ' Enter or share a private room code with the players you wish to invite.'),
+      h('li', h('b', 'Robots.'), ' They fill any empty, timed-out, or withdrawn seat. You can hand your seat '
+        + 'to a robot, and take it back later. Latecomers can take a robot\u2019s place.'),
+      h('li', h('b', 'Rejoin after Timeouts.'), ' A button click allows you to replace the robot that replaced you.'),
+      h('li', h('b', 'Start tournaments.'), ' To create your own tournaments, expand the \u2018Tournament Director\u2019 '
+        + 'section under \u2018Settings\u2019, and follow the instructions to generate a token.'),
+      h('li', h('b', 'Skill Levels.'), ' Tournaments may limit the range of allowed skill levels.')),
 
     h('h3', 'First steps'),
     h('ol',
-      h('li', 'Open ', h('b', 'Settings'), ' and put in the name you want other players to see. '
-        + 'A skill level and a short description of your game are optional, and both are useful '
-        + 'to the people you sit down with.'),
-      h('li', 'Click ', h('b', 'Play a demo vs robots'), '. Nothing is at stake and nobody is waiting '
-        + 'for you, which makes it the right place to learn how bidding, alerting, and playing works.'),
-      h('li', 'When you are ready for real opponents, either ', h('b', 'Join private room'), ' with friends '
-        + '\u2014 one of you invents a code and shares it \u2014 or pick a tournament from the list and ',
-        h('b', 'Register'), '.'),
-      h('li', 'If you exceed the timeout limit set by the tournament director for each bid or play, '
+      h('li', 'Open ', h('b', 'Settings'), ' and enter a name, skill level, and a short description.'),
+      h('li', 'Click ', h('b', 'Play a demo vs robots'), ' to learn how bidding, alerting, and playing works.'),
+      h('li', 'Pick a tournament from the list and ', h('b', 'Register'), '.'),
+      h('li', 'If you exceed the timeout limit set by the tournament director for each bid/play, '
         + 'you will be replaced by a Robot. ',
         h('b', 'However, you can re-select the tournament and click an option to be reseated to '
           + 'rejoin your partner.'))),
