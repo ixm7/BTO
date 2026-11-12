@@ -206,18 +206,21 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 .felt .contract-box .decl { font-size: .78em; opacity: .85; }
 .felt .contract-box.pending { background: rgba(255,255,255,.14); color: var(--felt-ink); border-color: rgba(255,255,255,.2); }
 
-/* Trick counters: a bar standing up for a trick won, lying down for one lost. */
+/* Trick counters: a tick for the ones won, a cross for the ones lost.
+   The colours are Okabe and Ito's bluish green and vermillion, the pair they
+   chose to stay as far apart as two colours can for a colour-blind eye — but
+   simulating it puts them at little more than a shade apart in weight, so the
+   tick and the cross are what carry the difference and the colour only
+   agrees with them. The ink clears 4.5:1 on both, simulated or not. */
 .felt .tricks { display: flex; gap: 6px; }
 .felt .tcount {
   display: flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 6px;
-  background: #1d6b74; color: #eaf6f4; border: 1px solid rgba(0,0,0,.3);
+  background: #009E73; color: #0b1410; border: 1px solid rgba(0,0,0,.3);
   font-weight: 800; font-size: clamp(.95rem, 1.05vw, 1.2rem);
 }
-.felt .tcount.lost { background: #30363a; }
-.felt .tcount .bar { display: block; background: currentColor; border-radius: 1px; }
-.felt .tcount .bar.v { width: 5px; height: 16px; }
-.felt .tcount .bar.h { width: 16px; height: 5px; }
+.felt .tcount.lost { background: #D55E00; }
+.felt .tcount .mark { font-style: normal; font-size: 1.05em; line-height: 1; }
 
 /* ---- seats & player labels (BBO-style compact badge) ---- */
 .seat { text-align: center; min-width: 0; }

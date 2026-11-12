@@ -176,13 +176,16 @@ function contractBox(c: Contract): HTMLElement {
     h('span.decl', SEAT_NAMES[c.declarer]));
 }
 
-/* ---- Trick counters: upright for tricks won, on its side for tricks lost,
-   the way won and lost tricks are stacked at a real table. ---- */
+/* ---- Trick counters. The tick and the cross are what say which is which;
+   the colour agrees with them rather than being the only thing carrying it,
+   which is what makes the pair readable to a colour-blind eye. ---- */
 
 function trickCounts(won: number, lost: number): HTMLElement {
   return h('div.tricks',
-    h('div.tcount.won', { title: `${won} trick${won === 1 ? '' : 's'} won` }, h('i.bar.v'), h('span', String(won))),
-    h('div.tcount.lost', { title: `${lost} trick${lost === 1 ? '' : 's'} lost` }, h('i.bar.h'), h('span', String(lost))));
+    h('div.tcount.won', { title: `${won} trick${won === 1 ? '' : 's'} won` },
+      h('i.mark', { 'aria-hidden': 'true' }, '\u2713'), h('span', String(won))),
+    h('div.tcount.lost', { title: `${lost} trick${lost === 1 ? '' : 's'} lost` },
+      h('i.mark', { 'aria-hidden': 'true' }, '\u2717'), h('span', String(lost))));
 }
 
 /* ---- Auction cell (bid display in the history table) ---- */
