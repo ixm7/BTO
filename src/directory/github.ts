@@ -627,11 +627,6 @@ export class Directory {
   }
 
   /** Without a token: a github.com page with the tournament pre-filled; the user just presses "Submit". */
-  newIssueUrl(meta: TournamentMeta): string {
-    const q = new URLSearchParams({ title: `🂡 ${meta.name}`, body: issueBody(meta) });
-    return `https://github.com/${this.slug}/issues/new?${q.toString()}`;
-  }
-
   issueUrl(number: number): string { return `https://github.com/${this.slug}/issues/${number}`; }
 
   // `async` here matters beyond style: it guarantees that throwing (e.g. "no

@@ -229,7 +229,11 @@ function directoryView(): HTMLElement {
       d ? h('button', { onclick: () => void refresh(), disabled: loading }, loading ? 'Refreshing…' : 'Refresh') : null,
       h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join private room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
-      d ? h('button.primary', { onclick: openCreate }, 'New tournament') : null),
+      !d ? null : d.canWrite
+        ? h('button.primary', { onclick: openCreate }, 'New tournament')
+        /* Only a token can write a tournament into the list. The tooltip hangs
+           on a wrapper, since a disabled button is sent no mouse events. */
+        : h('span.tip', { title: DIRECTOR_NOTE }, h('button.primary', { disabled: true }, 'New tournament'))),
     body);
 }
 
@@ -593,9 +597,12 @@ setSound(settings.sound);
   });
 }
 
+const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Director section in Settings '
+  + 'and follow the instructions to generate a token.';
+
 function openCreate(): void {
   const d = directory();
-  if (!d) return;
+  if (!d?.canWrite) return;
   dialog('New tournament', (close) => {
     const err = h('div');
     const tz = localTimeZone();
@@ -613,24 +620,17 @@ function openCreate(): void {
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
         });
-        if (d.canWrite) {
-          const number = await d.create(meta);
-          close();
-          notice = 'Creating the tournament…';
-          location.hash = `t=${number}`;
-          /* Only say it is done once it is on the list, so that going back to
-             the list shows it there. */
-          await refresh(number);
-          notice = listings?.some((x) => x.number === number)
-            ? 'Tournament created.'
-            : 'Tournament created. It may take a moment to appear on the list.';
-          render();
-        } else {
-          window.open(d.newIssueUrl(meta), '_blank', 'noopener');
-          close();
-          notice = 'A page opened with the tournament filled in. Press “Create” there, then Refresh here.';
-          render();
-        }
+        const number = await d.create(meta);
+        close();
+        notice = 'Creating the tournament…';
+        location.hash = `t=${number}`;
+        /* Only say it is done once it is on the list, so that going back to
+           the list shows it there. */
+        await refresh(number);
+        notice = listings?.some((x) => x.number === number)
+          ? 'Tournament created.'
+          : 'Tournament created. It may take a moment to appear on the list.';
+        render();
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); }
     } },
       field('Tournament name', h('input', { name: 'name', required: true, maxLength: 60 })),
@@ -638,8 +638,7 @@ function openCreate(): void {
       h('div.two',
         field('Type', h('select', { name: 'type' }, h('option', 'Matchpoints'))),
         field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
-          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))),
-          'Players who describe themselves otherwise cannot register. Leave them all ticked to welcome everyone.')),
+          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))))),
       h('div.two',
         field('Start time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
         field('Time zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
@@ -651,10 +650,9 @@ function openCreate(): void {
       field('Inactivity limit (seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
-      d.canWrite ? null : h('small', 'No token is set, so this opens the tournament page pre-filled for you to submit.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
-        h('button.primary', { type: 'submit' }, d.canWrite ? 'Create tournament' : 'Continue on the tournament page')));
+        h('button.primary', { type: 'submit' }, 'Create tournament')));
     return form;
   });
 }

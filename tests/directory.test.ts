@@ -396,13 +396,6 @@ describe('GitHub directory', () => {
     expect(seen).toEqual(['no-store']);
   });
 
-  it('builds a pre-filled github.com link for users without a token', () => {
-    const d = new Directory('club/bridge');
-    const url = new URL(d.newIssueUrl(makeMeta(base)));
-    expect(url.origin + url.pathname).toBe('https://github.com/club/bridge/issues/new');
-    expect(parseMeta(url.searchParams.get('body'))).toEqual(makeMeta(base));
-  });
-
   it('explains a rate limit in words a player will understand', async () => {
     const reset = Math.floor(Date.now() / 1000) + 17 * 60;
     const headers = (reset_: number | null) => ({
