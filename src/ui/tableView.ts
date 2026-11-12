@@ -2,8 +2,8 @@ import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf
 import { legalCalls, type AuctionState, type Call, type Contract } from '../engine/bidding';
 import { isVulnerable, type Vulnerability } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
-import { contractToString } from '../engine/scoring';
-import { ALERT_MAX, turnAt, type TableState } from '../tournament/state';
+import { contractToString, resultToString } from '../engine/scoring';
+import { ALERT_MAX, claimBlocked, claimParties, claimWaitingOn, tricksLeft, turnAt, type TableState } from '../tournament/state';
 import { h } from './dom';
 
 const SEAT_NAMES: Record<Seat, string> = { N: 'North', E: 'East', S: 'South', W: 'West' };
@@ -215,6 +215,10 @@ export interface TableViewOptions {
   revealAll?: boolean;
   onCall(call: Call, alert?: string): void;
   onPlay(seat: Seat, card: Card): void;
+  /** Open the claim (declarer) or concede (defender) picker. */
+  onClaim?(): void;
+  onAnswerClaim?(accept: boolean): void;
+  onWithdrawClaim?(): void;
   isPresent(playerId: string): boolean;
   playerNotes?: Map<string, string>;
 }
@@ -238,7 +242,9 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const vul = isVulnerable(table.vul, sideOf(seat));
     const cards = play ? play.hands[seat] : table.deal?.[seat] ?? [];
     const isDummy = !!play && play.dummy === seat;
-    const visible = !!o.revealAll || seat === view || (isDummy && !!play && isDummyVisible(play));
+    /* A player who claims lays their cards face up, as at a real table, so
+       the others can see the claim is good before agreeing to it. */
+    const visible = !!o.revealAll || seat === view || (isDummy && !!play && isDummyVisible(play)) || table.claim?.seat === seat;
     const canPlayHere = iControl && turn?.phase === 'play' && turn.seat === seat;
     const legal = canPlayHere && play ? new Set(legalPlays(play.hands[seat], play.trick)) : new Set<Card>();
     const away = !player.bot && !o.isPresent(player.id);
@@ -287,6 +293,8 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   if (play && showingLast && play.lastWinner) center.append(h('div.msg', `${SEAT_NAMES[play.lastWinner]} won the trick`));
   else if (play && play.cardsPlayed === 0) center.append(h('div.msg', `${SEAT_NAMES[play.turn]} to make the opening lead`));
 
+  if (play && table.claim) center.append(claimBox(table, mySeat, o));
+
   /* Auction grid, centred in the play area. The columns run clockwise, as
      the bidding does, but they are turned so that the seat the table is
      being watched from is the right-hand one. Your own calls are then always
@@ -327,10 +335,16 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   );
 
   let status = '';
+  const ended = table.claimEnd;
+  if (play && ended) {
+    status = ended.why === 'refused' ? `${SEAT_NAMES[ended.by ?? ended.seat]} did not accept the claim. Play on. `
+      : ended.why === 'withdrawn' ? `${SEAT_NAMES[ended.seat]} withdrew the claim. Play on. `
+      : 'The claim was not answered in time. Play on. ';
+  }
   if (turn) {
     const actor = table.seats[turn.controller];
-    if (iControl) status = turn.phase === 'auction' ? 'Your call.' : turn.seat === mySeat ? 'Your turn — play a card.' : 'Your turn — play a card from dummy.';
-    else status = `Waiting for ${actor.name} (${SEAT_NAMES[turn.controller]})…`;
+    if (iControl) status += turn.phase === 'auction' ? 'Your call.' : turn.seat === mySeat ? 'Your turn — play a card.' : 'Your turn — play a card from dummy.';
+    else status += `Waiting for ${actor.name} (${SEAT_NAMES[turn.controller]})…`;
   }
 
   /* During the auction the history and the bidding box sit together in the
@@ -347,6 +361,48 @@ export function renderTable(o: TableViewOptions): HTMLElement {
 
   const felt = h('div.felt', info, SEATS.map(seatEl), center);
   const out = h('div', felt);
-  out.append(h('div.status-line', { role: 'status' }, iControl ? h('b', status) : status));
+  /* Declarer claims and a defender concedes; dummy has nothing to say. */
+  let claimBtn: HTMLElement | null = null;
+  if (play && mySeat && o.onClaim && !table.claim && claimParties(play).includes(mySeat) && play.cardsPlayed > 0) {
+    const why = claimBlocked(table, mySeat);
+    const label = mySeat === play.contract.declarer ? 'Claim…' : 'Concede…';
+    const btn = h('button.claim-btn', { onclick: () => o.onClaim?.(), disabled: !!why }, label);
+    claimBtn = why ? h('span.tip', { title: why }, btn) : btn;
+  }
+  out.append(h('div.status-line', { role: 'status' }, h('span', iControl ? h('b', status) : status), claimBtn));
   return out;
+}
+
+/** "N of the remaining M tricks", from the claimer's point of view. */
+export function claimWords(table: TableState): string {
+  const c = table.claim!;
+  const p = table.play!;
+  const left = tricksLeft(p);
+  const declaring = c.seat === p.contract.declarer;
+  const of = `${c.toDeclarer} of the remaining ${left} trick${left === 1 ? '' : 's'}`;
+  return declaring ? `${SEAT_NAMES[c.seat]} (declarer) claims ${of}.`
+    : `${SEAT_NAMES[c.seat]} concedes ${of} to declarer.`;
+}
+
+function claimBox(table: TableState, mySeat: Seat | null, o: TableViewOptions): HTMLElement {
+  const c = table.claim!;
+  const p = table.play!;
+  const waiting = claimWaitingOn(table);
+  const outcome = resultToString(p.contract, p.declarerTricks + c.toDeclarer);
+  const names = waiting.map((s) => SEAT_NAMES[s]).join(' and ');
+  let foot: HTMLElement;
+  if (mySeat && waiting.includes(mySeat)) {
+    foot = h('div.claim-actions',
+      h('button.primary', { onclick: () => o.onAnswerClaim?.(true) }, 'Accept'),
+      h('button', { onclick: () => o.onAnswerClaim?.(false) }, 'Reject'));
+  } else if (mySeat === c.seat) {
+    foot = h('div.claim-actions', h('span', `Waiting for ${names}…`),
+      h('button', { onclick: () => o.onWithdrawClaim?.() }, 'Withdraw'));
+  } else {
+    foot = h('div.claim-actions', h('span', `Waiting for ${names}…`));
+  }
+  return h('div.claimbox', { role: 'alertdialog', 'aria-label': 'Claim' },
+    h('b', claimWords(table)),
+    h('div.claim-result', `If accepted, declarer ends with ${p.declarerTricks + c.toDeclarer} tricks: ${outcome}`),
+    foot);
 }

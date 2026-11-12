@@ -6,11 +6,12 @@ import { planConfig } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
-import { originalSeatId, ownerOf, standings, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
+import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { armSound, cardSwoosh, setSound, turnChime } from './sound';
 import { h, loadSettings, saveSettings, type Settings } from './dom';
 import { renderTable } from './tableView';
+import { resultToString } from '../engine/scoring';
 
 const DEFAULT_REPO = (import.meta.env.VITE_DIRECTORY_REPO as string | undefined) ?? '';
 const root = document.getElementById('app') as HTMLElement;
@@ -1032,6 +1033,39 @@ function soundCues(n: TournamentNode, table: TableState): void {
   heardMyTurn = mine;
 }
 
+/**
+ * Declarer picks how many of the remaining tricks to claim; a defender, how
+ * many to concede. Either way the number is declarer's, which is what the
+ * table is asked to agree to.
+ */
+function openClaim(n: TournamentNode): void {
+  const at = n.mySeat();
+  const p = at?.table.play;
+  if (!at || !p) return;
+  const left = tricksLeft(p);
+  const declaring = at.seat === p.contract.declarer;
+  const pick = h('select', Array.from({ length: left + 1 }, (_, i) => left - i)
+    .map((k) => h('option', { value: String(k) }, String(k)))) as HTMLSelectElement;
+  const preview = h('p.muted');
+  const show = (): void => {
+    const k = Number(pick.value);
+    const total = p.declarerTricks + k;
+    preview.textContent = `Declarer would end with ${total} trick${total === 1 ? '' : 's'}: ${resultToString(p.contract, total)}.`;
+  };
+  pick.onchange = show;
+  show();
+  const who = declaring ? 'the two defenders' : 'declarer and your partner';
+  dialog(declaring ? 'Claim tricks' : 'Concede tricks', (close) => h('div',
+    h('p', declaring ? 'How many of the ' : 'How many of the ', h('b', `${left} remaining trick${left === 1 ? '' : 's'}`),
+      declaring ? ' do you claim?' : ' do you concede to declarer?'),
+    h('div.row', pick, h('span', declaring ? 'tricks for you' : 'tricks to declarer')),
+    preview,
+    h('p.muted', `Your hand is shown to the table while ${who} decide. Play stops until they both accept; if either rejects, play carries on.`),
+    h('div.row', h('span.spacer'),
+      h('button', { onclick: close }, 'Cancel'),
+      h('button.primary', { onclick: () => { n.claim(Number(pick.value)); close(); } }, declaring ? 'Claim' : 'Concede'))));
+}
+
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
@@ -1122,6 +1156,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       main.append(renderTable({
         table, mySeat: at?.seat ?? null, viewSeat: ownSeat,
         onCall: (c, alert) => n.call(c, alert), onPlay: (seat, card) => n.play(seat, card),
+        onClaim: () => openClaim(n), onAnswerClaim: (yes) => n.answerClaim(yes), onWithdrawClaim: () => n.withdrawClaim(),
         isPresent: (id) => n.isPresent(id),
         playerNotes: n.playerNotes(),
       }));
@@ -1135,6 +1170,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       side.append(h('div.panel', h('h3', `Round ${state.round + 1} of ${state.config.rounds} · Table ${table.index + 1}`),
         h('div.muted', `${state.results.length} of ${state.config.tables * state.config.rounds * state.config.boardsPerRound} boards played in the room`),
         table.lastResult ? h('p', { style: 'margin:8px 0 0' }, `Last board (${table.lastResult.board}): `, h('b', table.lastResult.text),
+          table.lastResult.claimed ? ' (claimed)' : '',
           `, N-S ${table.lastResult.nsScore > 0 ? '+' : ''}${table.lastResult.nsScore}`) : null));
     }
   }

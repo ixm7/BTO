@@ -510,3 +510,15 @@ button.pc:disabled { opacity: 1; }
 .list tr.me.sel > td { background: #efe6cd; }
 .deal-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .handblock.me { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,92,69,.15); }
+
+/* ---- claims: the question sits on the felt where the trick would be ---- */
+.center .claimbox {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+  width: min(92%, 340px); padding: 12px 14px; border-radius: 10px;
+  background: #fffdf6; color: var(--ink); box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+  display: flex; flex-direction: column; gap: 6px; font-size: .92rem; text-align: center;
+}
+.claimbox .claim-result { font-size: .85rem; color: #4a4a40; }
+.claimbox .claim-actions { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.status-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.status-line > span:first-child { flex: 1 1 auto; }

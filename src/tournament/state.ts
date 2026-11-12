@@ -63,7 +63,28 @@ export type TEvent =
    * their own table, but a board cannot be scored until the other tables have
    * played it, so their results are carried in whole rather than replayed.
    */
-  | { t: 'result'; result: BoardResult };
+  | { t: 'result'; result: BoardResult }
+  /**
+   * Declarer claims, or a defender concedes, part or all of the tricks still
+   * to be played. `toDeclarer` is how many of them declarer's side would take,
+   * so a claim and a concession are the same thing said from different chairs.
+   * Play stops until the other two players in the hand have answered.
+   */
+  | { t: 'claim'; table: number; board: number; seat: Seat; toDeclarer: number }
+  | { t: 'claimAnswer'; table: number; board: number; seat: Seat; accept: boolean }
+  /** The claimer takes it back, or the host lets it lapse when nobody answers. */
+  | { t: 'claimOff'; table: number; board: number; seat: Seat; why: 'withdrawn' | 'lapsed' };
+
+/** A claim or concession waiting for the other side's answer. */
+export interface Claim {
+  seat: Seat;
+  toDeclarer: number;
+  /** Players who have already agreed. */
+  agreed: Seat[];
+}
+
+/** How the last claim at a table came to nothing, shown until play resumes. */
+export interface ClaimEnd { seat: Seat; why: 'refused' | 'withdrawn' | 'lapsed'; by?: Seat }
 
 export interface BoardResult {
   board: number;
@@ -82,6 +103,8 @@ export interface BoardResult {
    * their own, and every other table's on the same board.
    */
   auction?: AuctionEntry[];
+  /** Set when the last tricks were agreed rather than played out. */
+  claimed?: boolean;
 }
 
 export interface TableState {
@@ -98,6 +121,10 @@ export interface TableState {
   auction: AuctionState | null;
   play: PlayState | null;
   lastResult: BoardResult | null;
+  /** A claim waiting for an answer, if any. Nobody plays a card meanwhile. */
+  claim?: Claim | null;
+  /** The last claim that came to nothing, until the next card is played. */
+  claimEnd?: ClaimEnd | null;
   /**
    * True while this table is still worth playing. A table that was seated with
    * humans and has since lost every one of them to a robot is switched off:
@@ -239,6 +266,8 @@ function originalAt(c: TournamentConfig, table: TableState, seat: Seat): PlayerR
 function setBoard(c: TournamentConfig, table: TableState, boardNo: number | null): void {
   table.boardNo = boardNo;
   table.play = null;
+  table.claim = null;
+  table.claimEnd = null;
   if (boardNo === null) {
     table.deal = null;
     table.auction = null;
@@ -321,6 +350,7 @@ function seatTables(c: TournamentConfig, round: number, previous?: TableState[],
  */
 function refreshActivity(state: TState): void {
   for (const t of state.tables) {
+    dropClaimForRobots(t);
     if (t.active && t.hadHuman && SEATS.every((s) => t.seats[s].bot)) {
       t.active = false;
       t.boardNo = null;
@@ -342,7 +372,47 @@ export function validateConfig(c: TournamentConfig): void {
   if (c.rounds < 1 || c.boardsPerRound < 1) throw new Error('Need at least one round and one board');
 }
 
-function finishBoard(state: TState, table: TableState, contract: Contract | null, declarerTricks: number): void {
+/* ---- Claims and concessions ---- */
+
+/** Tricks not yet won by either side, the one in progress included. */
+export const tricksLeft = (p: PlayState): number => 13 - p.declarerTricks - p.defenderTricks;
+
+/** Declarer and the two defenders: everyone with a say in a claim. Dummy has none. */
+export const claimParties = (p: PlayState): Seat[] => SEATS.filter((s) => s !== p.dummy);
+
+/** Who still has to agree to the claim on the table. */
+export function claimWaitingOn(table: TableState): Seat[] {
+  const c = table.claim;
+  if (!c || !table.play) return [];
+  return claimParties(table.play).filter((s) => s !== c.seat && !c.agreed.includes(s));
+}
+
+/**
+ * Why `seat` may not claim now, or null if it may. A robot cannot weigh a
+ * claim, so one is only possible when declarer and both defenders are people.
+ */
+export function claimBlocked(table: TableState, seat: Seat): string | null {
+  const p = table.play;
+  if (!table.active || table.boardNo === null || !p) return 'There is no hand being played';
+  if (seat === p.dummy) return 'Dummy cannot claim';
+  if (p.cardsPlayed === 0) return 'Wait until the opening lead has been made';
+  if (tricksLeft(p) <= 0) return 'There are no tricks left';
+  if (table.claim) return 'A claim is already waiting for an answer';
+  if (claimParties(p).some((s) => table.seats[s].bot)) return 'Claims are only possible when declarer and both defenders are people — a robot cannot agree to one';
+  return null;
+}
+
+/** A robot has taken a seat with a say in the claim: nobody is left to answer it. */
+function dropClaimForRobots(t: TableState): void {
+  const c = t.claim;
+  if (!c || !t.play) return;
+  if (claimParties(t.play).some((s) => t.seats[s].bot)) {
+    t.claim = null;
+    t.claimEnd = { seat: c.seat, why: 'lapsed' };
+  }
+}
+
+function finishBoard(state: TState, table: TableState, contract: Contract | null, declarerTricks: number, claimed = false): void {
   const c = state.config;
   const boardNo = table.boardNo as number;
   const result: BoardResult = {
@@ -353,6 +423,7 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
     text: resultToString(contract, declarerTricks),
     /* Taken before setBoard clears it for the next board. */
     ...(table.auction && table.auction.calls.length > 0 ? { auction: [...table.auction.calls] } : {}),
+    ...(claimed ? { claimed: true } : {}),
   };
   state.results = [...state.results, result];
   table.lastResult = result;
@@ -474,7 +545,7 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
       for (const s of SEATS) {
         if (seats[s].id === ev.playerId && !seats[s].bot) { seats[s] = standIn(seats[s]); changed = true; }
       }
-      if (changed) t.seats = seats;
+      if (changed) { t.seats = seats; dropClaimForRobots(t); }
     }
     refreshActivity(state);
     return state;
@@ -497,6 +568,43 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
   }
 
   if (!table.play) throw new Error('Play has not started');
+
+  if (ev.t === 'claim') {
+    const why = claimBlocked(table, ev.seat);
+    if (why) throw new Error(why);
+    const left = tricksLeft(table.play);
+    if (!Number.isInteger(ev.toDeclarer) || ev.toDeclarer < 0 || ev.toDeclarer > left) throw new Error(`A claim must be for 0 to ${left} tricks`);
+    table.claim = { seat: ev.seat, toDeclarer: ev.toDeclarer, agreed: [] };
+    table.claimEnd = null;
+    return state;
+  }
+  if (ev.t === 'claimAnswer') {
+    const c = table.claim;
+    if (!c) throw new Error('There is no claim to answer');
+    if (!claimWaitingOn(table).includes(ev.seat)) throw new Error('That seat has no claim to answer');
+    if (!ev.accept) {
+      table.claim = null;
+      table.claimEnd = { seat: c.seat, why: 'refused', by: ev.seat };
+      return state;
+    }
+    table.claim = { ...c, agreed: [...c.agreed, ev.seat] };
+    if (claimWaitingOn(table).length === 0) {
+      const p = table.play;
+      finishBoard(state, table, p.contract, p.declarerTricks + c.toDeclarer, true);
+    }
+    return state;
+  }
+  if (ev.t === 'claimOff') {
+    const c = table.claim;
+    if (!c) throw new Error('There is no claim to take back');
+    if (ev.why === 'withdrawn' && ev.seat !== c.seat) throw new Error('Only the player who claimed can take it back');
+    table.claim = null;
+    table.claimEnd = { seat: c.seat, why: ev.why };
+    return state;
+  }
+
+  if (table.claim) throw new Error('Play is paused while a claim is answered');
+  table.claimEnd = null;
   table.play = applyPlay(table.play, ev.seat, ev.card);
   if (isPlayOver(table.play)) finishBoard(state, table, table.play.contract, table.play.declarerTricks);
   return state;
@@ -518,6 +626,8 @@ export interface Turn {
 
 export function turnAt(table: TableState): Turn | null {
   if (!table.active || table.boardNo === null) return null;
+  /* Nobody is on turn while a claim waits: the table waits on its answer. */
+  if (table.claim) return null;
   if (table.play) return { phase: 'play', seat: table.play.turn, controller: controllerOf(table.play, table.play.turn) };
   if (table.auction) {
     const seat = currentBidder(table.auction);

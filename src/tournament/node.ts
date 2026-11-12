@@ -14,7 +14,7 @@ import { chooseCall, chooseCard } from '../engine/bot';
 import { controllerOf } from '../engine/play';
 import type { Transport } from '../net/transport';
 import {
-  buildConfig, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
+  buildConfig, claimWaitingOn, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
   type BoardResult, type LobbyPlayer, type Seating, type TEvent, type TState, type TableState, type TournamentConfig,
 } from './state';
 
@@ -317,6 +317,28 @@ export class TournamentNode {
     this.submit({ t: 'play', table: at.table.index, board: at.table.boardNo, seat, card });
   }
 
+  /**
+   * Claim (as declarer) or concede (as a defender) the tricks still to come:
+   * `toDeclarer` is how many of them declarer's side is to take.
+   */
+  claim(toDeclarer: number): void {
+    const at = this.mySeat();
+    if (!at || at.table.boardNo === null) return;
+    this.submit({ t: 'claim', table: at.table.index, board: at.table.boardNo, seat: at.seat, toDeclarer });
+  }
+
+  answerClaim(accept: boolean): void {
+    const at = this.mySeat();
+    if (!at || at.table.boardNo === null) return;
+    this.submit({ t: 'claimAnswer', table: at.table.index, board: at.table.boardNo, seat: at.seat, accept });
+  }
+
+  withdrawClaim(): void {
+    const at = this.mySeat();
+    if (!at || at.table.boardNo === null) return;
+    this.submit({ t: 'claimOff', table: at.table.index, board: at.table.boardNo, seat: at.seat, why: 'withdrawn' });
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -546,6 +568,8 @@ export class TournamentNode {
     if (!table || !playerId) return;
     const controller = ev.t === 'play' && table.play ? controllerOf(table.play, ev.seat) : ev.seat;
     if (table.seats[controller]?.id !== playerId) return; // not that player's seat
+    /* Letting a claim lapse is the host's call alone. */
+    if (ev.t === 'claimOff' && ev.why !== 'withdrawn') return;
     this.append(ev);
   }
 
@@ -596,6 +620,11 @@ export class TournamentNode {
     const now = this.o.now();
     let robotsWaiting = false;
     for (const table of this.myTables()) {
+      if (table.claim && table.boardNo !== null) {
+        if (this.lapseClaim(table, now)) { this.scheduleAuto(); return; }
+        robotsWaiting = true; // keep the clock running until it is answered
+        continue;
+      }
       const turn = turnAt(table);
       if (!turn || table.boardNo === null) continue;
       const player = table.seats[turn.controller];
@@ -636,6 +665,33 @@ export class TournamentNode {
       this.append(ev);
     }
     if (robotsWaiting) this.scheduleAuto();
+  }
+
+  /**
+   * A claim nobody answers must not hold the table for ever. It lapses after
+   * the director's time limit, or sooner if a player who has to answer it has
+   * dropped off. Nobody loses a seat over it: play simply resumes. Returns
+   * true if it lapsed.
+   */
+  private lapseClaim(table: TableState, now: number): boolean {
+    const c = table.claim;
+    if (!c || table.boardNo === null || !table.play || !this.state) return false;
+    /* Its own key, so the turn clock starts afresh once play resumes. */
+    const key = `${table.boardNo}:claim:${table.play.cardsPlayed}:${c.seat}:${c.toDeclarer}`;
+    const prev = this.waitingSince.get(table.index);
+    if (!prev || prev.key !== key) { this.waitingSince.set(table.index, { key, at: now }); return false; }
+    const limit = this.state.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
+    let gone = false;
+    for (const s of [c.seat, ...claimWaitingOn(table)]) {
+      const id = table.seats[s].id;
+      if (this.isPresent(id)) { this.absentSince.delete(id); continue; }
+      const since = this.absentSince.get(id) ?? now;
+      this.absentSince.set(id, since);
+      if (now - since >= this.o.absentGraceMs) gone = true;
+    }
+    if (!gone && !(limit > 0 && now - prev.at >= limit)) return false;
+    this.waitingSince.delete(table.index);
+    return this.append({ t: 'claimOff', table: table.index, board: table.boardNo, seat: c.seat, why: 'lapsed' });
   }
 
   private emit(): void {
