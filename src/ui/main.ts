@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, MIN_PLAYERS, impsText, scoringName, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, MIN_PLAYERS, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -342,32 +342,70 @@ const openToJoin = (l: Listing): boolean =>
 
 let onlyOpen = false;
 
+/**
+ * The list is kept in four parts, so a player sees what is about to happen
+ * without scrolling past what already has. Which parts are open is remembered
+ * here, because the page redraws itself whenever the list is read again.
+ */
+const PANELS = [
+  { key: 'pending', title: 'Pending', open: true, holds: (st: Status) => st === 'upcoming' || st === 'starting' },
+  { key: 'running', title: 'Running', open: true, holds: (st: Status) => st === 'in progress' },
+  { key: 'finished', title: 'Finished', open: false, holds: (st: Status) => st === 'finished' },
+  { key: 'cancelled', title: 'Cancelled', open: false, holds: (st: Status) => st === 'cancelled' || st === 'aborted' },
+] as const;
+const panelOpen: Record<string, boolean> = {};
+
+const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Start', 'Level', 'Players', 'Status', 'Result'];
+
+function listTable(rows: Listing[]): HTMLElement {
+  return h('div.table-scroll', h('table.list',
+    h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' ? 'th.num' : 'th', t)))),
+    h('tbody', rows.map((l) => h('tr',
+      h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
+      h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
+      h('td', scoringName(l.meta.scoring)),
+      h('td', when(l)),
+      h('td', levelText(l.meta)),
+      h('td.num', playersCell(l)),
+      h('td', badge(l.status)),
+      h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.scoring === 'imps' ? `${impsText(l.results.rankings[0].imps ?? 0)} IMPs` : `${l.results.rankings[0].percent.toFixed(1)}%`})` : h('span.muted', '—')),
+    )))));
+}
+
+function panel(key: string, title: string, fallback: boolean, body: Node, count: number): HTMLElement {
+  const open = panelOpen[key] ?? fallback;
+  return h('details.acc', {
+    open,
+    ontoggle: (e: Event) => { panelOpen[key] = (e.target as HTMLDetailsElement).open; },
+  }, h('summary', h('span.acc-title', title), h('span.acc-count', String(count))), body);
+}
+
 function directoryView(): HTMLElement {
   const d = directory();
   const body = h('div.panel');
   if (!d) {
     body.append(h('p', 'No tournament directory is configured. You can still try a demo table against robots.'));
   } else if (loading && !listings) {
-    body.append(h('p.muted', 'Loading tournaments…'));
-  } else if (listings && listings.length === 0) {
-    body.append(h('p', 'No tournaments yet. Be the first to create one.'));
-  } else if (listings && onlyOpen && !listings.some(openToJoin)) {
-    body.append(h('p', 'No tournaments are open for registration right now. '),
-      h('button.link', { onclick: () => { onlyOpen = false; render(); } }, 'Show all tournaments'));
+    body.append(h('p.muted', 'Loading tournaments\u2026'));
   } else if (listings) {
     const shown = onlyOpen ? listings.filter(openToJoin) : listings;
-    body.append(h('div.table-scroll', h('table.list',
-      h('thead', h('tr', ['Tournament', 'Director', 'Type', 'Start', 'Level', 'Players', 'Status', 'Result'].map((t) => h(t === 'Players' ? 'th.num' : 'th', t)))),
-      h('tbody', shown.map((l) => h('tr',
-        h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
-        h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
-        h('td', scoringName(l.meta.scoring)),
-        h('td', when(l)),
-        h('td', levelText(l.meta)),
-        h('td.num', playersCell(l)),
-        h('td', badge(l.status)),
-        h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.scoring === 'imps' ? `${impsText(l.results.rankings[0].imps ?? 0)} IMPs` : `${l.results.rankings[0].percent.toFixed(1)}%`})` : h('span.muted', '—')),
-      ))))));
+    for (const p of PANELS) {
+      const rows = shown.filter((l) => p.holds(l.status));
+      /* Pending is always there, so the page never looks empty and the
+         'nothing here yet' line has somewhere to live. */
+      if (rows.length === 0 && p.key !== 'pending') continue;
+      const inside: Node = rows.length
+        ? listTable(rows)
+        : h('p.muted', { style: 'margin:10px 2px' },
+          listings.length === 0 ? 'No tournaments yet. Be the first to create one.'
+            : onlyOpen ? 'None open for registration right now.'
+              : 'Nothing coming up.');
+      body.append(panel(p.key, p.title, p.open, inside, rows.length));
+    }
+    if (onlyOpen && !shown.length) {
+      body.append(h('p', { style: 'margin:10px 2px' },
+        h('button.link', { onclick: () => { onlyOpen = false; render(); } }, 'Show all tournaments')));
+    }
   }
   return h('div',
     h('div.row', { style: 'margin-bottom:10px' },
