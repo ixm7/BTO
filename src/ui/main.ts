@@ -399,7 +399,13 @@ function detailView(l: Listing): HTMLElement {
       id: l.roomId, name: l.meta.name, boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity, listing: l, demo: false,
     }) }, 'Enter playing room'));
   }
-  if (open && welcome) actions.append(h('button', { onclick: () => openPartners(l) }, 'Partners list'));
+  if (open && welcome) {
+    const seeking = l.partners?.seekers.length;
+    actions.append(h('button', {
+      onclick: () => openPartners(l),
+      title: 'Players looking for a partner for this tournament',
+    }, seeking === undefined ? 'Partners List' : `Partners List [${seeking}]`));
+  }
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
 
   return h('div',
@@ -657,14 +663,7 @@ function openSettings(): void {
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
       }
       saveSettings(settings);
-      /* A tab that was left in the background has not been asking for news; catch
-   up the moment it is looked at again. */
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden || node || !pollTimer || Date.now() < quietUntil) return;
-  void refresh();
-});
-
-setSound(settings.sound);
+      setSound(settings.sound);
       close();
       void refresh();
     } },
@@ -681,7 +680,11 @@ setSound(settings.sound);
       h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
         h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
         h('div.grid',
-          field('Your GitHub username', h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username' })),
+          field('Your GitHub username',
+            h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username',
+              title: 'GitHub is the free website where the tournament list is kept. Your username there is the short name you sign in with, shown at the top right of github.com once you are signed in.' }),
+            'The name you sign in to GitHub with (github.com is where the tournament list is kept). '
+              + 'You do not need to type it: it is filled in for you when you save a token below.'),
           /* The word and its help mark share one line: the label lays out each
              of its children as a row of its own. */
           h('label', h('span', 'Token ',
