@@ -152,6 +152,8 @@ export interface Listing {
   nodeId?: string;
   /** Display names of players who came through the relay, by their ~tag id. */
   names?: Record<string, string>;
+  /** Cancelled because too few players had registered by the start time. */
+  tooFew?: boolean;
 }
 
 export interface Repo { owner: string; repo: string }
@@ -475,6 +477,25 @@ export function playingWindowMs(meta: TournamentMeta): number {
 /** How long a played-out tournament stays on the list before it is dropped. */
 export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 
+/** How long a cancelled tournament stays on the list, so players can see what became of it. */
+export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
+
+/** Two tables: a duplicate needs at least two to compare results between. */
+export const MIN_PLAYERS = 8;
+
+/** A director who is a little late to press Start still gets to. */
+export const START_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * Not started by the start time (plus a little grace), with too few players
+ * for two tables: it is not going to happen. Unknown registrations (the list
+ * could not be read) never count as too few.
+ */
+export function tooFewToStart(meta: TournamentMeta, started: boolean, players: number | null, now: number): boolean {
+  return !started && players !== null && players < MIN_PLAYERS
+    && now >= Date.parse(meta.startUtc) + START_GRACE_MS;
+}
+
 /**
  * What belongs on the tournament list. One that was abandoned is of no use to
  * anybody and goes at once; one that was played stays a week so the results
@@ -484,17 +505,23 @@ export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 export function visibleInList(l: { status: Status; meta: TournamentMeta }, now: number): boolean {
   if (l.status === 'aborted') return false;
   if (l.status === 'finished') return now - Date.parse(l.meta.startUtc) < KEEP_FINISHED_MS;
+  if (l.status === 'cancelled') return now - Date.parse(l.meta.startUtc) < KEEP_CANCELLED_MS;
   return true;
 }
 
-export function deriveStatus(meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number): Status {
+export function deriveStatus(
+  meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number,
+  entry: { started: boolean; players: number | null } = { started: true, players: null },
+): Status {
   if (results) return 'finished';
   if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
   const start = Date.parse(meta.startUtc);
   if (now < start) return 'upcoming';
   /* It began, but no result was ever posted: it ran out of players or was
      abandoned part-way. Either way it is not still in progress. */
-  return now < start + playingWindowMs(meta) ? 'in progress' : 'aborted';
+  if (now >= start + playingWindowMs(meta)) return 'aborted';
+  /* Shown as cancelled until then; afterwards it is swept away with the rest. */
+  return tooFewToStart(meta, entry.started, entry.players, now) ? 'cancelled' : 'in progress';
 }
 
 /* -------------------------------------------------------------------- API */
@@ -618,8 +645,10 @@ export class Directory {
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
-      status: deriveStatus(meta, issue, results, now), registrations, results, partners, roomId: this.roomId(issue.number),
+      status: deriveStatus(meta, issue, results, now, { started: !!pinned, players: registrations?.length ?? null }),
+      registrations, results, partners, roomId: this.roomId(issue.number),
       pinned, names,
+      ...(issue.state === 'open' && !results && tooFewToStart(meta, !!pinned, registrations?.length ?? null, now) ? { tooFew: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }

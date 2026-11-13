@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, MIN_PLAYERS, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -352,6 +352,8 @@ function detailView(l: Listing): HTMLElement {
        link sits with the action it belongs to. */
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
+    l.tooFew ? h('div.note', { style: 'margin-top:10px' },
+      `Cancelled: it had not started by its start time, and fewer than ${MIN_PLAYERS} players (two tables) had registered.`) : null,
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
