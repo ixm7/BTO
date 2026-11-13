@@ -622,7 +622,7 @@ function openAbout(): void {
       h('li', h('b', 'Robots.'), ' They fill any empty, timed-out, or withdrawn seat. You can hand your seat '
         + 'to a robot, and take it back later. Latecomers can take a robot\u2019s place.'),
       h('li', h('b', 'Rejoin after Timeouts.'), ' A button click allows you to replace the robot that replaced you.'),
-      h('li', h('b', 'Start tournaments.'), ' To create your own tournaments, expand the \u2018Tournament Director\u2019 '
+      h('li', h('b', 'Start tournaments.'), ' To create your own tournaments, expand the \u2018Tournament Creator\u2019 '
         + 'section under \u2018Settings\u2019, and follow the instructions to generate a token.'),
       h('li', h('b', 'Skill Levels.'), ' Tournaments may limit the range of allowed skill levels.')),
 
@@ -680,7 +680,7 @@ function openSettings(): void {
         h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
 
       h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
-        h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
+        h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Creator'),
         h('div.grid',
           /* The word and its help mark share one line: the label lays out each
              of its children as a row of its own. */
@@ -688,8 +688,8 @@ function openSettings(): void {
             h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?')),
             h('input.masked', { name: 'token', type: 'text', value: settings.token, autocomplete: 'off', spellcheck: false, placeholder: 'optional' }),
             h('small', settings.token && settings.githubLogin
-              ? `Lets you create and run tournaments from here. This token belongs to GitHub user @${settings.githubLogin}.`
-              : 'Lets you create and run tournaments from here.')),
+              ? `Lets you create tournaments. This token belongs to GitHub user @${settings.githubLogin}.`
+              : 'Lets you create tournaments.')),
           helpPanel)),
 
       err,
@@ -698,7 +698,7 @@ function openSettings(): void {
   });
 }
 
-const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Director section in Settings '
+const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Creator section in Settings '
   + 'and follow the instructions to generate a token.';
 
 function openCreate(): void {
