@@ -193,7 +193,8 @@ function trickCounts(won: number, lost: number): HTMLElement {
 function callCell(call: Call, alert?: string): HTMLElement {
   /* An alerted call is tinted and carries its explanation as a tooltip. */
   const a = alert ? '.alerted' : '';
-  const attrs = alert ? { title: alert } : {};
+  /* Drawn by the page, not the browser, so it stays up while the table redraws. */
+  const attrs = alert ? { 'data-tip': alert, 'aria-label': alert } : {};
   if (call.type === 'pass') return h(`td.call-pass${a}`, attrs, 'Pass');
   if (call.type === 'double') return h(`td.call-dbl${a}`, attrs, 'X');
   if (call.type === 'redouble') return h(`td.call-rdbl${a}`, attrs, 'XX');
@@ -271,11 +272,11 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       /* BBO-style card backs */
       hand = h('div.hand.backs', Array.from({ length: cards.length }, () => cardBack()));
     }
-    const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', player.bot ? 'robot' : '', away ? 'away' : ''].filter(Boolean).join(', ');
+    const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', away ? 'away' : ''].filter(Boolean).join(', ');
     const info = o.playerInfo?.get(player.id);
     const seatName = `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}`;
     /* The tooltip says it all in brief; a click opens it with room to read. */
-    const tip = player.bot ? `${player.name}\nRobot`
+    const tip = player.bot ? `${player.name}\nBids Standard American (SAYC) and explains each bid.\nClick for details.`
       : [player.name, `Level: ${info?.skill || 'not given'}`, `Description: ${info?.note || 'none'}`].join('\n');
     const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}), ...(info?.note ? { note: info.note } : {}) };
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,

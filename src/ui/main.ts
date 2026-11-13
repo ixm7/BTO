@@ -722,11 +722,24 @@ function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?
 
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void {
+  if (p.robot) {
+    dialog(p.name, (close) => h('div.about',
+      h('p.muted', p.seat),
+      h('ul',
+        h('li', h('b', 'SAYC:'), ' 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, strong 2\u2663, weak twos and pre-empts, '
+          + 'limit raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
+        h('li', 'Explains own bids via alert.'),
+        h('li', 'For each card play, the robot solves multiple random hands that match the visible information. '
+          + 'It plays the card that does best on average. The random hands respect the cards played, who has shown out of a suit, '
+          + 'and what each player\u2019s bidding showed. The robot only uses what a player in its seat could see (Fair Play).')),
+      h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+    return;
+  }
   dialog(p.name, (close) => h('div',
     h('dl.facts',
       h('dt', 'Seat'), h('dd', p.seat),
-      h('dt', 'Level'), h('dd', p.robot ? 'Robot' : p.skill || h('span.muted', 'Not given')),
-      h('dt', 'Description'), h('dd', p.robot ? 'Plays by simple rules; takes any seat a person leaves.' : p.note || h('span.muted', 'No description'))),
+      h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
+      h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description'))),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
 }
 

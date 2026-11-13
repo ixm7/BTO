@@ -305,7 +305,7 @@ export function seatingOf(state: TState, tables: readonly TableState[]): Seating
 
 export function standIn(p: PlayerRef): PlayerRef {
   const who = p.name.trim().slice(0, 24) || p.id;
-  return { id: `bot:${p.id}`, name: `Robot for ${who}`, bot: true };
+  return { id: `bot:${p.id}`, name: `Robot SAYC for ${who}`, bot: true };
 }
 
 /**
@@ -715,7 +715,8 @@ function shuffle<T>(items: readonly T[], seed: string): T[] {
 }
 
 let botCounter = 0;
-const BOT_NAMES = ['Robot Ada', 'Robot Blaise', 'Robot Culbertson', 'Robot Dorothy', 'Robot Ely', 'Robot Fritz', 'Robot Goren', 'Robot Helen'];
+/* "SAYC" is the system they bid, said in the name so nobody has to ask — and so a robot playing another system can be told apart. */
+const BOT_NAMES = ['Ada', 'Blaise', 'Culbertson', 'Dorothy', 'Ely', 'Fritz', 'Goren', 'Helen'].map((n) => `Robot SAYC ${n}`);
 function makeBot(n: number): PlayerRef {
   return { id: `bot:${n}`, name: BOT_NAMES[n % BOT_NAMES.length] + (n >= BOT_NAMES.length ? ` ${Math.floor(n / BOT_NAMES.length) + 1}` : ''), bot: true };
 }

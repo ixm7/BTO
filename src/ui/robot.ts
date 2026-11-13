@@ -36,7 +36,9 @@ export function makeRobot(): RobotBrain {
   return {
     call(hand, auction, seat) {
       const c = chooseSayc(hand, auction, seat);
-      return { call: c.call, ...(c.alert ? { alert: c.says } : {}) };
+      /* Every bid and double is explained, the plain ones too: a partner or an
+         opponent should never have to guess what a robot meant. */
+      return { call: c.call, ...(c.call.type !== 'pass' && c.says ? { alert: c.says } : {}) };
     },
     card(play, seat, auction) {
       const w = start();
