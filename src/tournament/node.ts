@@ -25,8 +25,10 @@ export interface Me {
   deviceScore: number;
   isDirector: boolean;
   pairCode?: string;
-  /** Player description (skill level, convention card, etc.) shown on click. */
+  /** Player description (convention card, style, etc.) shown on click. */
   note?: string;
+  /** The skill level they gave in Settings, if any. */
+  skill?: string;
 }
 
 export interface NodeOptions {
@@ -65,13 +67,14 @@ interface PeerInfo {
   isDirector: boolean;
   pairCode?: string;
   note?: string;
+  skill?: string;
   joinedAt: number;
   seq: number;
   lastSeen: number;
 }
 
 type Msg =
-  | { k: 'hello'; playerId: string; name: string; deviceScore: number; isDirector: boolean; pairCode?: string; note?: string; joinedAt: number; seq: number }
+  | { k: 'hello'; playerId: string; name: string; deviceScore: number; isDirector: boolean; pairCode?: string; note?: string; skill?: string; joinedAt: number; seq: number }
   | { k: 'intent'; ev: TEvent }
   | { k: 'ev'; seq: number; ev: TEvent }
   | { k: 'syncreq'; have: number }
@@ -173,11 +176,19 @@ export class TournamentNode {
   /** Map of playerId → player note/description for all connected players. */
   playerNotes(): Map<string, string> {
     const notes = new Map<string, string>();
-    if (this.me.note) notes.set(this.me.playerId, this.me.note);
-    for (const p of this.peerMap.values()) {
-      if (p.note) notes.set(p.playerId, p.note);
-    }
+    for (const [id, x] of this.playerInfo()) if (x.note) notes.set(id, x.note);
     return notes;
+  }
+
+  /** What each connected player says about themselves: level and description. */
+  playerInfo(): Map<string, { note?: string; skill?: string }> {
+    const out = new Map<string, { note?: string; skill?: string }>();
+    const add = (id: string, note?: string, skill?: string): void => {
+      if (note || skill) out.set(id, { ...(note ? { note } : {}), ...(skill ? { skill } : {}) });
+    };
+    add(this.me.playerId, this.me.note, this.me.skill);
+    for (const p of this.peerMap.values()) add(p.playerId, p.note, p.skill);
+    return out;
   }
 
   mySeat(): { table: TableState; seat: Seat } | null {
@@ -398,7 +409,7 @@ export class TournamentNode {
   private sendHello(to?: string): void {
     this.transport.send({
       k: 'hello', playerId: this.me.playerId, name: this.me.name, deviceScore: this.me.deviceScore,
-      isDirector: this.me.isDirector, pairCode: this.me.pairCode, note: this.me.note,
+      isDirector: this.me.isDirector, pairCode: this.me.pairCode, note: this.me.note, skill: this.me.skill,
       joinedAt: this.joinedAt, seq: this.log.length,
     } satisfies Msg, to);
   }
@@ -414,7 +425,8 @@ export class TournamentNode {
           || known.name !== m.name || known.pairCode !== m.pairCode || known.playerId !== m.playerId;
         this.peerMap.set(from, {
           peerId: from, playerId: m.playerId, name: m.name, deviceScore: m.deviceScore, isDirector: m.isDirector,
-          pairCode: m.pairCode, note: m.note, joinedAt: m.joinedAt, seq: m.seq, lastSeen: this.o.now(),
+          pairCode: m.pairCode, note: typeof m.note === 'string' ? m.note.slice(0, 140) : undefined,
+          skill: typeof m.skill === 'string' ? m.skill.slice(0, 20) : undefined, joinedAt: m.joinedAt, seq: m.seq, lastSeen: this.o.now(),
         });
         if (isNew) this.sendHello(from);
         if (m.seq > this.log.length) this.transport.send({ k: 'syncreq', have: this.log.length } satisfies Msg, from);

@@ -702,6 +702,29 @@ function testSwitcher(): HTMLElement {
     'Testing as ', pick, current && settings.name !== `Test ${current}` ? ` (${settings.name})` : '');
 }
 
+/**
+ * Level and description for everyone at the table: what each player's own
+ * browser says, filled in from their registration where they have not said.
+ */
+function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?: string }> {
+  const out = n.playerInfo();
+  for (const r of room?.listing?.registrations ?? []) {
+    const had = out.get(r.login);
+    if (r.skill && !had?.skill) out.set(r.login, { ...had, skill: r.skill });
+  }
+  return out;
+}
+
+/** A player's name, level and description, with room to read them. */
+function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void {
+  dialog(p.name, (close) => h('div',
+    h('dl.facts',
+      h('dt', 'Seat'), h('dd', p.seat),
+      h('dt', 'Level'), h('dd', p.robot ? 'Robot' : p.skill || h('span.muted', 'Not given')),
+      h('dt', 'Description'), h('dd', p.robot ? 'Plays by simple rules; takes any seat a person leaves.' : p.note || h('span.muted', 'No description'))),
+    h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+}
+
 function openAbout(): void {
   dialog('About Bridge Break', (close) => h('div.about',
     h('p', 'Bridge Break runs ', h('b', 'free duplicate bridge tournaments'), ' in your browser.'),
@@ -927,6 +950,7 @@ async function openSession(l: Listing): Promise<void> {
     isDirector: !!settings.githubLogin && l.initiatorLogin.toLowerCase() === settings.githubLogin.trim().toLowerCase(),
     pairCode: settings.pairCode || undefined,
     note: settings.partnerNote || undefined,
+    skill: settings.skill || undefined,
   };
   session = new TournamentSession({
     config, me,
@@ -946,6 +970,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
     playerId: settings.playerId, name: settings.name.trim() || 'Guest', deviceScore: deviceScore(), isDirector,
     pairCode: settings.pairCode || undefined,
     note: settings.partnerNote || undefined,
+    skill: settings.skill || undefined,
   }, {
     botDelayMs,
     /* In the demo you are the only person at the table, so nobody is kept
@@ -1309,7 +1334,8 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
         onCall: (c, alert) => n.call(c, alert), onPlay: (seat, card) => n.play(seat, card),
         onClaim: () => openClaim(n), onAnswerClaim: (yes) => n.answerClaim(yes), onWithdrawClaim: () => n.withdrawClaim(),
         isPresent: (id) => n.isPresent(id),
-        playerNotes: n.playerNotes(),
+        playerInfo: tablePlayerInfo(n),
+        onPlayerInfo: openPlayerInfo,
       }));
       if (n.lastError) main.append(h('div.error', n.lastError));
     } else {

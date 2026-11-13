@@ -220,7 +220,10 @@ export interface TableViewOptions {
   onAnswerClaim?(accept: boolean): void;
   onWithdrawClaim?(): void;
   isPresent(playerId: string): boolean;
-  playerNotes?: Map<string, string>;
+  /** Level and description of each player, by id. */
+  playerInfo?: Map<string, { note?: string; skill?: string }>;
+  /** Show a player's details in full. */
+  onPlayerInfo?(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void;
 }
 
 export function renderTable(o: TableViewOptions): HTMLElement {
@@ -269,19 +272,20 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       hand = h('div.hand.backs', Array.from({ length: cards.length }, () => cardBack()));
     }
     const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', player.bot ? 'robot' : '', away ? 'away' : ''].filter(Boolean).join(', ');
-    const noteText = o.playerNotes?.get(player.id) ?? 'No description';
+    const info = o.playerInfo?.get(player.id);
+    const seatName = `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}`;
+    /* The tooltip says it all in brief; a click opens it with room to read. */
+    const tip = player.bot ? `${player.name}\nRobot`
+      : [player.name, `Level: ${info?.skill || 'not given'}`, `Description: ${info?.note || 'none'}`].join('\n');
+    const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}), ...(info?.note ? { note: info.note } : {}) };
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
-      { title: `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}` },
+      { title: tip },
       h('b.seat-letter', seat),
-      h('span.pname', { onclick: (e: MouseEvent) => {
-        e.stopPropagation();
-        // Remove any existing tooltip
-        document.querySelectorAll('.player-tooltip').forEach((t) => t.remove());
-        const tip = h('div.player-tooltip', h('b', player.name), h('p', noteText));
-        const dismiss = (ev: MouseEvent): void => { if (!tip.contains(ev.target as Node)) { tip.remove(); document.removeEventListener('click', dismiss); } };
-        document.addEventListener('click', dismiss);
-        (e.currentTarget as HTMLElement).parentElement!.appendChild(tip);
-      } }, player.name + (seat === mySeat ? ' (you)' : '') + (tags ? ` · ${tags}` : '')));
+      h('span.pname', {
+        role: 'button', tabindex: 0,
+        onclick: (e: MouseEvent) => { e.stopPropagation(); o.onPlayerInfo?.(details); },
+        onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); o.onPlayerInfo?.(details); } },
+      }, player.name + (seat === mySeat ? ' (you)' : '') + (!player.bot && info?.skill ? ` · ${info.skill}` : '') + (tags ? ` · ${tags}` : '')));
     return h(`div.seat.${pos[seat]}`, label, hand);
   };
 
