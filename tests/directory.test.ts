@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, MIN_PLAYERS, START_GRACE_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -168,14 +168,11 @@ describe('issue format', () => {
     expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) + 1)).toBe('aborted');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'not_planned' }, null, start)).toBe('cancelled');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'completed' }, null, start)).toBe('finished');
-    /* Not started by the start time, with too few for two tables: cancelled, after a short grace. */
-    const late = start + START_GRACE_MS;
-    expect(deriveStatus(meta, { state: 'open' }, null, late - 1, { started: false, players: 0 })).toBe('in progress');
-    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, players: 0 })).toBe('cancelled');
-    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, players: MIN_PLAYERS - 1 })).toBe('cancelled');
-    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, players: MIN_PLAYERS })).toBe('in progress');
-    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: true, players: 4 })).toBe('in progress');
-    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, players: null })).toBe('in progress');
+    /* Waiting on the automatic start, and called off by it. */
+    const late = start + 60000;
+    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, plan: { kind: 'wait', until: late, extensions: 0 } })).toBe('starting');
+    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: false, plan: { kind: 'cancel', at: late } })).toBe('cancelled');
+    expect(deriveStatus(meta, { state: 'open' }, null, late, { started: true, plan: null })).toBe('in progress');
     /* Cancelled ones leave the list after a day. */
     expect(visibleInList({ status: 'cancelled', meta }, start + KEEP_CANCELLED_MS - 1000)).toBe(true);
     expect(visibleInList({ status: 'cancelled', meta }, start + KEEP_CANCELLED_MS + 1000)).toBe(false);

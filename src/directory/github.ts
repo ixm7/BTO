@@ -108,7 +108,7 @@ export interface TournamentResults {
   rankings: ResultRow[];
 }
 
-export type Status = 'upcoming' | 'in progress' | 'finished' | 'cancelled' | 'aborted';
+export type Status = 'upcoming' | 'starting' | 'in progress' | 'finished' | 'cancelled' | 'aborted';
 
 /** Someone who has put themselves on the "looking for a partner" list for this tournament. */
 export interface PartnerSeeker {
@@ -154,6 +154,10 @@ export interface Listing {
   names?: Record<string, string>;
   /** Cancelled because too few players had registered by the start time. */
   tooFew?: boolean;
+  /** Where the automatic start stands; null when the comments could not be read. */
+  plan?: StartPlan | null;
+  /** Everyone in the draw, once entries have closed. */
+  field?: Registration[];
 }
 
 export interface Repo { owner: string; repo: string }
@@ -191,7 +195,8 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
  * at or before that moment, in the order they entered. Every player derives
  * the same list, so every player derives the same draw.
  */
-export function pinnedRoster(l: { registrations: Registration[] | null; pinned: PinnedStart | null }): Registration[] {
+export function pinnedRoster(l: { registrations: Registration[] | null; pinned: PinnedStart | null; field?: Registration[] }): Registration[] {
+  if (l.pinned && l.field) return [...l.field].sort((a, b) => a.at.localeCompare(b.at) || a.login.localeCompare(b.login));
   if (!l.pinned || !l.registrations) return [];
   return l.registrations
     .filter((r) => r.at <= (l.pinned as PinnedStart).at)
@@ -480,20 +485,91 @@ export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 /** How long a cancelled tournament stays on the list, so players can see what became of it. */
 export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
 
-/** Two tables: a duplicate needs at least two to compare results between. */
-export const MIN_PLAYERS = 8;
+/* ------------------------------------------------------- automatic start */
 
-/** A director who is a little late to press Start still gets to. */
-export const START_GRACE_MS = 10 * 60 * 1000;
+/** Fewest players a tournament will start with: one table, robots making up any gap. */
+export const MIN_PLAYERS = 4;
+/** How long past the start time to wait for the minimum before calling it off. */
+export const MIN_WAIT_MS = 5 * 60 * 1000;
+/** Short of a full field, entries stay open this much longer, again each time somebody joins. */
+export const EXTEND_MS = 60 * 1000;
+export const MAX_EXTENSIONS = 5;
+/**
+ * A comment can take a few seconds to show up for everyone. Nobody acts on a
+ * decision until it has been this long past its moment, so every browser has
+ * seen the same comments by the time it does.
+ */
+export const SETTLE_MS = 30 * 1000;
 
 /**
- * Not started by the start time (plus a little grace), with too few players
- * for two tables: it is not going to happen. Unknown registrations (the list
- * could not be read) never count as too few.
+ * Where a tournament's start stands.
+ *  - wait: entries are open; nothing can be decided before `until`.
+ *  - start: entries closed at `at`; whoever was registered then plays.
+ *  - cancel: at `at` there were still too few to play.
  */
-export function tooFewToStart(meta: TournamentMeta, started: boolean, players: number | null, now: number): boolean {
-  return !started && players !== null && players < MIN_PLAYERS
-    && now >= Date.parse(meta.startUtc) + START_GRACE_MS;
+export type StartPlan =
+  | { kind: 'wait'; until: number; extensions: number }
+  | { kind: 'start'; at: number }
+  | { kind: 'cancel'; at: number };
+
+/**
+ * Work out the start from the registration comments alone, the same way in
+ * every browser, so there is nobody who has to press a button:
+ *
+ *  1. Full at the start time: it starts then.
+ *  2. Fewer than four: wait up to five minutes for the fourth; failing that,
+ *     it is cancelled.
+ *  3. Otherwise, short of full: entries stay open one more minute. If anybody
+ *     registers in that minute, another minute, up to five times. Filling up
+ *     at any point starts it at once.
+ *
+ * Times are GitHub's own comment times, not anybody's clock, so all agree.
+ */
+export function planStart(meta: TournamentMeta, comments: readonly RawComment[], now: number): StartPlan {
+  const T0 = Date.parse(meta.startUtc);
+  const cap = meta.capacity;
+  const sorted = [...comments].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const times = [...new Set(sorted.map((c) => Date.parse(c.created_at)))];
+  const regsAt = (t: number): Registration[] => parseRegistrations(sorted.filter((c) => Date.parse(c.created_at) <= t));
+  const count = (t: number): number => regsAt(t).length;
+  /** The first comment in (from, to] after which `ok` holds. */
+  const firstIn = (from: number, to: number, ok: (n: number) => boolean): number | null =>
+    times.find((t) => t > from && t <= to && ok(count(t))) ?? null;
+  const settled = (plan: StartPlan & { at: number }): StartPlan =>
+    now >= plan.at + SETTLE_MS ? plan : { kind: 'wait', until: plan.at, extensions: 0 };
+
+  if (now < T0) return { kind: 'wait', until: T0, extensions: 0 };
+  if (count(T0) >= cap) return settled({ kind: 'start', at: T0 });
+
+  let from = T0;
+  if (count(T0) < MIN_PLAYERS) {
+    const reached = firstIn(T0, T0 + MIN_WAIT_MS, (n) => n >= MIN_PLAYERS);
+    if (reached === null) {
+      return now < T0 + MIN_WAIT_MS ? { kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 }
+        : settled({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
+    }
+    if (count(reached) >= cap) return settled({ kind: 'start', at: reached });
+    from = reached;
+  }
+
+  for (let ext = 0; ; ext++) {
+    const to = from + EXTEND_MS;
+    const full = firstIn(from, to, (n) => n >= cap);
+    if (full !== null) return settled({ kind: 'start', at: full });
+    if (now < to) return { kind: 'wait', until: to, extensions: ext };
+    const before = new Set(regsAt(from).map((r) => r.login));
+    const joined = regsAt(to).some((r) => !before.has(r.login));
+    if (joined && ext < MAX_EXTENSIONS) { from = to; continue; }
+    /* Withdrawals in the meantime can leave it short again. */
+    return settled(count(to) >= MIN_PLAYERS ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
+  }
+}
+
+/** Same deals in every browser, and nobody's to choose. */
+async function seedFor(issue: { number: number; node_id?: string }, at: number, field: readonly Registration[]): Promise<string> {
+  const text = `bridgebreak-start:${issue.node_id ?? issue.number}:${at}:${field.map((r) => r.login).join(',')}`;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
 }
 
 /**
@@ -511,7 +587,7 @@ export function visibleInList(l: { status: Status; meta: TournamentMeta }, now: 
 
 export function deriveStatus(
   meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number,
-  entry: { started: boolean; players: number | null } = { started: true, players: null },
+  entry: { started: boolean; plan: StartPlan | null } = { started: false, plan: null },
 ): Status {
   if (results) return 'finished';
   if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
@@ -520,8 +596,10 @@ export function deriveStatus(
   /* It began, but no result was ever posted: it ran out of players or was
      abandoned part-way. Either way it is not still in progress. */
   if (now >= start + playingWindowMs(meta)) return 'aborted';
-  /* Shown as cancelled until then; afterwards it is swept away with the rest. */
-  return tooFewToStart(meta, entry.started, entry.players, now) ? 'cancelled' : 'in progress';
+  if (entry.started) return 'in progress';
+  if (entry.plan?.kind === 'cancel') return 'cancelled';
+  if (entry.plan?.kind === 'wait') return 'starting';
+  return 'in progress';
 }
 
 /* -------------------------------------------------------------------- API */
@@ -630,10 +708,12 @@ export class Directory {
     let partners: PartnersData | null = { seekers: [], invitations: [] };
     let pinned: PinnedStart | null = null;
     let names: Record<string, string> = {};
+    let cs: RawComment[] = [];
+    let readable = true;
     if (issue.comments > 0) {
       try {
         const read = asActors(await this.comments(issue.number), this.relay?.login ?? '');
-        const cs = read.comments;
+        cs = read.comments;
         names = read.names;
         registrations = parseRegistrations(cs);
         // Only the director or a registered player can publish results.
@@ -641,14 +721,24 @@ export class Directory {
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
         partners = parsePartners(cs);
         pinned = parseStart(cs, issue.user?.login ?? '');
-      } catch { registrations = null; partners = null; }
+      } catch { registrations = null; partners = null; readable = false; }
+    }
+    /* A director's /start, from before starts were automatic, still counts. */
+    const plan = readable && !pinned && !results ? planStart(meta, cs, now) : null;
+    let field: Registration[] | undefined;
+    if (plan?.kind === 'start') {
+      field = parseRegistrations(cs.filter((c) => Date.parse(c.created_at) <= plan.at));
+      pinned = { seed: await seedFor(issue, plan.at, field), at: new Date(plan.at).toISOString() };
+    } else if (pinned) {
+      const at = pinned.at;
+      field = parseRegistrations(cs.filter((c) => c.created_at <= at));
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
-      status: deriveStatus(meta, issue, results, now, { started: !!pinned, players: registrations?.length ?? null }),
+      status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan }),
       registrations, results, partners, roomId: this.roomId(issue.number),
-      pinned, names,
-      ...(issue.state === 'open' && !results && tooFewToStart(meta, !!pinned, registrations?.length ?? null, now) ? { tooFew: true } : {}),
+      pinned, names, plan, ...(field ? { field } : {}),
+      ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { tooFew: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }

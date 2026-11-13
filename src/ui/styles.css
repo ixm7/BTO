@@ -78,6 +78,7 @@ table.list tr.me td { background: #f3ecd2; }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: .75rem; border: 1px solid var(--line); white-space: nowrap; }
 .badge.upcoming { background: #eef5f0; border-color: #c5dccf; }
 .badge.in-progress { background: #fff4d6; border-color: #e5cf8a; }
+.badge.starting { background: #e3eefa; border-color: #a9c4e2; }
 .badge.finished { background: #ecebe6; }
 .badge.cancelled, .badge.aborted { color: var(--muted); }
 /* Checkbox filter in a toolbar row. */

@@ -124,7 +124,7 @@ function syncListing(l: Listing): void {
  */
 async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
   if (!d.canAct || !settings.name.trim()) return l;
-  const open = l.status === 'upcoming' || l.status === 'in progress';
+  const open = l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress';
   const myLogin = myId();
   if (!open || !myLogin || !l.partners) return l;
   if (!welcomes(l.meta, settings.skill)) return l; // not a tournament for us
@@ -237,7 +237,7 @@ const PARTNERING_NOTE = 'Registered players without a partner will be assigned a
 
 /** Still to be played, and with room for another player. */
 const openToJoin = (l: Listing): boolean =>
-  l.status === 'upcoming' && (l.registrations?.length ?? 0) < l.meta.capacity;
+  (l.status === 'upcoming' || l.status === 'starting') && (l.registrations?.length ?? 0) < l.meta.capacity;
 
 let onlyOpen = false;
 
@@ -286,13 +286,32 @@ function directoryView(): HTMLElement {
     body);
 }
 
+const clock = (t: number): string => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
+/** How the tournament gets going, said in terms of this one's numbers. */
+function startNote(l: Listing): string | null {
+  const plan = l.plan;
+  if (l.status === 'upcoming') {
+    return `Starts automatically at the start time if all ${l.meta.capacity} places are taken. Otherwise entries stay open `
+      + `a minute longer, and another minute each time somebody joins (up to five more). It needs at least ${MIN_PLAYERS} players, `
+      + 'and is cancelled if it does not have them within five minutes of the start time.';
+  }
+  if (l.status === 'starting' && plan?.kind === 'wait') {
+    const n = l.registrations?.length ?? 0;
+    if (Date.now() >= plan.until) return 'Entries have closed. Settling the field and the deals…';
+    if (n < MIN_PLAYERS) return `Waiting for at least ${MIN_PLAYERS} players: ${n} so far. Entries stay open until ${clock(plan.until)}, then it is cancelled if there are still too few.`;
+    return `Entries close at ${clock(plan.until)} — later if somebody else joins before then, or sooner if all places are taken.`;
+  }
+  return null;
+}
+
 function detailView(l: Listing): HTMLElement {
   const d = directory() as Directory;
   const myLogin = myId();
   const regs = l.registrations;
   const amRegistered = !!myLogin && !!regs?.some((r) => r.login.toLowerCase() === myLogin);
   const full = !!regs && regs.length >= l.meta.capacity;
-  const open = l.status === 'upcoming' || l.status === 'in progress';
+  const open = l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress';
   const act = (fn: () => Promise<unknown>, done: string) => async (): Promise<void> => {
     try { await fn(); notice = done; await refresh(); } catch (e) { fail(e); }
   };
@@ -353,7 +372,8 @@ function detailView(l: Listing): HTMLElement {
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     l.tooFew ? h('div.note', { style: 'margin-top:10px' },
-      `Cancelled: it had not started by its start time, and fewer than ${MIN_PLAYERS} players (two tables) had registered.`) : null,
+      `Cancelled: fewer than ${MIN_PLAYERS} players had registered five minutes after the start time.`) : null,
+    startNote(l) ? h('p.muted', { style: 'margin-top:10px' }, startNote(l)) : null,
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
@@ -742,7 +762,7 @@ function leaveRoom(): void {
   render();
 }
 
-/** The field, as it stood when the director closed the entry list. */
+/** The field, as it stood when entries closed. */
 function pinnedPlan(l: Listing): TournamentConfig | null {
   if (!l.pinned) return null;
   const entries = pinnedRoster(l);
@@ -812,7 +832,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   errorMsg = null; notice = null; published = false;
 
   /* A listed tournament plays a table at a time once its field is settled.
-     Until the director calls the start there is nothing to join, so we wait
+     Until entries close there is nothing to join, so we wait
      and look again rather than gathering everyone into one room. */
   if (info.listing && !info.demo) {
     room = info;
@@ -822,7 +842,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
     render();
     /* Same allowance, same restraint: this one runs while somebody sits and
        waits, which is exactly when it could run all day. */
-    startPoll = setInterval(() => { void lookForStart(); }, settings.token ? 8000 : 45000);
+    startPoll = setInterval(() => { void lookForStart(); }, settings.token || relayUp ? 10000 : 45000);
     return;
   }
 
@@ -906,30 +926,18 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   }
 
   const entries = l?.registrations ?? [];
-  const iAmDirector = !!l && !!settings.githubLogin
-    && l.initiatorLogin.toLowerCase() === settings.githubLogin.trim().toLowerCase();
-  const tables = Math.floor(entries.length / 4);
+  const tables = Math.ceil(entries.length / 4);
 
   return h('div', head, h('div.panel',
     h('h3', 'Waiting room'),
-    h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until the director starts. Entries so far:'),
+    h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until entries close. Entries so far:'),
     h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === myId() ? '.me' : ''}`,
       h('td.num', i + 1), h('td', r.name), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : '')))))),
-    h('p', entries.length < 4
-      ? 'At least four players are needed to start.'
+    h('p', entries.length < MIN_PLAYERS
+      ? `At least ${MIN_PLAYERS} players are needed to start.`
       : `Starting now would make ${tables} table${tables === 1 ? '' : 's'}; robots fill any empty seats.`),
-    iAmDirector && d?.canWrite
-      ? h('div.row', h('button.primary', { disabled: entries.length < 4, onclick: () => {
-          void (async () => {
-            try {
-              await (d as Directory).pinStart((l as Listing).number);
-              notice = 'The entry list is closed and the tournament has started.';
-              await lookForStart();
-            } catch (e) { fail(e); }
-          })();
-        } }, 'Start tournament'),
-        h('span.muted', 'This closes the entry list and fixes the deals.'))
-      : h('p.muted', `Waiting for ${l?.meta.director ?? 'the director'} to start the tournament.`)));
+    l && startNote(l) ? h('p.muted', startNote(l)) : null,
+    h('p.muted', 'This page moves you to your table by itself once the tournament starts.')));
 }
 
 /** The name of whoever the entry list paired this player with. */
