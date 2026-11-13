@@ -9,7 +9,7 @@ import { TournamentNode, deviceScore } from '../tournament/node';
 import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { armSound, cardSwoosh, setSound, turnChime } from './sound';
-import { h, loadSettings, saveSettings, type Settings } from './dom';
+import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
 import { resultToString } from '../engine/scoring';
 
@@ -612,6 +612,27 @@ const SITE = 'www.MilletSoftware.com';
  * here is also discoverable by poking about, but a new player should not
  * have to poke about to find out whether this is for them.
  */
+/**
+ * Testing as somebody else. Each choice reloads the page as that player,
+ * keeping the tournament you are looking at. Open a tab per player to have
+ * them all at once: the address says who each tab is.
+ */
+function testSwitcher(): HTMLElement {
+  const current = testUser();
+  const go = (n: number | null): void => {
+    const q = new URLSearchParams(location.search);
+    q.delete('as');
+    if (n) q.set('as', `test${n}`); else q.set('test', '');
+    const qs = q.toString().replace(/=(&|$)/g, '$1');
+    location.href = `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`;
+  };
+  const pick = h('select', { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; go(v ? Number(v) : null); } },
+    h('option', { value: '', selected: current === null }, 'Me'),
+    Array.from({ length: TEST_USERS }, (_, i) => h('option', { value: String(i + 1), selected: current === i + 1 }, `Test ${i + 1}`)));
+  return h('span.tester', { title: 'Test mode: each tab can be a different player. The choice is in the address, so copy it into another tab to have both.' },
+    'Testing as ', pick, current && settings.name !== `Test ${current}` ? ` (${settings.name})` : '');
+}
+
 function openAbout(): void {
   dialog('About Bridge Break', (close) => h('div.about',
     h('p', 'Bridge Break runs ', h('b', 'free duplicate bridge tournaments'), ' in your browser.'),
@@ -1242,7 +1263,7 @@ function render(): void {
   root.replaceChildren(h('div.wrap',
     h('header.top',
       h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),
-      h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
+      testMode() ? testSwitcher() : h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
       h('button', { onclick: openAbout, title: 'What this is, what it does, and how to start' }, 'About'),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,

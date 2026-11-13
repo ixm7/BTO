@@ -523,3 +523,7 @@ button.pc:disabled { opacity: 1; }
 .claimbox .claim-actions { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .status-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .status-line > span:first-child { flex: 1 1 auto; }
+
+/* Test mode: loud enough that nobody forgets which player this tab is. */
+.tester { background: #fde7c4; border: 1px solid #e0b36a; border-radius: 8px; padding: 3px 8px; font-size: .85rem; color: #4a3410; }
+.tester select { margin-left: 4px; padding: 2px 4px; }

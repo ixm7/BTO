@@ -55,13 +55,38 @@ export interface Settings {
 
 const KEY = 'bridge-p2p:settings';
 
+/* ---- test users ----
+   `?as=test3` in the address makes this tab Test 3: a player of its own,
+   with its own name, key and registrations, kept apart from yours. Several
+   tabs can each be somebody different, so one person can fill a tournament
+   and watch it run. `?test` shows the switcher while still being yourself. */
+export const TEST_USERS = 7;
+const params = (): URLSearchParams => new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+
+/** Which test user this tab is, or null for the real you. */
+export function testUser(): number | null {
+  const m = /^test([1-9])$/.exec(params().get('as') ?? '');
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= TEST_USERS ? n : null;
+}
+export const testMode = (): boolean => testUser() !== null || params().has('test');
+const storageKey = (): string => { const n = testUser(); return n ? `${KEY}:test${n}` : KEY; };
+
 export function loadSettings(defaultRepo: string): Settings {
   let saved: Partial<Settings> = {};
-  try { saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>; } catch { /* first visit */ }
+  try { saved = JSON.parse(localStorage.getItem(storageKey()) ?? '{}') as Partial<Settings>; } catch { /* first visit */ }
+  const test = testUser();
+  if (test && !saved.name) {
+    /* A new test user: named, and given your skill level so they may enter
+       what you may. Never your token — they are meant to be ordinary players. */
+    let mine: Partial<Settings> = {};
+    try { mine = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>; } catch { /* none */ }
+    saved = { name: `Test ${test}`, skill: mine.skill ?? 'Expert', sound: false, repo: mine.repo };
+  }
   const s: Settings = {
     name: saved.name ?? '', skill: toSkill(saved.skill) ?? '', sound: saved.sound !== false,
     repo: saved.repo ?? defaultRepo,
-    githubLogin: saved.githubLogin ?? '', token: saved.token ?? '',
+    githubLogin: test ? '' : saved.githubLogin ?? '', token: test ? '' : saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
     playerKey: /^[A-Za-z0-9_-]{32,128}$/.test(saved.playerKey ?? '') ? (saved.playerKey as string) : '',
     /* Players always connect over the Internet. A choice saved from when this
@@ -85,10 +110,10 @@ export function loadSettings(defaultRepo: string): Settings {
     s.playerKey = btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     fresh = true;
   }
-  if (fresh) saveSettings(s);
+  if (fresh || test) saveSettings(s);
   return s;
 }
 
 export function saveSettings(s: Settings): void {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+  try { localStorage.setItem(storageKey(), JSON.stringify(s)); } catch { /* storage unavailable */ }
 }
