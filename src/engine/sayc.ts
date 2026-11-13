@@ -10,7 +10,7 @@
  * to be told, and what the card-play engine uses to picture the unseen hands.
  *
  * Covered: 5-card majors, 15–17 1NT with Stayman and Jacoby transfers, strong
- * 2♣, weak twos and pre-empts, limit raises, Jacoby 2NT, take-out and negative
+ * 2♣, weak twos and pre-empts, weak jump raises, Jacoby 2NT, take-out and negative
  * doubles, overcalls, Michaels over a minor, the unusual 2NT, Blackwood.
  * Later rounds are placed by arithmetic on what the partnership has shown:
  * points for game or slam, and an eight-card fit.
@@ -290,7 +290,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
       when: (v) => lvl(y) <= 3 && (isMajor(x) || !MAJORS.some((m) => m !== y && v.len[m] >= 5)),
       forcing: true, tag: 'cue-raise', alert: true,
     });
-    if (lvl(x) === 2) out.push({ call: B(3, x), says: `Pre-emptive raise: four or more ${NAME[x]}, weak`, hcp: R(0, 7), len: { [x]: [need + 1, 13] }, when: (v) => v.hcp >= 3, tag: 'preempt' });
+    if (lvl(x) === 2) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(4, need), 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
     out.push({ call: B(lvl(x), x), says: `Raise: support for ${NAME[x]}, 6–10 points`, hcp: R(5, 10), len: { [x]: [need, 13] }, when: (v) => v.hcp + (v.len[x] >= need ? v.short(x) : 0) >= 6 });
     /* Negative double: the unbid majors, not enough to bid one freely. */
     const unbidMajors = MAJORS.filter((m) => m !== x && m !== y);
@@ -320,8 +320,9 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
     if (!doubled) out.push({ call: B(2, 'N'), says: `Jacoby: four or more ${NAME[x]}, game values`, hcp: R(13, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'jacoby2nt', alert: true });
     else out.push({ call: B(2, 'N'), says: `A good raise: four or more ${NAME[x]}, 10 or more points`, hcp: R(10, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'cue-raise', alert: true });
     out.push({ call: B(4, x), says: `Pre-emptive: five or more ${NAME[x]}, weak`, hcp: R(0, 9), len: { [x]: [5, 13] }, when: (v) => v.short(x) >= 3 });
-    if (!doubled) out.push({ call: B(3, x), says: `Limit raise: 10–12 points with support`, hcp: R(9, 12), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 10 && p <= 12 && (v.len[x] >= 4 || (!twoOne && v.hcp >= 10)); }, tag: 'invite' });
-    else out.push({ call: B(3, x), says: `Pre-emptive raise: four or more ${NAME[x]}, weak`, hcp: R(0, 7), len: { [x]: [4, 13] }, when: (v) => v.hcp >= 3, tag: 'preempt' });
+    if (!doubled && c.sys === '2/1') out.push({ call: B(3, x), says: `Limit raise: 10–12 points with four-card support`, hcp: R(9, 12), len: { [x]: [4, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 10 && p <= 12 && v.len[x] >= 4; }, tag: 'invite' });
+    else if (!doubled) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [4, 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
+    else out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [4, 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
     out.push({ call: B(2, x), says: `Raise: three or more ${NAME[x]}, 6–10 points`, hcp: R(5, 10), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 6 && p <= 10; } });
   }
   for (const s of newSuits(x, [])) {
@@ -332,15 +333,24 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   }
   if (!isMajor(x)) {
     const noMajor = (v: View): boolean => v.len.H < 4 && v.len.S < 4;
-    out.push({ call: B(3, x), says: `Limit raise: 10–12 points with ${NAME[x]}`, hcp: R(10, 12), len: { [x]: [need, 13] }, when: noMajor, tag: 'invite' });
+    if (c.sys === '2/1') out.push({ call: B(3, x), says: `Limit raise: 10–12 points with ${NAME[x]}`, hcp: R(10, 12), len: { [x]: [need, 13] }, when: noMajor, tag: 'invite' });
+    else if (!doubled) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(5, need), 13] }, when: (v) => v.short(x) >= 1 && noMajor(v), tag: 'preempt', alert: true });
     out.push({ call: B(2, x), says: `Raise: 6–10 points with ${NAME[x]}`, hcp: R(6, 10), len: { [x]: [need, 13] }, when: noMajor });
   }
   out.push({ call: B(3, 'N'), says: '16–18 points, balanced', hcp: R(16, 18), when: (v) => v.balanced });
   if (isMajor(x) && !doubled) {
     /* Game values and nothing to bid naturally: a minor, even on three cards, to keep the bidding open. */
+    /* In Standard American an invitational hand with support has no jump raise:
+       it bids a new suit and raises next time. */
     const open = twoOne ? 12 : 13;
+    const supported = (v: View): boolean => c.sys === 'sayc' && v.len[x] >= 3 && v.hcp + v.short(x) >= 11;
     for (const s of ['C', 'D'] as Suit[]) {
-      if (lvl(s) === 2) out.push({ call: B(2, s), says: `${twoOne ? 'Game forcing' : 'Forcing'}: ${open} or more points; may be only three ${NAME[s]}`, hcp: R(open, 37), len: { [s]: [3, 13] }, forcing: true, ...(twoOne ? { tag: 'gf' } : {}), when: (v) => v.len[s] >= 3 && (s === 'C' ? v.len.C >= v.len.D : true) });
+      if (lvl(s) === 2) out.push({
+        call: B(2, s),
+        says: twoOne ? `Game forcing: 12 or more points; may be only three ${NAME[s]}` : `Forcing: 10 or more points; may be only three ${NAME[s]}`,
+        hcp: R(twoOne ? 12 : 9, 37), len: { [s]: [3, 13] }, forcing: true, ...(twoOne ? { tag: 'gf' } : {}),
+        when: (v) => v.len[s] >= 3 && (s === 'C' ? v.len.C >= v.len.D : true) && (v.hcp >= open || supported(v)),
+      });
     }
   }
   if (!isMajor(x) || true) out.push({ call: B(2, 'N'), says: '13–15 points, balanced, forcing to game', hcp: R(13, 15), when: (v) => v.balanced && !isMajor(x), forcing: true });
@@ -348,7 +358,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   out.push({ call: B(1, 'N'), says: '6–10 points, no suit to show at the one level', hcp: R(6, 10) });
   /* 11–12 with nowhere to go: the least misleading thing left. */
   out.push({ call: B(2, 'N'), says: '11–12 points, balanced', hcp: R(11, 12), when: (v) => !isMajor(x) || v.len[x] < 3, tag: 'invite' });
-  out.push({ call: B(3, x), says: 'Invitational raise', hcp: R(11, 12), len: { [x]: [3, 13] }, tag: 'invite' });
+  if (c.sys === '2/1') out.push({ call: B(3, x), says: 'Invitational raise', hcp: R(11, 12), len: { [x]: [3, 13] }, tag: 'invite' });
   out.push({ call: PASS, says: 'Fewer than 6 points', hcp: R(0, 5) });
   return out;
 }
@@ -860,6 +870,8 @@ function place(c: Ctx): Rule[] {
     return 'N';
   };
   const slack = 2;
+  /* Choosing a suit as trumps says something: enough cards in it to make eight with what partner has shown. */
+  const fitLen = (s: Suit): Partial<Record<Suit, Range>> => ({ [s]: [Math.max(0, 8 - c.know[c.pd].len[s][0]), 13] });
 
   /* ---- the opponents hold the contract ---- */
   if (!oursLast) {
@@ -905,7 +917,7 @@ function place(c: Ctx): Rule[] {
   /* ---- game ---- */
   if (!atGame) {
     for (const s of ['S', 'H'] as Suit[]) {
-      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0] - slack, 32 - pd[0]), when: (v) => (gf || total(v) >= 25) && strainFor(v) === s });
+      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0] - slack, 32 - pd[0]), len: fitLen(s), when: (v) => (gf || total(v) >= 25) && strainFor(v) === s });
     }
     for (const s of ['S', 'H'] as Suit[]) {
       if (c.legal(B(4, s))) out.push({ call: B(4, s), says: `To play: six or more ${NAME[s]}`, hcp: R(26 - pd[0] - slack, 32 - pd[0]), len: { [s]: [6, 13] }, when: (v) => total(v) >= 26 && !fitOf(v) });
@@ -929,7 +941,7 @@ function place(c: Ctx): Rule[] {
       const pdMid = pd[0] + Math.min(pd[1] - pd[0], 8) / 2;
       const near = (v: View): boolean => total(v) >= 23 || worth(v) + pdMid >= 25.5;
       for (const s of ['S', 'H'] as Suit[]) {
-        if (c.legal(B(3, s)) && c.cheapest(s) <= 3 && !(last.strain === s && last.level === 3)) out.push({ call: B(3, s), says: 'Invites game', hcp: R(23 - pd[0] - slack, 24 - pd[0]), when: (v) => near(v) && strainFor(v) === s, tag: 'invite' });
+        if (c.legal(B(3, s)) && c.cheapest(s) <= 3 && !(last.strain === s && last.level === 3)) out.push({ call: B(3, s), says: 'Invites game', hcp: R(23 - pd[0] - slack, 24 - pd[0]), len: fitLen(s), when: (v) => near(v) && strainFor(v) === s, tag: 'invite' });
       }
       for (const s of ['S', 'H', 'D', 'C'] as Suit[]) {
         if (c.legal(B(3, s)) && c.cheapest(s) <= 3 && !(last.strain === s && last.level === 3) && c.acts(c.me).some((x) => x.e.call.type === 'bid' && x.e.call.strain === s)) {
@@ -949,7 +961,7 @@ function place(c: Ctx): Rule[] {
   if (canPass) out.push({ call: PASS, says: 'Content to play here', hcp: R(0, 22 - pd[0] + slack), when: (v) => atGame || playable(v) });
   for (const s of ['S', 'H', 'D', 'C'] as Suit[]) {
     const l = c.cheapest(s);
-    if (l && l <= 3) out.push({ call: B(l, s), says: `Prefers ${NAME[s]}`, hcp: R(0, 22 - pd[0] + slack), when: (v) => fitOf(v) === s });
+    if (l && l <= 3) out.push({ call: B(l, s), says: `Prefers ${NAME[s]}`, hcp: R(0, 22 - pd[0] + slack), len: fitLen(s), when: (v) => fitOf(v) === s });
   }
   if (pdFirst && isSuit(pdFirst.strain)) {
     const s = pdFirst.strain;
@@ -1060,7 +1072,10 @@ export function readAuction(a: AuctionState, sys: System = 'sayc'): Reading {
     const c = makeCtx(prefix, e.seat, know, told, sys);
     const all = rulesFor(c).filter((r) => same(r.call, e.call));
     const proper = all.filter((r) => !r.fb);
-    const match = proper.length ? proper : all;
+    const pool = proper.length ? proper : all;
+    /* The first rule for a call is what it most likely means. Later rules of
+       the same kind widen it; rules of another kind are a different message. */
+    const match = pool.filter((r) => (r.tag ?? '') === (pool[0]?.tag ?? ''));
     if (match.length > 0) {
       know[e.seat] = narrow(know[e.seat], hull(match));
       const first = match[0] as Rule;

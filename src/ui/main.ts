@@ -737,7 +737,7 @@ function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?:
             + 'strong 2\u2663, weak twos and pre-empts, limit raises (four trumps), Jacoby 2NT, take-out and negative doubles, '
             + 'Michaels over a minor, unusual 2NT and Blackwood.')
           : h('li', h('b', 'SAYC:'), ' 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, strong 2\u2663, weak twos and pre-empts, '
-            + 'limit raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
+            + 'weak jump raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
         h('li', 'Explains own bids via alert.'),
         h('li', 'For each card play, the robot solves multiple random hands that match the visible information. '
           + 'It plays the card that does best on average. The random hands respect the cards played, who has shown out of a suit, '

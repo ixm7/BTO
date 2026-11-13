@@ -67,7 +67,9 @@ describe('SAYC: answering one of a suit', () => {
   it.each([
     ['K52.Q842.762.932', '1H P', 'Pass', 'five points'],
     ['K52.Q842.A62.932', '1H P', '2H', 'simple raise'],
-    ['K52.Q842.AK2.932', '1H P', '3H', 'limit raise'],
+    ['K52.Q842.AK2.932', '1H P', '2C', 'invitational with support: a new suit first, on three cards if need be'],
+    ['J52.Q842.7632.93', '1H P', '3H', 'weak jump raise: four trumps, under 6 points'],
+    ['J52.Q842.763.932', '1H P', 'Pass', 'four trumps but no shape'],
     ['K52.KQ42.AK2.932', '1H P', '2N', 'Jacoby'],
     ['KQ52.42.A62.9432', '1H P', '1S', 'four spades at the one level'],
     ['K52.42.KJ2.Q9432', '1H P', '1N', 'no fit, no suit at the one level'],
@@ -193,7 +195,7 @@ describe('two-over-one', () => {
 
   it('a jump raise promises four trumps; three go through the no-trump', () => {
     const three = 'K52.Q84.AJ72.J32';       // 11 with three spades
-    expect(bid21(three, '1S P', 'sayc')).toBe('3S');
+    expect(bid21(three, '1S P', 'sayc')).toBe('2D');               // Standard American: a new suit, then raise
     expect(bid21(three, '1S P')).toBe('1N');
     expect(bid21(three, '1S P 1N P 2C P')).toBe('3S');             // then the invitation
     expect(bid21('K852.Q8.AJ72.932', '1S P')).toBe('3S');          // four trumps: direct
@@ -238,5 +240,46 @@ describe('two-over-one', () => {
     expect(issueBody(meta)).toContain('| **Robots** | 2/1 |');
     expect(parseMeta(issueBody(meta))!.robots).toBe('2/1');
     expect(parseMeta(issueBody({ ...meta, robots: undefined }))!.robots).toBeUndefined();
+  });
+});
+
+describe('SAYC: jump raises are weak', () => {
+  const at = (text: string, calls: string): ReturnType<typeof chooseSayc> => {
+    let a: AuctionState = newAuction('N');
+    for (const c of calls.split(' ').filter(Boolean)) a = applyCall(a, currentBidder(a), parseCall(c));
+    return chooseSayc(hand(text), a, currentBidder(a));
+  };
+
+  it('alerts the jump raise as weak, and opener does not take it for an invitation', () => {
+    const raise = at('J52.Q842.7632.93', '1H P');
+    expect(callToString(raise.call)).toBe('3H');
+    expect(raise.alert).toBe(true);
+    expect(raise.says).toMatch(/Weak jump raise.*fewer than 6/);
+    expect(callToString(at('AK3.KJ975.A4.Q72', '1H P 3H P').call)).toBe('Pass');      // 17: would have accepted a limit raise
+    expect(callToString(at('AK3.AKJ75.A4.Q72', '1H P 3H P').call)).toBe('4H');        // 21: bids game anyway
+  });
+
+  it('the invitational hand bids a new suit, then raises to invite', () => {
+    const inv = 'K52.Q842.AK2.932';      // 12 with four hearts
+    expect(callToString(at(inv, '1H P').call)).toBe('2C');
+    expect(callToString(at(inv, '1H P 2C P 2H P').call)).toBe('3H');
+    expect(at(inv, '1H P 2C P 2H P').says).toMatch(/Invites game/);
+    /* Opener accepts with a little extra and declines with a bare minimum. */
+    expect(callToString(at('AJ3.KJ975.Q4.K72', '1H P 2C P 2H P 3H P').call)).toBe('4H');
+    expect(callToString(at('QJ3.KJ975.Q4.K72', '1H P 2C P 2H P 3H P').call)).toBe('Pass');
+  });
+
+  it('the same in a minor, and when the opponents have come in', () => {
+    expect(callToString(at('52.842.73.QJ9532', '1C P').call)).toBe('3C');
+    expect(callToString(at('J52.Q842.7632.93', '1H 1S').call)).toBe('3H');
+    expect(at('J52.Q842.7632.93', '1H 1S').says).toMatch(/Weak jump raise/);
+  });
+
+  it('two-over-one keeps its four-card limit raise', () => {
+    let a: AuctionState = newAuction('N');
+    for (const c of ['1H', 'P']) a = applyCall(a, currentBidder(a), parseCall(c));
+    const r = chooseSayc(hand('K52.Q842.AJ2.932'), a, 'S', '2/1');
+    expect(callToString(r.call)).toBe('3H');
+    expect(r.says).toMatch(/Limit raise/);
   });
 });
