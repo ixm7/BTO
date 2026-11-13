@@ -288,3 +288,56 @@ describe('SAYC: jump raises are weak', () => {
     expect(callToString(chooseSayc(hand('K52.Q842.AK2.932'), a, 'S', '2/1').call)).toBe('1N');
   });
 });
+
+describe('a raise is a jump only when the suit could have been bid lower', () => {
+  const at = (text: string, calls: string, sys: '2/1' | 'sayc' = 'sayc'): ReturnType<typeof chooseSayc> => {
+    let a: AuctionState = newAuction('N');
+    for (const c of calls.split(' ').filter(Boolean)) a = applyCall(a, currentBidder(a), parseCall(c));
+    return chooseSayc(hand(text), a, currentBidder(a), sys);
+  };
+  const weak = 'J52.Q842.7632.93';   // 4 points, four hearts
+  const fair = 'K52.Q842.K632.93';   // 9 points, four hearts
+
+  it('3♥ over their 2♠ is the cheapest raise, so it is the ordinary one', () => {
+    /* Nothing below 3♥ exists, so a weak hand cannot say "weak" there … */
+    const r = at(weak, '1H 2S');
+    expect(callToString(r.call)).toBe('Pass');
+    /* … and the honest raise keeps its own meaning, unalerted. */
+    const good = at(fair, '1H 2S');
+    expect(callToString(good.call)).toBe('3H');
+    expect(good.says).toMatch(/Raise: support for hearts, 6–10 points/);
+    expect(good.alert).toBe(false);
+    /* Four trumps are worth the three level, which is already taken, so a
+       weak hand has nothing to say: it does not leap to four. */
+    expect(callToString(at('J52.Q8432.763.92', '1H 2S').call)).toBe('Pass');
+  });
+
+  it('3♥ over their 2♦ is a level higher than needed, so it is the weak jump raise', () => {
+    const r = at(weak, '1H 2D');
+    expect(callToString(r.call)).toBe('3H');
+    expect(r.says).toMatch(/Weak jump raise/);
+    expect(r.alert).toBe(true);
+    /* The sound hand takes the cheapest raise instead. */
+    expect(callToString(at(fair, '1H 2D').call)).toBe('2H');
+  });
+
+  it('holds for 1♠ overcalls too: the raise follows whatever they bid', () => {
+    /* Partner overcalled 1♠ and they bid 3♦: 3♠ is now the cheapest raise. */
+    const plain = at('Q842.J52.7632.93', 'P 1H 1S 3D');
+    expect(callToString(plain.call)).toBe('Pass');            // 3 points: not enough for a 3♠ raise
+    const sound = at('Q842.K52.K63.932', 'P 1H 1S 3D');
+    expect(callToString(sound.call)).toBe('3S');
+    expect(sound.says).toMatch(/Raise: three or more spades, 6–10 points/);
+    expect(sound.alert).toBe(false);
+    /* With only 2♦ bid, 3♠ is a genuine jump and shows a weak hand. */
+    const jump = at('Q842.J52.7632.93', 'P 1H 1S 2D');
+    expect(callToString(jump.call)).toBe('3S');
+    expect(jump.says).toMatch(/Weak jump raise/);
+    expect(jump.alert).toBe(true);
+  });
+
+  it('reads the same way in two-over-one', () => {
+    expect(at(fair, '1H 2S', '2/1').alert).toBe(false);
+    expect(at(weak, '1H 2D', '2/1').says).toMatch(/Weak jump raise/);
+  });
+});

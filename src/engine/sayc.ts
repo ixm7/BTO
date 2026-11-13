@@ -94,6 +94,16 @@ const isMajor = (s: Strain): s is 'H' | 'S' => s === 'H' || s === 'S';
 const isSuit = (s: Strain): s is Suit => s !== 'N';
 const MAJORS: Suit[] = ['S', 'H'];
 const NAME: Record<Strain, string> = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades', N: 'no-trump' };
+/**
+ * A bid is a jump only when the same suit could have been bid lower. After
+ * 1♥ (2♠), 3♥ is the cheapest raise there is, so it is an ordinary one; after
+ * 1♥ (2♦) it is a level higher than needed, and that is the jump.
+ */
+const jumpLevel = (c: Ctx, s: Strain): number | null => {
+  const cheap = c.cheapest(s);
+  return cheap && cheap < 7 ? cheap + 1 : null;
+};
+
 const clamp = (n: number): number => Math.max(0, Math.min(37, n));
 const R = (lo: number, hi: number): Range => [clamp(lo), clamp(hi)];
 const mid = (r: Range): number => (r[0] + r[1]) / 2;
@@ -291,7 +301,10 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
       when: (v) => lvl(y) <= 3 && (isMajor(x) || !MAJORS.some((m) => m !== y && v.len[m] >= 5)),
       forcing: true, tag: 'cue-raise', alert: true,
     });
-    if (lvl(x) === 2) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(4, need), 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
+    /* Four trumps are worth the three level and no more, so the weak raise
+       exists only where the jump lands there. Higher, the hand simply passes. */
+    const jump = jumpLevel(c, x);
+    if (jump === 3) out.push({ call: B(jump, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(4, need), 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
     out.push({ call: B(lvl(x), x), says: `Raise: support for ${NAME[x]}, 6–10 points`, hcp: R(5, 10), len: { [x]: [need, 13] }, when: (v) => v.hcp + (v.len[x] >= need ? v.short(x) : 0) >= 6 });
     /* Negative double: the unbid majors, not enough to bid one freely. */
     const unbidMajors = MAJORS.filter((m) => m !== x && m !== y);
@@ -321,8 +334,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
     if (!doubled) out.push({ call: B(2, 'N'), says: `Jacoby: four or more ${NAME[x]}, game values`, hcp: R(13, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'jacoby2nt', alert: true });
     else out.push({ call: B(2, 'N'), says: `A good raise: four or more ${NAME[x]}, 10 or more points`, hcp: R(10, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'cue-raise', alert: true });
     out.push({ call: B(4, x), says: `Pre-emptive: five or more ${NAME[x]}, weak`, hcp: R(0, 9), len: { [x]: [5, 13] }, when: (v) => v.short(x) >= 3 });
-    if (!doubled) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [4, 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
-    else out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [4, 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
+    if (lvl(x) === 2) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [4, 13] }, when: (v) => v.short(x) >= 1, tag: 'preempt', alert: true });
     out.push({ call: B(2, x), says: `Raise: three or more ${NAME[x]}, 6–10 points`, hcp: R(5, 10), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 6 && p <= 10; } });
   }
   for (const s of newSuits(x, [])) {
@@ -333,7 +345,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   }
   if (!isMajor(x)) {
     const noMajor = (v: View): boolean => v.len.H < 4 && v.len.S < 4;
-    if (!doubled) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(5, need), 13] }, when: (v) => v.short(x) >= 1 && noMajor(v), tag: 'preempt', alert: true });
+    if (lvl(x) === 2) out.push({ call: B(3, x), says: `Weak jump raise: four or more ${NAME[x]}, fewer than 6 points`, hcp: R(0, 5), len: { [x]: [Math.max(5, need), 13] }, when: (v) => v.short(x) >= 1 && noMajor(v), tag: 'preempt', alert: true });
     out.push({ call: B(2, x), says: `Raise: 6–10 points with ${NAME[x]}`, hcp: R(6, 10), len: { [x]: [need, 13] }, when: noMajor });
   }
   out.push({ call: B(3, 'N'), says: '16–18 points, balanced', hcp: R(16, 18), when: (v) => v.balanced });
@@ -406,7 +418,11 @@ function respondToPreempt(c: Ctx, level: number, x: Suit): Rule[] {
     out.push({ call: B(4, x), says: 'To play', hcp: R(0, 37), len: { [x]: [2, 13] }, when: (v) => (v.len[x] >= 2 && v.hcp >= 16) || (v.len[x] >= 4 && v.short(x) >= 3) });
   }
   if (!isMajor(x)) out.push({ call: B(3, 'N'), says: 'To play', hcp: R(16, 37), when: (v) => SUITS.every((s) => s === x || v.stop(s)) && v.len[x] >= 2 });
-  if (level === 2) out.push({ call: B(3, x), says: 'Pre-emptive raise', hcp: R(0, 13), len: { [x]: [3, 13] }, when: (v) => v.hcp >= 5, tag: 'preempt' });
+  const cheap = c.cheapest(x);
+  if (level === 2 && cheap && cheap <= 3) {
+    const says = cheap > level + 1 ? 'Weak jump raise: support, fewer than 6 points' : 'Raise: support, fewer than 6 points';
+    out.push({ call: B(cheap, x), says, hcp: R(0, 13), len: { [x]: [3, 13] }, when: (v) => v.hcp >= 5, tag: 'preempt', ...(cheap > level + 1 ? { alert: true } : {}) });
+  }
   void game;
   out.push({ call: PASS, says: 'Nothing to add', hcp: R(0, 15) });
   return out;
@@ -483,8 +499,11 @@ function advanceOvercall(c: Ctx, p: Suit, level: number): Rule[] {
     const l = c.cheapest(t);
     if (l && l <= 3) out.push({ call: B(l, t), says: `A good raise of ${NAME[p]}: 11 or more points with support`, hcp: R(11, 37), len: { [p]: [3, 13] }, forcing: true, tag: 'cue-raise', alert: true });
   }
-  if (c.legal(B(level + 2, p)) && level + 2 <= 4) out.push({ call: B(level + 2, p), says: 'Pre-emptive raise: four or more trumps, weak', hcp: R(0, 8), len: { [p]: [4, 13] }, when: (v) => v.hcp >= 3 && v.short(p) >= 1, tag: 'preempt' });
-  if (c.cheapest(p) === level + 1) out.push({ call: B(level + 1, p), says: `Raise: three or more ${NAME[p]}, 6–10 points`, hcp: R(6, 10), len: { [p]: [3, 13] } });
+  const jump = jumpLevel(c, p);
+  if (jump === 3) out.push({ call: B(jump, p), says: 'Weak jump raise: four or more trumps, fewer than 6 points', hcp: R(0, 5), len: { [p]: [4, 13] }, when: (v) => v.short(p) >= 1, tag: 'preempt', alert: true });
+  const cheap = c.cheapest(p);
+  if (cheap && cheap <= 4) out.push({ call: B(cheap, p), says: `Raise: three or more ${NAME[p]}, 6–10 points`, hcp: R(6, 10), len: { [p]: [3, 13] } });
+  void level;
   for (const s of (['S', 'H', 'D', 'C'] as Suit[])) {
     if (s === p || c.theirs.includes(s)) continue;
     const l = c.cheapest(s);
