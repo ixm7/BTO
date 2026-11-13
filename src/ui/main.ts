@@ -8,7 +8,7 @@ import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
 import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
-import { armSound, cardSwoosh, setSound, turnChime } from './sound';
+import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
 import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
 import { resultToString } from '../engine/scoring';
@@ -154,15 +154,84 @@ const pollEvery = (): number => (settings.token ? 15000 : 120000);
 /** Set while the list has told us to stop asking, until it will answer again. */
 let quietUntil = 0;
 
+/** When the list was last asked for. */
+let lastRefresh = 0;
+
+/** Tournaments this player walked out of, so they are not hauled back in. */
+const leftOnPurpose = new Set<number>();
+
+/**
+ * Around the start of a tournament this player is in, the list is read
+ * often enough to seat them promptly, even from a tab they are not looking
+ * at. Only where reading is cheap: with a token of their own, or through the
+ * relay's shared cache.
+ */
+function myStartIsNear(now = Date.now()): boolean {
+  if (!(settings.token || relayUp) || !listings) return false;
+  const me = myId();
+  return listings.some((l) => {
+    const start = Date.parse(l.meta.startUtc);
+    return now >= start - 2 * 60000 && now <= start + 20 * 60000
+      && (l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress')
+      && !!me && !!l.registrations?.some((r) => r.login.toLowerCase() === me);
+  });
+}
+
 function stopPolling(): void { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 function startPolling(): void {
   stopPolling();
   pollTimer = setInterval(() => {
+    if (node || room || Date.now() < quietUntil) return;
+    const near = myStartIsNear();
     /* A page nobody is looking at has no news to miss, and asking anyway is
-       what empties the allowance before the player comes back to it. */
-    if (node || document.hidden || Date.now() < quietUntil) return;
-    void refresh();
-  }, pollEvery());
+       what empties the allowance before the player comes back to it — unless
+       their tournament is about to start, when the news is their seat. */
+    if (document.hidden && !near) return;
+    if (near || Date.now() - lastRefresh >= pollEvery()) void refresh();
+  }, 15000);
+}
+
+/**
+ * Tell the player their tournament has begun, loudly enough to bring them
+ * back from another tab: a fanfare and a spoken line, and the tab's title
+ * flags it until they look.
+ */
+function announceStart(name: string): void {
+  startFanfare(name);
+  if (!document.hidden) return;
+  const plain = document.title;
+  document.title = '\u{1F514} Your table is ready';
+  const back = (): void => {
+    if (document.hidden) return;
+    document.title = plain;
+    document.removeEventListener('visibilitychange', back);
+  };
+  document.addEventListener('visibilitychange', back);
+}
+
+/** How to enter a listed tournament's room. */
+const roomInfoOf = (l: Listing): RoomInfo => ({
+  id: l.roomId, name: l.meta.name, boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity, listing: l, demo: false,
+});
+
+/**
+ * A registered player with the site open anywhere is taken to their table
+ * when their tournament starts, without having to click anything.
+ */
+function autoSeat(): void {
+  if (room || node || session || !listings) return;
+  const me = myId();
+  if (!me) return;
+  for (const l of listings) {
+    if (l.status !== 'in progress' || !l.pinned || leftOnPurpose.has(l.number)) continue;
+    /* Long under way: they can still go in themselves, but are not pulled in. */
+    if (Date.now() - Date.parse(l.pinned.at) > 30 * 60000) continue;
+    if (!pinnedRoster(l).some((r) => r.login.toLowerCase() === me)) continue;
+    notice = `${l.meta.name} has started \u2014 you have been taken to your table.`;
+    announceStart(l.meta.name);
+    void enterRoom(roomInfoOf(l));
+    return;
+  }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
@@ -176,6 +245,7 @@ async function refresh(expect?: number): Promise<void> {
   const d = directory();
   if (!d) { listings = null; render(); return; }
   loading = true; errorMsg = null; render();
+  lastRefresh = Date.now();
   try {
     listings = await d.list();
     for (let tries = 0; expect !== undefined && tries < 8; tries++) {
@@ -205,6 +275,7 @@ async function refresh(expect?: number): Promise<void> {
     if (until) quietUntil = until.getTime() + 2000;
   }
   loading = false; render();
+  autoSeat();
 }
 
 /** Weekly tournaments this page has already asked to continue, so it asks once. */
@@ -395,9 +466,7 @@ function detailView(l: Listing): HTMLElement {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
-    actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => enterRoom({
-      id: l.roomId, name: l.meta.name, boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity, listing: l, demo: false,
-    }) }, 'Enter playing room'));
+    actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => { leftOnPurpose.delete(l.number); void enterRoom(roomInfoOf(l)); } }, 'Enter playing room'));
   }
   if (open && welcome) {
     const seeking = l.partners?.seekers.length;
@@ -819,6 +888,7 @@ function stopStartPoll(): void {
 }
 
 function leaveRoom(): void {
+  if (room?.listing) leftOnPurpose.add(room.listing.number);
   node?.close();
   session?.close();
   stopStartPoll();
@@ -933,7 +1003,12 @@ async function lookForStart(): Promise<void> {
     const fresh = await d.get(info.listing.number);
     info.listing = fresh;
     syncListing(fresh);
-    if (pinnedPlan(fresh)) await openSession(fresh);
+    if (pinnedPlan(fresh)) {
+      /* Only for players in the field: anybody else here is just watching. */
+      const me = myId();
+      if (me && pinnedRoster(fresh).some((r) => r.login.toLowerCase() === me)) announceStart(fresh.meta.name);
+      await openSession(fresh);
+    }
   } catch { /* a refresh that fails just means waiting a little longer */ }
 }
 
@@ -1273,7 +1348,7 @@ function render(): void {
 
 async function route(): Promise<void> {
   const m = /^#t=(\d+)$/.exec(location.hash);
-  if (!m) { detail = null; stopPolling(); render(); return; }
+  if (!m) { detail = null; render(); return; }
   const number = Number(m[1]);
   detail = listings?.find((l) => l.number === number) ?? null;
   render();
@@ -1305,5 +1380,5 @@ window.addEventListener('pagehide', () => node?.close());
 render();
 /* Ask the relay first — it answers in a few milliseconds, or not at all — so
    the very first look at the list already goes the right way. */
-void probeRelay().then(() => refresh()).then(route);
+void probeRelay().then(() => refresh()).then(route).then(startPolling);
 if (!settings.name) openSettings();

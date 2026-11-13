@@ -102,3 +102,36 @@ export function cardSwoosh(): void {
   src.start(t0);
   src.stop(t0 + len);
 }
+
+/**
+ * The tournament is starting: a short rising fanfare, then a voice saying so,
+ * which reaches a player who has wandered off to another tab or another room.
+ * Speech is the browser's own; where it is missing or refused, the notes do.
+ */
+export function startFanfare(name: string): void {
+  if (!enabled) return;
+  const c = audio();
+  if (c && c.state === 'running') {
+    const t = c.currentTime;
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const at = t + i * 0.16;
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(0.22, at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, at + (i === 3 ? 0.9 : 0.3));
+      o.connect(g).connect(c.destination);
+      o.start(at);
+      o.stop(at + 1);
+    });
+  }
+  try {
+    const say = window.speechSynthesis;
+    if (!say) return;
+    const u = new SpeechSynthesisUtterance(`${name} is starting. Your table is ready.`);
+    u.rate = 1;
+    setTimeout(() => say.speak(u), 900);
+  } catch { /* no voice here */ }
+}
