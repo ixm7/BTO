@@ -570,3 +570,19 @@ button.pc:disabled { opacity: 1; }
   background: #e7f2ec; border: 1px solid #9ec4b2; color: var(--ink);
 }
 .invite-what { flex: 1 1 260px; }
+
+/* Hours and minutes until a tournament starts. */
+.until {
+  display: inline-block; padding: 0 5px; border-radius: 5px;
+  background: rgba(31, 92, 69, .1); color: var(--accent);
+  font-variant-numeric: tabular-nums; font-size: .85em; font-weight: 600;
+}
+h2 .until { font-size: .6em; vertical-align: middle; }
+
+/* Hours and minutes until a tournament starts. */
+.until {
+  display: inline-block; padding: 0 5px; border-radius: 5px;
+  background: rgba(31, 92, 69, .1); color: var(--accent);
+  font-variant-numeric: tabular-nums; font-size: .85em; font-weight: 600;
+}
+h2 .until { font-size: .6em; vertical-align: middle; }

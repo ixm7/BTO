@@ -48,3 +48,16 @@ export function allTimeZones(): string[] {
   const list = f ? f('timeZone') : ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Jerusalem', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Australia/Sydney'];
   return list.includes('UTC') ? list : ['UTC', ...list];
 }
+
+/**
+ * How long until a tournament starts, as [hh:mm]. A clock means different
+ * things in different places; this means the same everywhere, so a player
+ * need not work out what 7:30 PM Eastern is where they are. Only within a
+ * day, since beyond that the date is the useful thing.
+ */
+export function countdown(startUtc: string, now: number = Date.now()): string | null {
+  const left = Date.parse(startUtc) - now;
+  if (!Number.isFinite(left) || left < 0 || left >= 24 * 3600_000) return null;
+  const minutes = Math.floor(left / 60_000);
+  return `[${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}]`;
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status
 } from '../src/directory/github';
-import { formatInZone, zonedToUtc } from '../src/directory/time';
+import { countdown, formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
 
@@ -118,15 +118,42 @@ describe('issue format', () => {
       c('dan', '/seek-partner cancel', 11),
       c('eve', '/invite-cancel @ann', 12),
     ]);
-    expect(seekers).toEqual([
-      { login: 'ann', note: 'looking for a strong 2/1 partner', at: '2026-11-01T00:00:01Z' },
-      { login: 'bob', at: '2026-11-01T00:00:02Z' },
-    ]); // dan cancelled, cat never joined, eve never joined
+    // ann and bob paired up at step 10, so they are no longer looking; dan cancelled, cat and eve never joined
+    expect(seekers).toEqual([]);
     expect(invitations).toEqual([
       // same (from, to) pair collapses to one entry carrying its latest event's status, note and timestamp
       { from: 'ann', to: 'bob', status: 'accepted', at: '2026-11-01T00:00:10Z' },
       { from: 'eve', to: 'ann', status: 'cancelled', at: '2026-11-01T00:00:12Z' },
     ]);
+  });
+
+  it('takes a pair off the partner list once they accept, and puts them back if they split up', () => {
+    const c = (login: string, body: string, at: string) => ({ user: { login }, body, created_at: at });
+    const base = [
+      c('ann', '/seek-partner happy to play anything', '2026-11-01T10:00:00Z'),
+      c('bob', '/seek-partner weekends only', '2026-11-01T10:01:00Z'),
+      c('cat', '/seek-partner', '2026-11-01T10:02:00Z'),
+      c('ann', '/invite @bob', '2026-11-01T10:03:00Z'),
+    ];
+    /* While the invitation is only pending, both are still looking. */
+    expect(parsePartners(base).seekers.map((x) => x.login)).toEqual(['ann', 'bob', 'cat']);
+
+    const accepted = [...base, c('bob', '/accept @ann', '2026-11-01T10:04:00Z')];
+    const after = parsePartners(accepted);
+    expect(after.seekers.map((x) => x.login)).toEqual(['cat']);
+    expect(after.invitations.find((i) => i.from === 'ann')!.status).toBe('accepted');
+
+    /* A declined one leaves them both on the list. */
+    const declined = [...base, c('bob', '/decline @ann', '2026-11-01T10:04:00Z')];
+    expect(parsePartners(declined).seekers.map((x) => x.login)).toEqual(['ann', 'bob', 'cat']);
+
+    /* Splitting up means they are looking again. */
+    const split = [...accepted, c('ann', '/unpair @bob', '2026-11-01T11:00:00Z')];
+    expect(parsePartners(split).seekers.map((x) => x.login)).toEqual(['ann', 'bob', 'cat']);
+
+    /* Somebody who never joined the list is not added to it by pairing up. */
+    const dan = [c('cat', '/seek-partner', '2026-11-01T10:02:00Z'), c('dan', '/invite @cat', '2026-11-01T10:03:00Z'), c('cat', '/accept @dan', '2026-11-01T10:04:00Z')];
+    expect(parsePartners(dan).seekers).toEqual([]);
   });
   it('ignores a self-invite and treats accept/decline of a non-pending invite as a no-op', () => {
     const c = (login: string, body: string, t: number) => ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(t).padStart(2, '0')}Z` });
@@ -360,13 +387,14 @@ describe('GitHub directory', () => {
     expect(t.partners!.invitations).toHaveLength(1); // same (from, to) pair collapses to its latest status
     expect(t.partners!.invitations[0]!.status).toBe('accepted');
 
-    // Ann leaves the seeking list; a separate, uninvited user can still cancel their own invite.
-    await as('ann').seekPartner(number, 'updated note'); // still on the list, just a note change
+    // Ann and Bob are partners now, so neither is on the seeking list, whatever Ann posts;
+    // meanwhile a separate, uninvited user can still cancel their own invite.
+    await as('ann').seekPartner(number, 'updated note');
     await as('cat').invitePartner(number, 'dan');
     await as('cat').cancelInvite(number, 'dan');
     await as('ann').cancelSeekingPartner(number);
     t = await director.get(number);
-    expect(t.partners!.seekers.map((s) => s.login)).toEqual(['bob']);
+    expect(t.partners!.seekers).toEqual([]);
     expect(t.partners!.invitations.find((i) => i.from === 'cat')).toEqual({ from: 'cat', to: 'dan', status: 'cancelled', at: expect.any(String) });
 
     await expect(new Directory('club/bridge', null, gh.fetcher).seekPartner(number)).rejects.toThrow(/token/);
@@ -577,5 +605,25 @@ describe('the order of the list', () => {
       'playing now', 'in an hour', 'later today', 'next week',   // soonest first
       'called off', 'yesterday', 'last week',                     // then the past, most recent first
     ]);
+  });
+});
+
+describe('the countdown to a start', () => {
+  const now = Date.parse('2026-11-13T18:00:00Z');
+  const at = (ms: number) => new Date(now + ms).toISOString();
+
+  it('counts hours and minutes, within a day of the start', () => {
+    expect(countdown(at(2 * 3600_000 + 15 * 60_000), now)).toBe('[02:15]');
+    expect(countdown(at(45 * 60_000), now)).toBe('[00:45]');
+    expect(countdown(at(90_000), now)).toBe('[00:01]');
+    expect(countdown(at(30_000), now)).toBe('[00:00]');          // under way in seconds
+    expect(countdown(at(23 * 3600_000 + 59 * 60_000), now)).toBe('[23:59]');
+  });
+
+  it('says nothing for a start that is further off, or past', () => {
+    expect(countdown(at(24 * 3600_000), now)).toBeNull();
+    expect(countdown(at(48 * 3600_000), now)).toBeNull();
+    expect(countdown(at(-60_000), now)).toBeNull();
+    expect(countdown('not a date', now)).toBeNull();
   });
 });

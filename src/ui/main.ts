@@ -1,5 +1,5 @@
 import { DEFAULT_IDLE_SEC, MIN_PLAYERS, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
-import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
+import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
 import { planConfig } from '../tournament/plan';
@@ -118,6 +118,7 @@ function syncListing(l: Listing): void {
   if (detail && detail.number === l.number) detail = l;
   if (listings) { const i = listings.findIndex((x) => x.number === l.number); if (i >= 0) listings[i] = l; }
   partnersSync?.(l);
+  notePartnershipChanges();
   render();
 }
 
@@ -223,6 +224,68 @@ function announceStart(name: string): void {
 
 /* ------------------------------------------------- invitations to partner */
 
+/**
+ * Break up a partnership, leaving both players in the tournament. The pair
+ * code goes with it, so whoever stays registered is paired by the draw like
+ * anyone else, and either of them is free to arrange somebody new.
+ */
+async function endPartnership(l: Listing, partner: string): Promise<void> {
+  const d = directory();
+  if (!d) return;
+  try {
+    await d.unpair(l.number, partner);
+    if (settings.pairCode) { settings.pairCode = ''; saveSettings(settings); }
+    const me = myId();
+    const mine = l.registrations?.find((r) => r.login.toLowerCase() === me);
+    /* Still in the tournament, but no longer half of a pair. */
+    if (mine?.pairCode && settings.name.trim()) await d.register(l.number, settings.name, '', settings.skill);
+    await refresh();
+  } catch (e) { fail(e); }
+}
+
+/** Partnerships as they stood when the list was last read, to notice a change. */
+const pairWas = new Map<string, string>();
+let pairsSeeded = false;
+
+/**
+ * Either player can end a partnership, and the other finds out here: their
+ * page is told the moment their browser next reads the list, whatever they
+ * happen to be looking at.
+ */
+function notePartnershipChanges(): void {
+  const me = myId();
+  if (!listings || !me) return;
+  const now = new Map<string, string>();
+  const ended: { l: Listing; other: string }[] = [];
+  for (const l of listings) {
+    for (const i of l.partners?.invitations ?? []) {
+      const mine = i.from.toLowerCase() === me || i.to.toLowerCase() === me;
+      if (!mine) continue;
+      const key = `${l.number}:${i.from.toLowerCase()}->${i.to.toLowerCase()}`;
+      now.set(key, i.status);
+      if (pairsSeeded && pairWas.get(key) === 'accepted' && i.status === 'unpaired') {
+        ended.push({ l, other: i.from.toLowerCase() === me ? i.to : i.from });
+      }
+    }
+  }
+  pairWas.clear();
+  for (const [k, v] of now) pairWas.set(k, v);
+  pairsSeeded = true;
+  if (!ended.length) return;
+  const { l, other } = ended[0] as { l: Listing; other: string };
+  notice = `Your partnership with ${who(l, other)} for “${l.meta.name}” has been cancelled at one player's request.`
+    + ' Both of you are still registered, and either can find somebody else from the Partners List.';
+  if (settings.pairCode) { settings.pairCode = ''; saveSettings(settings); }
+  turnChime();
+  /* The other player cleared their own half; this browser clears ours, so
+     neither is left registered under a partner code that means nothing. */
+  const d = directory();
+  const mine = l.registrations?.find((r) => r.login.toLowerCase() === me);
+  if (d?.canAct && mine?.pairCode && settings.name.trim()) {
+    void d.register(l.number, settings.name, '', settings.skill).then(() => refresh()).catch(() => { /* next refresh */ });
+  }
+}
+
 /** Invitations waiting for an answer from this player, wherever they are. */
 function invitesForMe(): { l: Listing; i: Invitation }[] {
   const me = myId();
@@ -266,7 +329,7 @@ function inviteBanner(): HTMLElement | null {
   };
   return h('div.invites', waiting.map(({ l, i }) => h('div.invite',
     h('div.invite-what',
-      h('b', who(l, i.from)), ' wants to play with you in ', h('b', l.meta.name), '.',
+      h('b', who(l, i.from)), ' wants to play with you in ', h('b', l.meta.name), ' ', untilTag(l.meta.startUtc) ?? '', '.',
       i.note ? h('div.muted', i.note) : null),
     h('div.row',
       h('button.primary', { onclick: () => answer(l.number, i.from, true) }, 'Accept'),
@@ -368,6 +431,7 @@ async function refresh(expect?: number): Promise<void> {
     if (until) quietUntil = until.getTime() + 2000;
   }
   loading = false; render();
+  notePartnershipChanges();
   autoSeat();
 }
 
@@ -397,10 +461,17 @@ async function sweepAbandoned(d: Directory): Promise<void> {
   listings = await d.list();
 }
 
+/** The countdown as an element, for wherever a tournament is named. */
+const untilTag = (startUtc: string): HTMLElement | null => {
+  const t = countdown(startUtc);
+  return t ? h('span.until', { 'data-tip': 'Hours and minutes until this tournament starts', 'aria-label': `starts in ${t}` }, t) : null;
+};
+
 function when(l: Listing): HTMLElement {
   const d = new Date(l.meta.startUtc);
   const mine = localTimeZone();
-  return h('div', formatInZone(d, l.meta.timeZone),
+  const soon = untilTag(l.meta.startUtc);
+  return h('div', formatInZone(d, l.meta.timeZone), soon ? [' ', soon] : null,
     mine !== l.meta.timeZone ? h('div.muted', `${formatInZone(d, mine)} (your time)`) : null);
 }
 
@@ -583,6 +654,10 @@ function detailView(l: Listing): HTMLElement {
     actions.append(h('span.tip', { title: whyNot }, h('button.primary', { disabled: true }, 'Register')),
       h('span.muted', 'Not open to your level.'));
   }
+  if (open && welcome && myPartnerLogin && d.canAct) {
+    actions.append(h('span.tip', { title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.' },
+      h('button', { onclick: () => void endPartnership(l, myPartnerLogin) }, `Cancel partnership with ${who(l, myPartnerLogin)}`)));
+  }
   if (open && welcome) {
     if (d.canAct) {
       actions.append(amRegistered
@@ -728,9 +803,15 @@ function openPartners(initial: Listing): void {
           const mine = current.registrations?.find((r) => r.login.toLowerCase() === myLogin);
           const registered = !!mine && mine.pairCode?.trim().toLowerCase() === code;
           rows.push(h('div.note', `You and ${who(current, partner)} are partnered!`,
-            registered ? ' You are both registered together — see Unregister on the tournament page to split up.'
+            registered ? ' You are both registered for the tournament together.'
               : d.canAct ? ' Registering you both automatically…'
-              : ` Comment “/register ${settings.name.trim() || 'Your Name'} pair:${code}” on the issue to register.`));
+              : ` Comment “/register ${settings.name.trim() || 'Your Name'} pair:${code}” on the issue to register.`,
+            d.canAct ? h('div.row', { style: 'margin-top:8px' },
+              h('button', {
+                disabled: busy,
+                title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.',
+                onclick: act(() => endPartnership(current, partner)),
+              }, 'Cancel partnership')) : null));
         }
 
         rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
@@ -1242,7 +1323,9 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   const l = info.listing;
   const d = directory();
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button', { onclick: leaveRoom }, '← Leave'), h('h2', info.name), h('span.spacer'));
+    h('button', { onclick: leaveRoom }, '← Leave'),
+    h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
+    h('span.spacer'));
 
   if (session?.notPlaying) {
     return h('div', head, h('div.panel',
@@ -1412,7 +1495,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button', { onclick: leaveRoom }, '← Leave'), h('h2', info.name), h('span.spacer'),
+    h('button', { onclick: leaveRoom }, '← Leave'),
+    h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
+    h('span.spacer'),
     state && state.results.length > 0
       ? h('button', { onclick: () => { reviewing = !reviewing; recBoard = null; recTable = null; recMode = 'mine'; render(); },
           title: 'Look back over the boards: all four hands, the bidding, and what every other table did' },
@@ -1576,6 +1661,12 @@ render();
 /* Ask the relay first — it answers in a few milliseconds, or not at all — so
    the very first look at the list already goes the right way. */
 installHoverTips();
+/* A countdown that never moves is worse than none, and the list is read far
+   less often than once a minute, so the page redraws itself on the minute. */
+setInterval(() => {
+  const soon = (l: Listing): boolean => !!countdown(l.meta.startUtc);
+  if ((listings ?? []).some(soon) || (room?.listing && soon(room.listing))) render();
+}, 30000);
 watchOnline(() => render(), settings.transport !== 'local');
 void probeRelay().then(() => refresh()).then(route).then(startPolling);
 if (!settings.name) openSettings();

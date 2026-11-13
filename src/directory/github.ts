@@ -458,6 +458,15 @@ export function parsePartners(comments: readonly RawComment[]): PartnersData {
       }
     }
   }
+  /* Somebody who has a partner is no longer looking for one, so an accepted
+     invitation takes both of them off the list without either having to say
+     so. Breaking the partnership up puts them back, which is what they want:
+     they are looking again. */
+  for (const inv of invitations.values()) {
+    if (inv.status !== 'accepted') continue;
+    seekers.delete(inv.from.toLowerCase());
+    seekers.delete(inv.to.toLowerCase());
+  }
   return {
     seekers: [...seekers.values()].sort((a, b) => a.at.localeCompare(b.at)),
     invitations: [...invitations.values()].sort((a, b) => a.at.localeCompare(b.at)),
