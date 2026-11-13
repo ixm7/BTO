@@ -8,7 +8,7 @@
  */
 import { SUIT_SYMBOLS, cardSuit, rankChar, sortForDisplay, type Card, type Seat } from '../engine/cards';
 import { callToString, type Call } from '../engine/bidding';
-import { pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
+import { impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
 import type { BoardResult, TState } from '../tournament/state';
 import { h } from './dom';
 
@@ -77,6 +77,7 @@ function fromOurSide(result: BoardResult, weAreNS: boolean, nsMp: number, top: n
 }
 
 const COLUMNS = ['Board', 'Result', 'We', 'They', 'We %', 'They %'];
+const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
 
 export function renderRecords(state: TState, myPair: number | null, view: RecordsView, on: RecordsHandlers): HTMLElement {
   const boards = [...new Set(state.results.map((r) => r.board))].sort((a, b) => a - b);
@@ -93,6 +94,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   /* Which way round we sat on this board decides which column is "we". */
   const weAreNS = review.own ? review.own.result.nsPair === myPair : true;
   const others = view.mode === 'others';
+  const byImps = state.config.scoring === 'imps';
 
   const rows = others
     ? review.traveller.map((t: TravellerRow) => {
@@ -102,13 +104,14 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
         return h(`tr.pick${t.mine ? '.me' : ''}${t.result.table === view.table ? '.sel' : ''}`,
           { onclick: () => on.pickTable(t.result.table), title: `Table ${t.result.table + 1}: ${names}` },
           h('td', String(t.result.board)), h('td', t.result.text),
-          h('td.num', s.we), h('td.num', s.they), h('td.num', s.wePct), h('td.num.muted', s.theyPct));
+          h('td.num', s.we), h('td.num', s.they),
+          ...(byImps ? [h('td.num', impText(weAreNS ? t.nsImps : -t.nsImps))] : [h('td.num', s.wePct), h('td.num.muted', s.theyPct)]));
       })
     : card.map((r) => h(`tr.pick${r.board === board ? '.sel' : ''}`, { onclick: () => on.pickBoard(r.board) },
         h('td', String(r.board)), h('td', r.result.text),
         h('td.num', r.weScore === null ? '' : String(r.weScore)),
         h('td.num', r.theyScore === null ? '' : String(r.theyScore)),
-        h('td.num', `${r.wePercent}%`), h('td.num.muted', `${r.theyPercent}%`)));
+        ...(byImps ? [h('td.num', impText(r.weImps))] : [h('td.num', `${r.wePercent}%`), h('td.num.muted', `${r.theyPercent}%`)])));
 
   /* Whichever line is selected supplies the bidding shown with the deal. */
   const shown = others && view.table !== null
@@ -141,7 +144,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
       ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
       : 'Every board you have played, scored against the tables that played it. Pick a board to see the deal.'),
     h('div.table-scroll', h('table.list.scorecard',
-      h('thead', h('tr', COLUMNS.map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
+      h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS).map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
       h('tbody', rows))),
     h('div.deal-wrap', diagram),
     shown?.result.auction

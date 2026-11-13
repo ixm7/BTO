@@ -70,3 +70,28 @@ export function matchpoints(nsScores: readonly number[]): { ns: number[]; top: n
   });
   return { ns, top };
 }
+
+/** The International Match Point scale: how big a difference in score is. */
+const IMP_SCALE = [20, 50, 90, 130, 170, 220, 270, 320, 370, 430, 500, 600, 750, 900, 1100, 1300, 1500, 1750, 2000, 2250, 2500, 3000, 3500, 4000];
+export function imps(diff: number): number {
+  const a = Math.abs(diff);
+  let n = 0;
+  while (n < IMP_SCALE.length && a >= (IMP_SCALE[n] as number)) n++;
+  return Math.sign(diff) * n;
+}
+
+/**
+ * IMP pairs ("cross-IMPs"): each table's North-South score is compared with
+ * every other table's on the same board, each comparison turned into IMPs, and
+ * the average taken — so the figure means the same however many tables played.
+ * East-West get the same number with the sign turned. One table alone: zero.
+ */
+export function crossImps(nsScores: readonly number[]): number[] {
+  const others = nsScores.length - 1;
+  if (others <= 0) return nsScores.map(() => 0);
+  return nsScores.map((mine, i) => {
+    let sum = 0;
+    nsScores.forEach((other, j) => { if (i !== j) sum += imps(mine - other); });
+    return sum / others;
+  });
+}

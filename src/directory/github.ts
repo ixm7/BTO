@@ -56,7 +56,7 @@ export interface TournamentMeta {
   name: string;
   /** Display name of the initiator / tournament director. */
   director: string;
-  scoring: 'matchpoints';
+  scoring: 'matchpoints' | 'imps';
   /** Wall-clock start in `timeZone`, e.g. "2026-11-21T19:30". */
   start: string;
   timeZone: string;
@@ -102,10 +102,24 @@ export interface ResultRow {
   percent: number;
   matchpoints: number;
   maxMatchpoints: number;
+  /** IMP pairs: total IMPs. */
+  imps?: number;
+}
+
+/** What a tournament's scoring is called on screen. */
+export const scoringName = (s: TournamentMeta['scoring'] | undefined): string => (s === 'imps' ? 'IMP Pairs' : 'Matchpoints');
+
+/** IMPs as written: +3.5, −2, 0. */
+export function impsText(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  const body = Math.abs(r).toFixed(2).replace(/\.?0+$/, '');
+  return r > 0 ? `+${body}` : r < 0 ? `\u2212${body}` : '0';
 }
 
 export interface TournamentResults {
   v: 1;
+  /** Absent on results from before IMP pairs existed: matchpoints. */
+  scoring?: TournamentMeta['scoring'];
   finishedAt: string;
   tables: number;
   boards: number;
@@ -177,7 +191,7 @@ export function parseRepo(s: string): Repo {
 const META_RE = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/;
 const RESULTS_RE = /<!--\s*bridge-results\s*([\s\S]*?)-->/;
 
-export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc' | 'levels'> & { levels: readonly Skill[] }): TournamentMeta {
+export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc' | 'levels'> & { levels: readonly Skill[]; scoring?: TournamentMeta['scoring'] }): TournamentMeta {
   const name = input.name.trim();
   if (!name) throw new Error('Tournament name is required');
   if (!input.director.trim()) throw new Error('Director name is required');
@@ -191,7 +205,7 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
     throw new Error(`Inactivity timeout must be between ${MIN_IDLE_SEC} and ${MAX_IDLE_SEC} seconds`);
   }
   const startUtc = zonedToUtc(input.start, input.timeZone).toISOString();
-  return { v: 1, scoring: 'matchpoints', ...input, levels, name, director: input.director.trim(), startUtc };
+  return { v: 1, ...input, scoring: input.scoring === 'imps' ? 'imps' : 'matchpoints', levels, name, director: input.director.trim(), startUtc };
 }
 
 /**
@@ -217,7 +231,7 @@ export function issueBody(meta: TournamentMeta): string {
     '| | |',
     '|---|---|',
     `| **Director** | ${meta.director} |`,
-    '| **Scoring** | Matchpoints |',
+    `| **Scoring** | ${scoringName(meta.scoring)} |`,
     `| **Start** | ${meta.start.replace('T', ' ')} (${meta.timeZone}) — ${meta.startUtc.slice(0, 16).replace('T', ' ')} UTC |`,
     `| **Open to** | ${levelText(meta)} |`,
     `| **Capacity** | ${meta.capacity} players |`,
@@ -243,7 +257,7 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
     const j = JSON.parse(m[1] as string) as Partial<TournamentMeta>;
     if (j.v !== 1 || typeof j.name !== 'string' || typeof j.startUtc !== 'string' || Number.isNaN(Date.parse(j.startUtc))) return null;
     return {
-      v: 1, name: j.name, director: String(j.director ?? ''), scoring: 'matchpoints',
+      v: 1, name: j.name, director: String(j.director ?? ''), scoring: j.scoring === 'imps' ? 'imps' : 'matchpoints',
       start: String(j.start ?? j.startUtc.slice(0, 16)), timeZone: String(j.timeZone ?? 'UTC'), startUtc: j.startUtc,
       /* An entry made before levels were a thing is open to everyone. */
       levels: (() => {
@@ -468,9 +482,15 @@ export function resultsBody(r: TournamentResults): string {
   return [
     `### Final results — ${r.tables} table(s), ${r.boards} board(s)`,
     '',
-    '| Rank | Pair | Dir | Score | MP |',
-    '|---:|---|:-:|---:|---:|',
-    ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${x.percent.toFixed(2)}% | ${x.matchpoints}/${x.maxMatchpoints} |`),
+    ...(r.scoring === 'imps' ? [
+      '| Rank | Pair | Dir | IMPs |',
+      '|---:|---|:-:|---:|',
+      ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${impsText(x.imps ?? 0)} |`),
+    ] : [
+      '| Rank | Pair | Dir | Score | MP |',
+      '|---:|---|:-:|---:|---:|',
+      ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${x.percent.toFixed(2)}% | ${x.matchpoints}/${x.maxMatchpoints} |`),
+    ]),
     '',
     `<!-- bridge-results\n${JSON.stringify(r)}\n-->`,
   ].join('\n');

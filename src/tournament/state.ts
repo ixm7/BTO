@@ -12,7 +12,7 @@ import {
 } from '../engine/bidding';
 import { dealBoard, dealerForBoard, seededRandom, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
 import { applyPlay, controllerOf, isPlayOver, startPlay, type PlayState } from '../engine/play';
-import { matchpoints, nsScore, resultToString } from '../engine/scoring';
+import { crossImps, matchpoints, nsScore, resultToString } from '../engine/scoring';
 
 export interface PlayerRef {
   id: string;
@@ -42,7 +42,11 @@ export interface TournamentConfig {
    * applies the same limit.
    */
   idleTimeoutMs?: number;
+  /** How boards are compared across tables. Absent means matchpoints. */
+  scoring?: Scoring;
 }
+
+export type Scoring = 'matchpoints' | 'imps';
 
 export type TEvent =
   | { t: 'start'; config: TournamentConfig }
@@ -651,12 +655,15 @@ export interface Standing {
   matchpoints: number;
   maxMatchpoints: number;
   percent: number;
+  /** IMP pairs: the sum, over the boards played, of the average IMPs against the other tables. */
+  imps: number;
   boardsPlayed: number;
 }
 
-/** Matchpoint standings over every board that at least one table has finished. */
+/** Standings over every board that at least one table has finished, by matchpoints or IMPs as the tournament is scored. */
 export function standings(state: TState): Standing[] {
-  const acc = state.config.pairs.map(() => ({ mp: 0, max: 0, boards: 0 }));
+  const byImps = state.config.scoring === 'imps';
+  const acc = state.config.pairs.map(() => ({ mp: 0, max: 0, boards: 0, imps: 0 }));
   const byBoard = new Map<number, BoardResult[]>();
   for (const r of state.results) {
     const list = byBoard.get(r.board) ?? [];
@@ -665,29 +672,32 @@ export function standings(state: TState): Standing[] {
   }
   for (const results of byBoard.values()) {
     const { ns, top } = matchpoints(results.map((r) => r.nsScore));
+    const x = crossImps(results.map((r) => r.nsScore));
     results.forEach((r, i) => {
       // With a single result there is nothing to compare against: both sides get 50% of a 2-point top.
       const max = top === 0 ? 2 : top;
       const nsMp = top === 0 ? 1 : (ns[i] as number);
-      const a = acc[r.nsPair] as { mp: number; max: number; boards: number };
-      const b = acc[r.ewPair] as { mp: number; max: number; boards: number };
-      a.mp += nsMp; a.max += max; a.boards++;
-      b.mp += max - nsMp; b.max += max; b.boards++;
+      const a = acc[r.nsPair] as { mp: number; max: number; boards: number; imps: number };
+      const b = acc[r.ewPair] as { mp: number; max: number; boards: number; imps: number };
+      a.mp += nsMp; a.max += max; a.boards++; a.imps += x[i] as number;
+      b.mp += max - nsMp; b.max += max; b.boards++; b.imps -= x[i] as number;
     });
   }
   const rows: Standing[] = state.config.pairs.map((pair, i) => {
-    const a = acc[i] as { mp: number; max: number; boards: number };
+    const a = acc[i] as { mp: number; max: number; boards: number; imps: number };
     return {
+      imps: Math.round(a.imps * 100) / 100,
       rank: 0, pair, direction: i % 2 === 0 ? 'NS' : 'EW',
       matchpoints: a.mp, maxMatchpoints: a.max,
       percent: a.max === 0 ? 0 : Math.round((a.mp / a.max) * 10000) / 100,
       boardsPlayed: a.boards,
     };
   });
-  rows.sort((x, y) => y.percent - x.percent || x.pair.id - y.pair.id);
+  const score = (r: Standing): number => (byImps ? r.imps : r.percent);
+  rows.sort((x, y) => score(y) - score(x) || x.pair.id - y.pair.id);
   rows.forEach((r, i) => {
     const prev = rows[i - 1];
-    r.rank = prev && prev.percent === r.percent ? prev.rank : i + 1;
+    r.rank = prev && score(prev) === score(r) ? prev.rank : i + 1;
   });
   return rows;
 }
@@ -729,7 +739,7 @@ function makeBot(n: number): PlayerRef {
 export function buildConfig(opts: {
   id: string; name: string; seed: string; players: LobbyPlayer[];
   boardsPerRound: number; rounds?: number; capacity?: number; minTables?: number;
-  idleTimeoutMs?: number;
+  idleTimeoutMs?: number; scoring?: Scoring;
 }): TournamentConfig {
   botCounter = 0;
   let players = [...opts.players].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
@@ -773,5 +783,6 @@ export function buildConfig(opts: {
     boardsPerRound: Math.max(1, opts.boardsPerRound),
     pairs: full.map((players, id) => ({ id, players })),
     ...(opts.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: Math.max(0, Math.round(opts.idleTimeoutMs)) }),
+    ...(opts.scoring === 'imps' ? { scoring: 'imps' as const } : {}),
   };
 }

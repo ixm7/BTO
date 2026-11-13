@@ -7,7 +7,7 @@
  * has the results, whether or not they were at the table that played it.
  */
 import { dealBoard, dealerForBoard, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
-import { matchpoints } from '../engine/scoring';
+import { crossImps, matchpoints } from '../engine/scoring';
 import type { Seat } from '../engine/cards';
 import type { BoardResult, Pair, TState } from './state';
 
@@ -17,6 +17,8 @@ export interface TravellerRow {
   nsMatchpoints: number;
   top: number;
   nsPercent: number;
+  /** IMP pairs: North-South's average IMPs against the other tables. */
+  nsImps: number;
   /** True for the row the viewer played in, when they played this board. */
   mine: boolean;
 }
@@ -39,9 +41,11 @@ export function reviewBoard(state: TState, board: number, myPair: number | null)
   /* A board played at only one table has nothing to compare against, so each
      side takes half of a two-point top rather than everything or nothing. */
   const max = top === 0 ? 2 : top;
+  const x = crossImps(rows.map((r) => r.nsScore));
 
   const traveller: TravellerRow[] = rows.map((result, i) => ({
     result,
+    nsImps: Math.round((x[i] as number) * 100) / 100,
     nsMatchpoints: top === 0 ? 1 : (ns[i] as number),
     top: max,
     nsPercent: max === 0 ? 0 : Math.round(((top === 0 ? 1 : (ns[i] as number)) / max) * 1000) / 10,
@@ -67,6 +71,8 @@ export interface ScorecardRow {
   theyScore: number | null;
   wePercent: number;
   theyPercent: number;
+  /** IMP pairs: our average IMPs on the board. */
+  weImps: number;
 }
 
 /** Which pair this player belongs to, or null if they are not in the draw. */
@@ -103,6 +109,7 @@ export function scorecard(state: TState, myPair: number | null): ScorecardRow[] 
       theyScore: ourScore < 0 ? -ourScore : null,
       wePercent: pct,
       theyPercent: Math.round((100 - pct) * 10) / 10,
+      weImps: weAreNS ? own.nsImps : -own.nsImps || 0,
     });
   }
   return out;
@@ -113,4 +120,14 @@ export function cardTotal(rows: ScorecardRow[]): { we: number; they: number } {
   if (rows.length === 0) return { we: 0, they: 0 };
   const we = rows.reduce((a, r) => a + r.wePercent, 0) / rows.length;
   return { we: Math.round(we * 10) / 10, they: Math.round((100 - we) * 10) / 10 };
+}
+
+/** IMP pairs: the player's running total. */
+export const cardImps = (rows: ScorecardRow[]): number => Math.round(rows.reduce((a, r) => a + r.weImps, 0) * 100) / 100;
+
+/** "+3.5", "−2", "0": IMPs as they are written. */
+export function impText(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  const body = Math.abs(r).toFixed(2).replace(/\.?0+$/, '');
+  return r > 0 ? `+${body}` : r < 0 ? `\u2212${body}` : '0';
 }

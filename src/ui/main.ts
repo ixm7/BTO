@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, MIN_PLAYERS, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, MIN_PLAYERS, impsText, scoringName, Directory, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
@@ -347,12 +347,12 @@ function directoryView(): HTMLElement {
       h('tbody', shown.map((l) => h('tr',
         h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
         h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
-        h('td', 'Matchpoints'),
+        h('td', scoringName(l.meta.scoring)),
         h('td', when(l)),
         h('td', levelText(l.meta)),
         h('td.num', playersCell(l)),
         h('td', badge(l.status)),
-        h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.rankings[0].percent.toFixed(1)}%)` : h('span.muted', '—')),
+        h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.scoring === 'imps' ? `${impsText(l.results.rankings[0].imps ?? 0)} IMPs` : `${l.results.rankings[0].percent.toFixed(1)}%`})` : h('span.muted', '—')),
       ))))));
   }
   return h('div',
@@ -495,7 +495,7 @@ function detailView(l: Listing): HTMLElement {
       h('div.row', h('h2', l.meta.name), badge(l.status)),
       h('dl.facts',
         h('dt', 'Director'), h('dd', `${l.meta.director} (@${l.initiatorLogin})`),
-        h('dt', 'Type'), h('dd', 'Matchpoints'),
+        h('dt', 'Type'), h('dd', scoringName(l.meta.scoring)),
         h('dt', 'Start'), h('dd', when(l)),
         h('dt', 'Time zone'), h('dd', l.meta.timeZone),
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
@@ -516,6 +516,11 @@ function detailView(l: Listing): HTMLElement {
 }
 
 function resultsTable(r: TournamentResults): HTMLElement {
+  if (r.scoring === 'imps') {
+    return h('div.table-scroll', h('table.list',
+      h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'IMPs'))),
+      h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction), h('td.num', impsText(x.imps ?? 0)))))));
+  }
   return h('div.table-scroll', h('table.list',
     h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'Score'), h('th.num', 'MP'))),
     h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction),
@@ -851,6 +856,7 @@ function openCreate(): void {
           capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
+          scoring: val(f, 'type') === 'imps' ? 'imps' : 'matchpoints',
           ...((f.elements.namedItem('weekly') as HTMLInputElement).checked ? { repeat: 'weekly' as const } : {}),
         });
         const number = await d.create(meta);
@@ -869,7 +875,8 @@ function openCreate(): void {
       field('Tournament name', h('input', { name: 'name', required: true, maxLength: 60 })),
       field('Director (your name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
       h('div.two',
-        field('Type', h('select', { name: 'type' }, h('option', 'Matchpoints'))),
+        field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
+          h('option', { value: 'matchpoints' }, 'Matchpoints'), h('option', { value: 'imps' }, 'IMP Pairs'))),
         field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
           h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))))),
       h('div.two',
@@ -949,6 +956,7 @@ function pinnedPlan(l: Listing): TournamentConfig | null {
     roster: entries.map((r) => ({ id: r.login, name: r.name, pairCode: r.pairCode, joinedAt: Date.parse(r.at) })),
     boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity,
     idleTimeoutMs: idleSecOf(l.meta) * 1000,
+    scoring: l.meta.scoring,
   });
 }
 
@@ -1072,18 +1080,20 @@ const pairNames = (s: Standing): string => s.pair.players.map((p) => p.name).joi
 function standingsPanel(state: TState, title: string): HTMLElement {
   const rows = standings(state);
   const me = settings.playerId;
+  const byImps = state.config.scoring === 'imps';
   return h('div.panel', h('h3', title), h('div.table-scroll', h('table.list',
-    h('thead', h('tr', h('th.num', '#'), h('th', 'Pair'), h('th.num', '%'))),
+    h('thead', h('tr', h('th.num', '#'), h('th', 'Pair'), h('th.num', byImps ? 'IMPs' : '%'))),
     h('tbody', rows.map((r) => h(`tr${r.pair.players.some((p) => p.id === me) ? '.me' : ''}`,
       h('td.num', r.boardsPlayed ? r.rank : '–'), h('td', pairNames(r), h('div.muted', `${r.direction} · ${r.boardsPlayed} board${r.boardsPlayed === 1 ? '' : 's'}`)),
-      h('td.num', r.boardsPlayed ? r.percent.toFixed(1) : '–')))))));
+      h('td.num', r.boardsPlayed ? (byImps ? impsText(r.imps) : r.percent.toFixed(1)) : '–')))))));
 }
 
 function toResults(state: TState): TournamentResults {
   return {
-    v: 1, finishedAt: new Date().toISOString(), tables: state.config.tables,
+    v: 1, ...(state.config.scoring === 'imps' ? { scoring: 'imps' as const } : {}),
+    finishedAt: new Date().toISOString(), tables: state.config.tables,
     boards: state.config.rounds * state.config.boardsPerRound,
-    rankings: standings(state).map((s) => ({ rank: s.rank, players: pairNames(s), direction: s.direction, percent: s.percent, matchpoints: s.matchpoints, maxMatchpoints: s.maxMatchpoints })),
+    rankings: standings(state).map((s) => ({ rank: s.rank, players: pairNames(s), direction: s.direction, percent: s.percent, matchpoints: s.matchpoints, maxMatchpoints: s.maxMatchpoints, ...(state.config.scoring === 'imps' ? { imps: s.imps } : {}) })),
   };
 }
 
