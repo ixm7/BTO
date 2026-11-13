@@ -74,6 +74,10 @@ export interface TournamentMeta {
    * which fall back to DEFAULT_IDLE_SEC.
    */
   idleTimeoutSec?: number;
+  /** Held again every week, same day and time, until somebody stops it. */
+  repeat?: 'weekly';
+  /** The first tournament of a weekly series; absent on that first one itself. */
+  seriesId?: number;
 }
 
 /** The inactivity limit used when a tournament does not name one. */
@@ -219,6 +223,7 @@ export function issueBody(meta: TournamentMeta): string {
     `| **Capacity** | ${meta.capacity} players |`,
     `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
     `| **Inactivity limit** | ${idleSecOf(meta)} seconds, then a robot takes the seat |`,
+    ...(meta.repeat === 'weekly' ? ['| **Repeats** | Every week, same day and time |'] : []),
     '',
     'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered — and `level:Your Level`).',
     'To withdraw, comment `/withdraw`.',
@@ -251,6 +256,8 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
       ...(Number.isFinite(Number(j.idleTimeoutSec))
         ? { idleTimeoutSec: Math.min(MAX_IDLE_SEC, Math.max(MIN_IDLE_SEC, Math.round(Number(j.idleTimeoutSec)))) }
         : {}),
+      ...(j.repeat === 'weekly' ? { repeat: 'weekly' as const } : {}),
+      ...(Number.isInteger(j.seriesId) && (j.seriesId as number) > 0 ? { seriesId: j.seriesId } : {}),
     };
   } catch { return null; }
 }
@@ -487,8 +494,8 @@ export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
 
 /* ------------------------------------------------------- automatic start */
 
-/** Fewest players a tournament will start with: one table, robots making up any gap. */
-export const MIN_PLAYERS = 4;
+/** Fewest players a tournament will start with: two tables, so there are results to compare. */
+export const MIN_PLAYERS = 8;
 /** How long past the start time to wait for the minimum before calling it off. */
 export const MIN_WAIT_MS = 5 * 60 * 1000;
 /** Short of a full field, entries stay open this much longer, again each time somebody joins. */
@@ -563,6 +570,52 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
     /* Withdrawals in the meantime can leave it short again. */
     return settled(count(to) >= MIN_PLAYERS ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
   }
+}
+
+/* ------------------------------------------------------- weekly series */
+
+/** Which series a tournament belongs to: the number of the first one. */
+export const seriesOf = (meta: TournamentMeta, number: number): number => meta.seriesId ?? number;
+
+/**
+ * The next time a weekly tournament is held: the same wall-clock time in its
+ * own time zone, a whole number of weeks on, and after `now` — so a series
+ * nobody looked at for a while picks up again from the coming week rather
+ * than filling the list with dates already gone. Daylight saving is the time
+ * zone's business: 7:30 PM stays 7:30 PM.
+ */
+export function nextWeekly(meta: TournamentMeta, now: number): { start: string; startUtc: string } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(meta.start);
+  if (!m) throw new Error(`Bad start: ${meta.start}`);
+  for (let weeks = 1; ; weeks++) {
+    const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 7 * weeks));
+    const start = `${day.toISOString().slice(0, 10)}T${m[4]}`;
+    const at = zonedToUtc(start, meta.timeZone);
+    if (at.getTime() > now) return { start, startUtc: at.toISOString() };
+  }
+}
+
+/** Next week's tournament: the same in every way but the date. */
+export function nextInSeries(meta: TournamentMeta, number: number, now: number): TournamentMeta {
+  return { ...meta, ...nextWeekly(meta, now), seriesId: seriesOf(meta, number) };
+}
+
+/**
+ * Weekly tournaments whose latest occurrence has begun and has no successor
+ * yet. A series stops when its latest is closed as not planned, or no longer
+ * marked as repeating.
+ */
+export function seriesDue(found: readonly { issue: { number: number; state: string; state_reason?: string | null }; meta: TournamentMeta }[], now: number): number[] {
+  const latest = new Map<number, (typeof found)[number]>();
+  for (const f of found) {
+    const key = seriesOf(f.meta, f.issue.number);
+    const cur = latest.get(key);
+    if (!cur || f.meta.startUtc > cur.meta.startUtc) latest.set(key, f);
+  }
+  return [...latest.values()]
+    .filter((f) => f.meta.repeat === 'weekly' && now >= Date.parse(f.meta.startUtc)
+      && !(f.issue.state === 'closed' && f.issue.state_reason !== 'completed'))
+    .map((f) => f.issue.number);
 }
 
 /** Same deals in every browser, and nobody's to choose. */
@@ -752,7 +805,16 @@ export class Directory {
       const meta = parseMeta(issue.body);
       if (meta) found.push({ issue, meta });
     }
-    const out = await Promise.all(found.map(({ issue, meta }) => this.toListing(issue, meta, now)));
+    /* Two visitors may have asked for next week's at the same moment: the first one counts. */
+    const seen = new Set<string>();
+    const unique = [...found].sort((a, b) => a.issue.number - b.issue.number).filter(({ issue, meta }) => {
+      const k = `${seriesOf(meta, issue.number)}@${meta.startUtc}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    this.due = seriesDue(unique, now);
+    const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now)));
     /* Remember what was left off the list so it can be swept away later; the
        caller decides whether to, and the next listing recomputes this anyway. */
     this.abandoned = out.filter((l) => l.status === 'aborted');
@@ -763,6 +825,45 @@ export class Directory {
 
   /** Abandoned tournaments found by the last `list()`, ready to be removed. */
   abandoned: Listing[] = [];
+
+  /** Weekly tournaments the last `list()` found in need of next week's. */
+  due: number[] = [];
+
+  /**
+   * Put next week's tournament on the list for every series that needs one.
+   * With a token it is created here; otherwise the relay does it, checking
+   * for itself that it is due. Returns how many were asked for.
+   */
+  async continueSeries(now: number = Date.now()): Promise<number> {
+    const due = this.due;
+    this.due = [];
+    let asked = 0;
+    for (const number of due) {
+      try {
+        if (this.token) {
+          const issue = await this.req<RawIssue>(this.api(`/issues/${number}`));
+          const meta = parseMeta(issue.body);
+          if (!meta || meta.repeat !== 'weekly') continue;
+          await this.create(nextInSeries(meta, number, now));
+        } else if (this.relay) {
+          const res = await this.fetcher(`${this.relay.url.replace(/\/+$/, '')}/act`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ act: 'repeat', issue: number }),
+          });
+          if (!res.ok) continue;
+        } else continue;
+        asked++;
+      } catch { /* somebody else's visit will try again */ }
+    }
+    return asked;
+  }
+
+  /** Stop a weekly tournament repeating after this one. Needs a token that may edit it. */
+  async stopRepeating(l: Listing): Promise<void> {
+    if (!this.token) throw new Error('A token is needed to change this tournament.');
+    const { repeat: _gone, ...rest } = l.meta;
+    await this.req(this.api(`/issues/${l.number}`), 'PATCH', { body: issueBody(rest) });
+  }
 
   /**
    * Remove an abandoned tournament for good. Deleting an issue is a GraphQL-only

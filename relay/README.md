@@ -56,4 +56,11 @@ digits) and signs every comment with that tag. The app believes a tag only on
 a comment posted by the relay's own account, so nobody can speak for another
 player — but a player is tied to the browser they registered from.
 
+## Weekly tournaments
+
+A tournament marked to repeat weekly gets next week's copy once this week's
+has started. The first visitor after that asks the relay for it; the relay
+checks GitHub itself (it repeats, it has started, the series was not stopped,
+next week's is not there yet) and creates it. No schedule to set up.
+
 Free plan: 100,000 requests a day.

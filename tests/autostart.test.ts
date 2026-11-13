@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { EXTEND_MS, MAX_EXTENSIONS, MIN_WAIT_MS, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
+import { EXTEND_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
 
 const meta: TournamentMeta = makeMeta({
   name: 'Auto', director: 'Ido', start: '2030-01-01T19:30', timeZone: 'UTC',
-  capacity: 8, rounds: 1, boardsPerRound: 2, levels: ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'],
+  capacity: 16, rounds: 1, boardsPerRound: 2, levels: ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'],
 } as never);
 const T0 = Date.parse(meta.startUtc);
 const S = 1000;
@@ -15,35 +15,35 @@ const later = (at: number) => at + SETTLE_MS;
 
 describe('automatic start', () => {
   it('waits for the start time', () => {
-    expect(planStart(meta, players(8, T0 - M), T0 - 1)).toEqual({ kind: 'wait', until: T0, extensions: 0 });
+    expect(planStart(meta, players(16, T0 - M), T0 - 1)).toEqual({ kind: 'wait', until: T0, extensions: 0 });
   });
 
   it('1. starts on time when full — once everyone has had time to see the same comments', () => {
-    const cs = players(8, T0 - 10 * M);
+    const cs = players(16, T0 - 10 * M);
     expect(planStart(meta, cs, T0 + 1).kind).toBe('wait');
     expect(planStart(meta, cs, later(T0))).toEqual({ kind: 'start', at: T0 });
   });
 
-  it('2. with fewer than four, waits five minutes, then cancels', () => {
+  it('2. with fewer than eight, waits five minutes, then cancels', () => {
     expect(planStart(meta, [], T0 + 4 * M)).toEqual({ kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 });
-    expect(planStart(meta, players(3, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
+    expect(planStart(meta, players(MIN_PLAYERS - 1, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
   });
 
-  it('2→3. the fourth arriving inside five minutes opens the one-minute window from then', () => {
+  it('2→3. the eighth arriving inside five minutes opens the one-minute window from then', () => {
     const fourth = T0 + 3 * M;
-    const cs = [...players(3, T0 - M), reg('late', fourth)];
+    const cs = [...players(7, T0 - M), reg('late', fourth)];
     expect(planStart(meta, cs, fourth + 30 * S)).toEqual({ kind: 'wait', until: fourth + EXTEND_MS, extensions: 0 });
     expect(planStart(meta, cs, later(fourth + EXTEND_MS))).toEqual({ kind: 'start', at: fourth + EXTEND_MS });
   });
 
   it('3. short of full: one minute, then starts if nobody else came', () => {
-    const cs = players(5, T0 - M);
+    const cs = players(10, T0 - M);
     expect(planStart(meta, cs, T0 + 30 * S)).toEqual({ kind: 'wait', until: T0 + EXTEND_MS, extensions: 0 });
     expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'start', at: T0 + EXTEND_MS });
   });
 
   it('3. each newcomer buys another minute, at most five times', () => {
-    const cs = players(4, T0 - M);
+    const cs = players(8, T0 - M);
     /* Someone arrives in every minute, more often than the rule allows for. */
     for (let k = 0; k < 7; k++) cs.push(reg(`x${k}`, T0 + k * M + 30 * S));
     const big = { ...meta, capacity: 100 };
@@ -53,12 +53,12 @@ describe('automatic start', () => {
   });
 
   it('3. filling up during a window starts it at that moment', () => {
-    const cs = [...players(6, T0 - M), reg('a', T0 + 20 * S), reg('b', T0 + 40 * S)];
+    const cs = [...players(14, T0 - M), reg('a', T0 + 20 * S), reg('b', T0 + 40 * S)];
     expect(planStart(meta, cs, later(T0 + 40 * S))).toEqual({ kind: 'start', at: T0 + 40 * S });
   });
 
   it('3. withdrawals that leave it short at the close cancel it', () => {
-    const cs = [...players(4, T0 - M), wd('p0', T0 + 10 * S)];
+    const cs = [...players(8, T0 - M), wd('p0', T0 + 10 * S)];
     expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'cancel', at: T0 + EXTEND_MS });
   });
 });
@@ -75,7 +75,7 @@ function fakeGitHub(comments: RawComment[]) {
 
 describe('the listing every browser sees', () => {
   it('starts with the field as it stood at the close, the same seed everywhere, latecomers left out', async () => {
-    const cs = [...players(5, T0 - M), reg('late', T0 + 2 * M), wd('p1', T0 + 3 * M)];
+    const cs = [...players(10, T0 - M), reg('late', T0 + 2 * M), wd('p1', T0 + 3 * M)];
     const now = later(T0 + EXTEND_MS) + 5 * M;
     const a = await new Directory('ixm7/BTO', null, fakeGitHub(cs) as never).get(7, now);
     const b = await new Directory('ixm7/BTO', null, fakeGitHub(cs) as never).get(7, now + 9 * M);
@@ -84,15 +84,97 @@ describe('the listing every browser sees', () => {
     expect(a.pinned?.seed).toMatch(/^[0-9a-f]{24}$/);
     expect(b.pinned?.seed).toBe(a.pinned?.seed);
     /* p1 withdrew after the close and is still in; "late" came after it and is not. */
-    expect(pinnedRoster(a).map((r) => r.login)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4']);
+    expect(pinnedRoster(a).map((r) => r.login)).toEqual(Array.from({ length: 10 }, (_, i) => `p${i}`));
   });
 
   it('shows "starting" while entries are open, and cancelled for want of players', async () => {
-    const d = new Directory('ixm7/BTO', null, fakeGitHub(players(2, T0 - M)) as never);
+    const d = new Directory('ixm7/BTO', null, fakeGitHub(players(7, T0 - M)) as never);
     expect((await d.get(7, T0 + M)).status).toBe('starting');
     const off = await d.get(7, later(T0 + MIN_WAIT_MS));
     expect(off.status).toBe('cancelled');
     expect(off.tooFew).toBe(true);
     expect(off.pinned).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------- weekly series */
+
+import { nextInSeries, nextWeekly, parseMeta, seriesDue } from '../src/directory/github';
+import worker, { nextWeekly as relayNextWeekly } from '../relay/worker.js';
+
+describe('weekly tournaments', () => {
+  const ny = makeMeta({
+    name: 'Thursday', director: 'Ido', start: '2026-10-29T19:30', timeZone: 'America/New_York',
+    capacity: 16, rounds: 1, boardsPerRound: 2, levels: ['Expert'], repeat: 'weekly',
+  } as never);
+
+  it('keeps the wall-clock time across a change of clocks', () => {
+    /* Clocks went back on Nov 1, 2026: 19:30 EDT is 23:30 UTC, 19:30 EST is 00:30 UTC. */
+    expect(ny.startUtc).toBe('2026-10-29T23:30:00.000Z');
+    const next = nextWeekly(ny, Date.parse(ny.startUtc) + 1);
+    expect(next).toEqual({ start: '2026-11-05T19:30', startUtc: '2026-11-06T00:30:00.000Z' });
+    expect(relayNextWeekly(ny, Date.parse(ny.startUtc) + 1)).toEqual(next);
+  });
+
+  it('skips weeks already gone, and remembers the series', () => {
+    const now = Date.parse('2026-11-20T12:00:00Z');
+    const n = nextInSeries(ny, 41, now);
+    expect(n.start).toBe('2026-11-26T19:30');
+    expect(n.seriesId).toBe(41);
+    expect(parseMeta(issueBody(n))).toMatchObject({ repeat: 'weekly', seriesId: 41, start: '2026-11-26T19:30' });
+  });
+
+  it('asks only for series whose latest has begun, and that have not been stopped', () => {
+    const at = Date.parse(ny.startUtc);
+    const one = { issue: { number: 1, state: 'open' }, meta: ny };
+    const next = { issue: { number: 2, state: 'open' }, meta: nextInSeries(ny, 1, at + 1) };
+    expect(seriesDue([one], at - 1)).toEqual([]);
+    expect(seriesDue([one], at + 1)).toEqual([1]);
+    expect(seriesDue([one, next], at + 1)).toEqual([]); // next week's is already there
+    expect(seriesDue([{ ...one, issue: { number: 1, state: 'closed', state_reason: 'not_planned' } }], at + 1)).toEqual([]);
+    expect(seriesDue([{ ...one, issue: { number: 1, state: 'closed', state_reason: 'completed' } }], at + 1)).toEqual([1]);
+    expect(seriesDue([{ ...one, meta: { ...ny, repeat: undefined } }], at + 1)).toEqual([]);
+  });
+
+  it('the relay creates next week\'s once, and refuses what is not due', async () => {
+    const issues: { number: number; title: string; body: string; state: string; user: { login: string } }[] = [
+      { number: 5, title: '🂡 Thursday', body: issueBody(ny), state: 'open', user: { login: 'ixm7' } },
+      { number: 6, title: '🂡 Other', body: issueBody({ ...ny, repeat: undefined }), state: 'open', user: { login: 'ixm7' } },
+    ];
+    const real = globalThis.fetch;
+    const store = new Map<string, Response>();
+    (globalThis as { caches?: unknown }).caches = { default: { match: async () => undefined, put: async (r: Request, res: Response) => { store.set(r.url, res); }, delete: async () => true } };
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      const u = new URL(url);
+      const m = /\/issues\/(\d+)$/.exec(u.pathname);
+      if (init.method === 'POST' && u.pathname.endsWith('/issues')) {
+        const b = JSON.parse(String(init.body));
+        const made = { number: issues.length + 5, title: b.title, body: b.body, state: 'open', user: { login: 'ixm7' } };
+        issues.push(made);
+        return Response.json(made, { status: 201 });
+      }
+      if (m) return Response.json(issues.find((i) => i.number === Number(m[1])) ?? {}, { status: issues.some((i) => i.number === Number(m[1])) ? 200 : 404 });
+      return Response.json([...issues].reverse());
+    }) as typeof fetch;
+    const ask = (issue: number) => worker.fetch(new Request('https://api.bridgebreak.org/act', {
+      method: 'POST', headers: { Origin: 'https://www.bridgebreak.org', 'Content-Type': 'application/json' }, body: JSON.stringify({ act: 'repeat', issue }),
+    }), { GITHUB_TOKEN: 't', REPO: 'ixm7/BTO', ALLOWED_ORIGINS: 'https://www.bridgebreak.org' }, { waitUntil: () => {} });
+    try {
+      const first = await ask(5);
+      expect(first.status).toBe(200);
+      const made = issues.at(-1)!;
+      const meta = parseMeta(made.body)!;
+      expect(meta.seriesId).toBe(5);
+      expect(Date.parse(meta.startUtc)).toBeGreaterThan(Date.now());
+      expect(made.body).toContain(`| **Start** | ${meta.start.replace('T', ' ')} (America/New_York)`);
+      expect(made.title).toBe('🂡 Thursday');
+      /* Asking again changes nothing. */
+      const again = await ask(5);
+      expect(await again.json()).toMatchObject({ existed: true });
+      expect(issues).toHaveLength(3);
+      /* The new one is not due until its own start; a one-off never is. */
+      expect((await ask(made.number)).status).toBe(409);
+      expect((await ask(6)).status).toBe(409);
+    } finally { globalThis.fetch = real; }
   });
 });

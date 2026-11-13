@@ -8,6 +8,7 @@ declare const worker: {
 export default worker;
 
 export function playerTag(key: string): Promise<string>;
+export function nextWeekly(meta: { start: string; timeZone: string }, now: number): { start: string; startUtc: string };
 
 export const _test: {
   clean(text: unknown, max: number): string;

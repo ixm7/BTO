@@ -122,6 +122,7 @@ async function act(request, url, env, ctx) {
 
   const issue = Number(input.issue);
   if (!Number.isInteger(issue) || issue < 1 || issue > 1e8) throw new Refusal('No such tournament.');
+  if (input.act === 'repeat') return repeat(issue, url, env, ctx);
   const key = String(input.key || '');
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(key)) throw new Refusal('This browser has no player key.');
   const name = clean(input.name, 40);
@@ -149,6 +150,90 @@ async function act(request, url, env, ctx) {
   /* So the person who just acted sees it straight away rather than in a few seconds. */
   ctx.waitUntil(forget(url.origin, owner, repo, issue));
   return json({ ok: true, tag });
+}
+
+/* ------------------------------------------------------- weekly series */
+
+const META_RE = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/;
+
+/**
+ * Put next week's copy of a weekly tournament on the list. Anybody's browser
+ * may ask, so everything is checked here against GitHub itself: that it
+ * repeats, that its start has passed, that the series has not been stopped,
+ * and that next week's is not there already. Nothing in the request is used
+ * but the issue number.
+ */
+async function repeat(issue, url, env, ctx) {
+  const { owner, repo } = repoPath(env);
+  const res = await github(`/repos/${owner}/${repo}/issues/${issue}`, env);
+  if (!res.ok) throw new Refusal('No such tournament.', 404);
+  const found = await res.json();
+  const m = META_RE.exec(found.body || '');
+  if (found.pull_request || !m) throw new Refusal('No such tournament.', 404);
+  let meta;
+  try { meta = JSON.parse(m[1]); } catch { throw new Refusal('No such tournament.', 404); }
+  if (meta.repeat !== 'weekly') throw new Refusal('That tournament does not repeat.', 409);
+  if (found.state === 'closed' && found.state_reason !== 'completed') throw new Refusal('That series has been stopped.', 409);
+  const now = Date.now();
+  if (!(now >= Date.parse(meta.startUtc))) throw new Refusal('Not due yet.', 409);
+  const series = Number.isInteger(meta.seriesId) && meta.seriesId > 0 ? meta.seriesId : issue;
+
+  /* Anything newer in the same series means this is not the one to copy. */
+  const listRes = await github(`/repos/${owner}/${repo}/issues${LIST_QUERY}`, env);
+  if (!listRes.ok) throw new Refusal('The tournament list could not be read.', 502);
+  for (const other of await listRes.json()) {
+    const om = META_RE.exec(other.body || '');
+    if (!om || other.pull_request) continue;
+    let o;
+    try { o = JSON.parse(om[1]); } catch { continue; }
+    const theirs = Number.isInteger(o.seriesId) && o.seriesId > 0 ? o.seriesId : other.number;
+    if (theirs === series && String(o.startUtc) > String(meta.startUtc)) return json({ ok: true, number: other.number, existed: true });
+  }
+
+  const next = { ...meta, ...nextWeekly(meta, now), seriesId: series };
+  const startRow = `| **Start** | ${next.start.replace('T', ' ')} (${next.timeZone}) — ${next.startUtc.slice(0, 16).replace('T', ' ')} UTC |`;
+  const body = (found.body || '')
+    .replace(/^\| \*\*Start\*\* \|.*$/m, startRow)
+    .replace(META_RE, `<!-- bridge-tournament\n${JSON.stringify(next, null, 1)}\n-->`);
+  const made = await github(`/repos/${owner}/${repo}/issues`, env, {
+    method: 'POST', body: JSON.stringify({ title: found.title, body }),
+  });
+  if (!made.ok) throw new Refusal(`Next week's tournament could not be created (error ${made.status}).`, 502);
+  const created = await made.json();
+  ctx.waitUntil(forget(url.origin, owner, repo, created.number));
+  return json({ ok: true, number: created.number });
+}
+
+/** Same wall-clock time, whole weeks on, after now — as the app works it out. */
+export function nextWeekly(meta, now) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(String(meta.start));
+  if (!m) throw new Refusal('That tournament has no start time.', 409);
+  for (let weeks = 1; weeks < 1000; weeks++) {
+    const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 7 * weeks));
+    const start = `${day.toISOString().slice(0, 10)}T${m[4]}`;
+    const at = zonedToUtc(start, String(meta.timeZone || 'UTC'));
+    if (at.getTime() > now) return { start, startUtc: at.toISOString() };
+  }
+  throw new Refusal('No next date.', 409);
+}
+
+function zoneOffsetMinutes(d, timeZone) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const p = {};
+  for (const x of fmt.formatToParts(d)) if (x.type !== 'literal') p[x.type] = Number(x.value);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return Math.round((asUtc - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+}
+
+function zonedToUtc(wall, timeZone) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(wall);
+  const naive = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+  let utc = naive - zoneOffsetMinutes(new Date(naive), timeZone) * 60000;
+  utc = naive - zoneOffsetMinutes(new Date(utc), timeZone) * 60000;
+  return new Date(utc);
 }
 
 /** The one line a player's action becomes. Built from checked fields only. */

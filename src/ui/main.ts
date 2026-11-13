@@ -189,6 +189,14 @@ async function refresh(expect?: number): Promise<void> {
       syncListing(updated);
     }
     await sweepAbandoned(d);
+    /* Weekly tournaments: once this week's has begun, put next week's up. */
+    d.due = d.due.filter((n) => !continued.has(n));
+    for (const n of d.due) continued.add(n);
+    if (await d.continueSeries()) {
+      await sleep(1500);
+      listings = await d.list();
+      d.due = [];
+    }
   } catch (e) {
     errorMsg = (e as Error).message;
     /* Asked too often: stop asking until it will answer again, and leave the
@@ -198,6 +206,9 @@ async function refresh(expect?: number): Promise<void> {
   }
   loading = false; render();
 }
+
+/** Weekly tournaments this page has already asked to continue, so it asks once. */
+const continued = new Set<number>();
 
 /** Tournaments a sweep has already dealt with, or tried and failed to. */
 const sweptAlready = new Set<number>();
@@ -305,6 +316,32 @@ function startNote(l: Listing): string | null {
   return null;
 }
 
+const weekdayOf = (l: Listing): string =>
+  new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: l.meta.timeZone }).format(new Date(l.meta.startUtc));
+
+/** Whoever can edit the tournament's page: its author, or the repository owner. */
+function canStop(l: Listing): boolean {
+  const d = directory();
+  const me = settings.githubLogin.trim().toLowerCase();
+  if (!d?.canWrite || !me) return false;
+  return l.initiatorLogin.toLowerCase() === me || settings.repo.split('/')[0]?.toLowerCase() === me;
+}
+
+/** Stop the series: this one and any later one already on the list stop repeating. */
+async function stopSeries(l: Listing): Promise<void> {
+  const d = directory();
+  if (!d) return;
+  const key = l.meta.seriesId ?? l.number;
+  const these = (listings ?? [l]).filter((x) => (x.meta.seriesId ?? x.number) === key
+    && x.meta.repeat === 'weekly' && x.meta.startUtc >= l.meta.startUtc);
+  if (!these.some((x) => x.number === l.number)) these.push(l);
+  try {
+    for (const x of these) await d.stopRepeating(x);
+    notice = 'This tournament will not repeat after this one.';
+    await refresh();
+  } catch (e) { fail(e); }
+}
+
 function detailView(l: Listing): HTMLElement {
   const d = directory() as Directory;
   const myLogin = myId();
@@ -384,7 +421,9 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
-        h('dt', 'Format'), h('dd', `${l.meta.rounds} round(s) × ${l.meta.boardsPerRound} board(s)`)),
+        h('dt', 'Format'), h('dd', `${l.meta.rounds} round(s) × ${l.meta.boardsPerRound} board(s)`),
+        l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
+          canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
@@ -679,6 +718,7 @@ function openCreate(): void {
           capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
+          ...((f.elements.namedItem('weekly') as HTMLInputElement).checked ? { repeat: 'weekly' as const } : {}),
         });
         const number = await d.create(meta);
         close();
@@ -703,13 +743,16 @@ function openCreate(): void {
         field('Start time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
         field('Time zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
       h('div.two',
-        field('Capacity (max players)', h('input', { name: 'capacity', type: 'number', min: 4, max: 200, step: 4, value: 16, required: true })),
+        field('Capacity (max players)', h('input', { name: 'capacity', type: 'number', min: 8, max: 200, step: 4, value: 16, required: true })),
         h('div.two',
           field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 4, required: true })),
           field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
       field('Inactivity limit (seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
+      h('label.check', h('input', { type: 'checkbox', name: 'weekly' }),
+        'Repeat every week on the same day and time'),
+      h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
         h('button.primary', { type: 'submit' }, 'Create tournament')));
