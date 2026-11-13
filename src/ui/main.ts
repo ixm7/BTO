@@ -8,6 +8,7 @@ import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
 import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
+import { installHoverTips } from './hoverTip';
 import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
 import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
@@ -1406,5 +1407,6 @@ window.addEventListener('pagehide', () => node?.close());
 render();
 /* Ask the relay first — it answers in a few milliseconds, or not at all — so
    the very first look at the list already goes the right way. */
+installHoverTips();
 void probeRelay().then(() => refresh()).then(route).then(startPolling);
 if (!settings.name) openSettings();

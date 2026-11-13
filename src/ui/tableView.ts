@@ -279,7 +279,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       : [player.name, `Level: ${info?.skill || 'not given'}`, `Description: ${info?.note || 'none'}`].join('\n');
     const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}), ...(info?.note ? { note: info.note } : {}) };
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
-      { title: tip },
+      { 'data-tip': tip, 'aria-label': tip },
       h('b.seat-letter', seat),
       h('span.pname', {
         role: 'button', tabindex: 0,

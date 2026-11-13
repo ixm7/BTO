@@ -527,3 +527,11 @@ button.pc:disabled { opacity: 1; }
 /* Test mode: loud enough that nobody forgets which player this tab is. */
 .tester { background: #fde7c4; border: 1px solid #e0b36a; border-radius: 8px; padding: 3px 8px; font-size: .85rem; color: #4a3410; }
 .tester select { margin-left: 4px; padding: 2px 4px; }
+
+/* The table's own tooltip: drawn by the page so a redraw does not blink it away. */
+.hover-tip {
+  position: fixed; z-index: 1000; pointer-events: none;
+  max-width: 320px; padding: 8px 11px; border-radius: 8px;
+  background: #1f2420; color: #f3f1ea; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+  font-size: .85rem; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere;
+}
