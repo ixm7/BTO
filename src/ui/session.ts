@@ -12,7 +12,7 @@
  * round about to be played.
  */
 import { resultsRoom, seatOf, tableRoom } from '../tournament/plan';
-import { TournamentNode, type Me } from '../tournament/node';
+import { TournamentNode, type Me, type RobotBrain } from '../tournament/node';
 import { mergeSeating, type BoardResult, type Seating, type TournamentConfig } from '../tournament/state';
 import type { Transport } from '../net/transport';
 
@@ -28,6 +28,8 @@ export interface SessionOptions {
   /** How often somebody with no seat looks again. Default 9 seconds. */
   seekIntervalMs?: number;
   botDelayMs?: number;
+  /** How the robots at this player's table think, when this device hosts it. */
+  robot?: RobotBrain;
 }
 
 export class TournamentSession {
@@ -110,6 +112,7 @@ export class TournamentSession {
       ...(at ? {} : { deviceScore: 1, isDirector: false }),
     }, {
       botDelayMs: this.o.botDelayMs ?? 900,
+      robot: this.o.robot,
       tableIndex: table,
       idleTimeoutMs: this.o.config.idleTimeoutMs,
     });

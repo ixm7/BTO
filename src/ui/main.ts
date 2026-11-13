@@ -9,6 +9,7 @@ import { TournamentNode, deviceScore } from '../tournament/node';
 import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { installHoverTips } from './hoverTip';
+import { makeRobot } from './robot';
 import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
 import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
@@ -102,6 +103,9 @@ const directory = (): Directory | null => {
     : null;
   try { return new Directory(settings.repo, settings.token || null, undefined, relay); } catch { return null; }
 };
+
+/** One brain for every robot this device plays for. */
+const robot = makeRobot();
 
 const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message : String(e); render(); };
 
@@ -959,6 +963,7 @@ async function openSession(l: Listing): Promise<void> {
       ? localTransport(roomName)
       : (await import('../net/trystero')).trysteroTransport(roomName),
     onChange: () => { node = session?.node ?? null; render(); },
+    robot,
   });
   await session.start();
   node = session.node;
@@ -974,6 +979,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
     skill: settings.skill || undefined,
   }, {
     botDelayMs,
+    robot,
     /* In the demo you are the only person at the table, so nobody is kept
        waiting and a long think should not cost you your seat. */
     idleTimeoutMs: info.demo ? 0 : undefined,

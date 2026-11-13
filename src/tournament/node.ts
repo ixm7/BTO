@@ -9,12 +9,12 @@
  * vote. The coordinator also plays for robots and for players who have dropped.
  */
 import { SEATS, type Card, type Seat } from '../engine/cards';
-import type { Call } from '../engine/bidding';
+import { illegalReason, type AuctionState, type Call } from '../engine/bidding';
 import { chooseCall, chooseCard } from '../engine/bot';
-import { controllerOf } from '../engine/play';
+import { controllerOf, illegalPlayReason, type PlayState } from '../engine/play';
 import type { Transport } from '../net/transport';
 import {
-  buildConfig, claimWaitingOn, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
+  ALERT_MAX, buildConfig, claimWaitingOn, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
   type BoardResult, type LobbyPlayer, type Seating, type TEvent, type TState, type TableState, type TournamentConfig,
 } from './state';
 
@@ -31,9 +31,19 @@ export interface Me {
   skill?: string;
 }
 
+/**
+ * How the robots think. Without one they use the simple built-in player; the
+ * app supplies a stronger one that may take a few seconds over a card.
+ */
+export interface RobotBrain {
+  call(hand: readonly Card[], auction: AuctionState, seat: Seat): { call: Call; alert?: string };
+  card(play: PlayState, seat: Seat, auction: AuctionState | null): Promise<Card>;
+}
+
 export interface NodeOptions {
   /** Delay before a robot acts, so humans can follow the play. */
   botDelayMs?: number;
+  robot?: RobotBrain;
   /**
    * Index of the only table this node takes part in. When set, the node plays
    * robots and enforces the inactivity rule there and nowhere else: the other
@@ -113,13 +123,14 @@ export class TournamentNode {
   /** Per table, which position we are waiting on and since when. */
   private waitingSince = new Map<number, { key: string; at: number }>();
   private closed = false;
-  private readonly o: Required<Omit<NodeOptions, 'persist' | 'tableIndex'>> & Pick<NodeOptions, 'persist' | 'tableIndex'>;
+  private readonly o: Required<Omit<NodeOptions, 'persist' | 'tableIndex' | 'robot'>> & Pick<NodeOptions, 'persist' | 'tableIndex' | 'robot'>;
   /** Last reason an action of ours was rejected locally (for the UI). */
   lastError: string | null = null;
 
   constructor(readonly transport: Transport, readonly me: Me, opts: NodeOptions = {}) {
     this.o = {
       botDelayMs: opts.botDelayMs ?? 700,
+      robot: opts.robot,
       tableIndex: opts.tableIndex,
       absentGraceMs: opts.absentGraceMs ?? 20000,
       idleTimeoutMs: opts.idleTimeoutMs ?? 60000,
@@ -671,10 +682,41 @@ export class TournamentNode {
       }
       if (!auto) continue;
       robotsWaiting = true;
-      const ev: TEvent = turn.phase === 'auction' && table.auction && table.deal
-        ? { t: 'call', table: table.index, board: table.boardNo, seat: turn.seat, call: chooseCall(table.deal[turn.seat], table.auction, turn.seat) }
-        : { t: 'play', table: table.index, board: table.boardNo, seat: turn.seat, card: chooseCard(table.play!, turn.seat) };
-      this.append(ev);
+      const brain = this.o.robot;
+      if (turn.phase === 'auction' && table.auction && table.deal) {
+        let call = chooseCall(table.deal[turn.seat], table.auction, turn.seat);
+        let alert: string | undefined;
+        if (brain) {
+          try {
+            const chosen = brain.call(table.deal[turn.seat], table.auction, turn.seat);
+            if (illegalReason(table.auction, turn.seat, chosen.call) === null) { call = chosen.call; alert = chosen.alert?.slice(0, ALERT_MAX); }
+          } catch { /* the simple robot's call stands */ }
+        }
+        this.append({ t: 'call', table: table.index, board: table.boardNo, seat: turn.seat, call, ...(alert ? { alert } : {}) });
+        continue;
+      }
+      const play = table.play!;
+      if (!brain) {
+        this.append({ t: 'play', table: table.index, board: table.boardNo, seat: turn.seat, card: chooseCard(play, turn.seat) });
+        continue;
+      }
+      /* The strong robot thinks off to one side and answers when it is ready.
+         Its answer is used only if the table is still where it was asked. */
+      const key = `${table.index}:${table.boardNo}:${play.cardsPlayed}`;
+      if (this.thinking.has(key)) continue;
+      this.thinking.add(key);
+      const at = { table: table.index, board: table.boardNo, seat: turn.seat, cards: play.cardsPlayed };
+      const settle = (card: Card | null): void => {
+        this.thinking.delete(key);
+        if (this.closed || !this.state) return;
+        const t = this.state.tables[at.table];
+        const now = t ? turnAt(t) : null;
+        if (!t || t.boardNo !== at.board || !t.play || t.play.cardsPlayed !== at.cards || !now || now.seat !== at.seat || t.claim) { this.scheduleAuto(); return; }
+        const pick = card !== null && illegalPlayReason(t.play, at.seat, card) === null ? card : chooseCard(t.play, at.seat);
+        this.append({ t: 'play', table: at.table, board: at.board, seat: at.seat, card: pick });
+        this.scheduleAuto();
+      };
+      brain.card(play, turn.seat, table.auction ?? null).then(settle, () => settle(null));
     }
     if (robotsWaiting) this.scheduleAuto();
   }
@@ -705,6 +747,9 @@ export class TournamentNode {
     this.waitingSince.delete(table.index);
     return this.append({ t: 'claimOff', table: table.index, board: table.boardNo, seat: c.seat, why: 'lapsed' });
   }
+
+  /** Cards a robot is in the middle of choosing, so it is asked only once. */
+  private thinking = new Set<string>();
 
   private emit(): void {
     for (const cb of this.listeners) cb();

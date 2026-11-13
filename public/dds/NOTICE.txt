@@ -1,0 +1,16 @@
+Third-party software in this folder
+===================================
+
+compiled.js and compiled.wasm are a WebAssembly build of DDS, the double-dummy
+solver for contract bridge, used unmodified by the Bridge Break robots to work
+out card play.
+
+DDS
+  Copyright (c) 2006-2014 Bo Haglund; 2014-2018 Bo Haglund and Soren Hein.
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/dds-bridge/dds
+  https://www.apache.org/licenses/LICENSE-2.0
+
+WebAssembly build and JavaScript glue: @bridge-tools/dd
+  Copyright (c) 2022-2023 bridge-tools. MIT License (see LICENSE.txt).
+  https://github.com/aaron-hutton/bridge-tools
