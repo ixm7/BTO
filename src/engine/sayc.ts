@@ -102,6 +102,15 @@ const mid = (r: Range): number => (r[0] + r[1]) / 2;
 
 interface Told { tag: string; forcing: boolean }
 
+/**
+ * Which system is being bid. Two-over-one is Standard American with three
+ * changes: a new suit at the two level over partner's opening forces to game,
+ * one no-trump over a major is forcing, and a jump raise of a major promises
+ * four trumps. Everything else is shared.
+ */
+export type System = 'sayc' | '2/1';
+export const SYSTEM_NAME: Record<System, string> = { sayc: 'SAYC', '2/1': '2/1' };
+
 interface Ctx {
   a: AuctionState;
   me: Seat; pd: Seat; lho: Seat; rho: Seat;
@@ -124,9 +133,14 @@ interface Ctx {
   /** The call just before mine, when my right-hand opponent made it. */
   rhoCall: Call | null;
   tagOf(i: number): string;
+  sys: System;
+  /** Our side has made a call that forces to game. */
+  gf: boolean;
+  /** I passed before partner opened: nothing I bid now can be game forcing. */
+  passedHand: boolean;
 }
 
-function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Told[]): Ctx {
+function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Told[], sys: System): Ctx {
   const pd = partnerOf(me);
   const lho = nextSeat(me);
   const rho = partnerOf(lho);
@@ -151,6 +165,9 @@ function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Tol
     forced: !!pdLast && !!told[pdLast.i]?.forcing && (!rhoCall || rhoCall.type === 'pass'),
     rhoCall,
     tagOf: (i) => told[i]?.tag ?? '',
+    sys,
+    gf: a.calls.some((e, i) => sideOf(e.seat) === sideOf(me) && told[i]?.tag === 'gf'),
+    passedHand: by(me)[0]?.e.call.type === 'pass',
   };
 }
 
@@ -260,6 +277,8 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   const doubled = rho?.type === 'double';
   const need = isMajor(x) ? 3 : x === 'D' ? 4 : 5;
   const lvl = (s: Strain): number => c.cheapest(s);
+  /* Two-over-one applies to an unpassed hand in an auction the opponents have stayed out of. */
+  const twoOne = c.sys === '2/1' && !c.passedHand && (!rho || rho.type === 'pass');
 
   if (doubled) out.push({ call: RDBL, says: '10 or more points', hcp: R(10, 37), when: (v) => v.len[x] < need + 1, tag: 'rdbl' });
 
@@ -301,13 +320,14 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
     if (!doubled) out.push({ call: B(2, 'N'), says: `Jacoby: four or more ${NAME[x]}, game values`, hcp: R(13, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'jacoby2nt', alert: true });
     else out.push({ call: B(2, 'N'), says: `A good raise: four or more ${NAME[x]}, 10 or more points`, hcp: R(10, 37), len: { [x]: [4, 13] }, forcing: true, tag: 'cue-raise', alert: true });
     out.push({ call: B(4, x), says: `Pre-emptive: five or more ${NAME[x]}, weak`, hcp: R(0, 9), len: { [x]: [5, 13] }, when: (v) => v.short(x) >= 3 });
-    if (!doubled) out.push({ call: B(3, x), says: `Limit raise: 10–12 points with support`, hcp: R(9, 12), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 10 && p <= 12 && (v.len[x] >= 4 || v.hcp >= 10); }, tag: 'invite' });
+    if (!doubled) out.push({ call: B(3, x), says: `Limit raise: 10–12 points with support`, hcp: R(9, 12), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 10 && p <= 12 && (v.len[x] >= 4 || (!twoOne && v.hcp >= 10)); }, tag: 'invite' });
     else out.push({ call: B(3, x), says: `Pre-emptive raise: four or more ${NAME[x]}, weak`, hcp: R(0, 7), len: { [x]: [4, 13] }, when: (v) => v.hcp >= 3, tag: 'preempt' });
     out.push({ call: B(2, x), says: `Raise: three or more ${NAME[x]}, 6–10 points`, hcp: R(5, 10), len: { [x]: [3, 13] }, when: (v) => { const p = v.hcp + v.short(x); return p >= 6 && p <= 10; } });
   }
   for (const s of newSuits(x, [])) {
     const l = lvl(s);
     if (l === 1) out.push({ call: B(1, s), says: `Four or more ${NAME[s]}, 6 or more points`, hcp: R(6, 37), len: { [s]: [4, 13] }, forcing: true, when: (v) => bestNewSuit(v, x, [], c) === s });
+    else if (l === 2 && twoOne) out.push({ call: B(2, s), says: `Game forcing: four or more ${NAME[s]}, 12 or more points`, hcp: R(12, 37), len: { [s]: [s === 'H' ? 5 : 4, 13] }, forcing: true, tag: 'gf', when: (v) => bestNewSuit(v, x, [], c, 12) === s });
     else if (l === 2) out.push({ call: B(2, s), says: `Four or more ${NAME[s]}, 10 or more points`, hcp: R(10, 37), len: { [s]: [s === 'H' ? 5 : 4, 13] }, forcing: true, when: (v) => bestNewSuit(v, x, [], c) === s });
   }
   if (!isMajor(x)) {
@@ -316,7 +336,15 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
     out.push({ call: B(2, x), says: `Raise: 6–10 points with ${NAME[x]}`, hcp: R(6, 10), len: { [x]: [need, 13] }, when: noMajor });
   }
   out.push({ call: B(3, 'N'), says: '16–18 points, balanced', hcp: R(16, 18), when: (v) => v.balanced });
+  if (isMajor(x) && !doubled) {
+    /* Game values and nothing to bid naturally: a minor, even on three cards, to keep the bidding open. */
+    const open = twoOne ? 12 : 13;
+    for (const s of ['C', 'D'] as Suit[]) {
+      if (lvl(s) === 2) out.push({ call: B(2, s), says: `${twoOne ? 'Game forcing' : 'Forcing'}: ${open} or more points; may be only three ${NAME[s]}`, hcp: R(open, 37), len: { [s]: [3, 13] }, forcing: true, ...(twoOne ? { tag: 'gf' } : {}), when: (v) => v.len[s] >= 3 && (s === 'C' ? v.len.C >= v.len.D : true) });
+    }
+  }
   if (!isMajor(x) || true) out.push({ call: B(2, 'N'), says: '13–15 points, balanced, forcing to game', hcp: R(13, 15), when: (v) => v.balanced && !isMajor(x), forcing: true });
+  if (twoOne && isMajor(x)) out.push({ call: B(1, 'N'), says: 'Forcing: 6–12 points, no suit to show at the one level', hcp: R(6, 12), forcing: true, tag: '1ntf', alert: true });
   out.push({ call: B(1, 'N'), says: '6–10 points, no suit to show at the one level', hcp: R(6, 10) });
   /* 11–12 with nowhere to go: the least misleading thing left. */
   out.push({ call: B(2, 'N'), says: '11–12 points, balanced', hcp: R(11, 12), when: (v) => !isMajor(x) || v.len[x] < 3, tag: 'invite' });
@@ -333,11 +361,11 @@ const newSuits = (x: Suit, theirs: Suit[]): Suit[] => (['C', 'D', 'H', 'S'] as S
  * cheaper of two fours. A suit that has to be bid at the two level needs ten
  * points (and five cards if it is hearts over spades, or after an overcall).
  */
-function bestNewSuit(v: View, x: Suit, theirs: Suit[], c: Ctx): Suit | null {
+function bestNewSuit(v: View, x: Suit, theirs: Suit[], c: Ctx, twoLevel = 10): Suit | null {
   const able = newSuits(x, theirs).filter((s) => {
     const l = c.cheapest(s);
     if (l === 1) return v.len[s] >= 4 && v.hcp >= 6;
-    if (l === 2) return v.hcp >= 10 && v.len[s] >= (theirs.length > 0 || (s === 'H' && x === 'S') ? 5 : 4);
+    if (l === 2) return v.hcp >= twoLevel && v.len[s] >= (theirs.length > 0 || (s === 'H' && x === 'S') ? 5 : 4);
     return false;
   });
   if (able.length === 0) return null;
@@ -592,6 +620,7 @@ function rebid(c: Ctx): Rule[] {
     }
     { const l = c.cheapest(y); if (l && l <= 3) out.push({ call: B(l, y), says: 'Support and 16–19 points: invites game', hcp: R(16, 19), len: { [y]: [4, 13] }, when: (v) => v.hcp + v.short(y) >= 17, tag: 'invite' }); }
     { const l = c.cheapest('N'); if (l && l <= 2) out.push({ call: B(l, 'N'), says: '18–20 points, their suit stopped', hcp: R(18, 20), when: (v) => c.theirs.every((t) => v.stop(t)), tag: 'invite' }); }
+    if (c.cheapest('N') === 3) out.push({ call: B(3, 'N'), says: 'To play: 18 or more points, their suit stopped', hcp: R(18, 37), when: (v) => c.theirs.every((t) => v.stop(t)) });
     return [...out, ...lastResort(place(c))];
   }
   if (myTag.startsWith('unusual:') || myTag === 'michaels') return [{ call: PASS, says: 'Pass', when: (v) => v.hcp < 17 }, ...lastResort(place(c))];
@@ -699,7 +728,7 @@ function openerRebid(c: Ctx, x: Suit, r: Call & { type: 'bid' }): Rule[] {
       out.push({ call: PASS, says: 'A minimum', hcp: R(0, 15), read: R(12, 15) });
     } else if (r.level === 3) {
       if (isMajor(x)) out.push({ call: B(4, x), says: 'Accepts the invitation', hcp: R(13, 21), when: (v) => v.lp >= 14 || v.hcp >= 13 });
-      else out.push({ call: B(3, 'N'), says: 'Accepts the invitation', hcp: R(14, 21), when: (v) => v.semi });
+      else out.push({ call: B(3, 'N'), says: 'Accepts the invitation', hcp: R(14, 21), when: (v) => v.semi || v.hcp >= 16 });
       out.push({ call: PASS, says: 'Declines: a minimum', hcp: R(0, 13), read: R(12, 13) });
     } else out.push({ call: PASS, says: 'Pass' });
     return out;
@@ -708,11 +737,20 @@ function openerRebid(c: Ctx, x: Suit, r: Call & { type: 'bid' }): Rule[] {
   if (r.strain === 'N') {
     if (r.level === 1) {
       for (const s of SUITS) if (s !== x && SUITS.indexOf(s) > SUITS.indexOf(x)) out.push({ call: B(2, s), says: `Reverse: 17 or more points, four ${NAME[s]}`, hcp: R(17, 21), len: { [s]: [4, 13], [x]: [5, 13] }, when: (v) => v.len[x] > v.len[s], forcing: true });
-      out.push({ call: B(3, 'N'), says: '19–21 points', hcp: R(19, 21), when: (v) => v.semi });
+      for (const s of SUITS) if (s !== x && SUITS.indexOf(s) < SUITS.indexOf(x)) out.push({ call: B(3, s), says: `Jump shift: 19 or more points, four or more ${NAME[s]}`, hcp: R(19, 21), len: { [s]: [4, 13], [x]: [5, 13] }, when: (v) => !v.semi, forcing: true, tag: c.sys === '2/1' ? 'gf' : '' });
+      out.push({ call: B(3, 'N'), says: '19–21 points', hcp: R(19, 21) });
       out.push({ call: B(2, 'N'), says: 'Invites game: 18–19 points', hcp: R(17, 19), when: (v) => v.semi && v.hcp >= 18, tag: 'invite' });
       out.push({ call: B(3, x), says: `Six ${NAME[x]}, 16–18 points`, hcp: R(15, 18), len: { [x]: [6, 13] }, when: (v) => v.lp >= 17, tag: 'invite' });
-      for (const s of SUITS) if (s !== x && SUITS.indexOf(s) < SUITS.indexOf(x)) out.push({ call: B(2, s), says: `Four or more ${NAME[s]}`, hcp: R(0, 18), read: R(12, 18), len: { [s]: [4, 13], [x]: [5, 13] }, when: (v) => !v.balanced });
+      const mustBid = rTag === '1ntf';
+      for (const s of SUITS) if (s !== x && SUITS.indexOf(s) < SUITS.indexOf(x)) out.push({ call: B(2, s), says: `Four or more ${NAME[s]}`, hcp: R(0, 18), read: R(12, 18), len: { [s]: [4, 13], [x]: [5, 13] }, when: (v) => mustBid || !v.balanced });
       out.push({ call: B(2, x), says: `Six ${NAME[x]}, a minimum`, hcp: R(0, 15), read: R(12, 15), len: { [x]: [6, 13] } });
+      if (mustBid) {
+        /* Partner's no-trump was forcing: with nothing else to say, the longer minor, even on three cards. */
+        out.push({ call: B(2, 'C'), says: 'A minimum; may be only three clubs', hcp: R(0, 16), read: R(12, 16), len: { C: [3, 13] }, when: (v) => v.len.C >= v.len.D });
+        out.push({ call: B(2, 'D'), says: 'A minimum; may be only three diamonds', hcp: R(0, 16), read: R(12, 16), len: { D: [3, 13] } });
+        out.push({ call: B(2, x), says: `Rebids ${NAME[x]}`, fb: true });
+        return out;
+      }
       out.push({ call: PASS, says: 'A minimum, balanced', hcp: R(0, 16), read: R(12, 16) });
       return out;
     }
@@ -813,6 +851,8 @@ function place(c: Ctx): Rule[] {
   const total = (v: View): number => worth(v) + pd[0];
   const gameIn = (s: Strain): number => (s === 'N' ? 3 : isMajor(s) ? 4 : 5);
   const atGame = oursLast && last.level >= gameIn(last.strain);
+  /* A game force is on: nobody passes short of game, whatever the count says. */
+  const gf = c.gf && !atGame;
   const strainFor = (v: View): Strain => {
     const f = fitOf(v);
     if (f && isMajor(f)) return f;
@@ -865,18 +905,21 @@ function place(c: Ctx): Rule[] {
   /* ---- game ---- */
   if (!atGame) {
     for (const s of ['S', 'H'] as Suit[]) {
-      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0] - slack, 32 - pd[0]), when: (v) => total(v) >= 25 && strainFor(v) === s });
+      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0] - slack, 32 - pd[0]), when: (v) => (gf || total(v) >= 25) && strainFor(v) === s });
     }
     for (const s of ['S', 'H'] as Suit[]) {
       if (c.legal(B(4, s))) out.push({ call: B(4, s), says: `To play: six or more ${NAME[s]}`, hcp: R(26 - pd[0] - slack, 32 - pd[0]), len: { [s]: [6, 13] }, when: (v) => total(v) >= 26 && !fitOf(v) });
     }
-    if (c.legal(B(3, 'N'))) out.push({ call: B(3, 'N'), says: 'To play', hcp: R(25 - pd[0], 32 - pd[0]), when: (v) => v.hcp + pd[0] >= 25 && strainFor(v) === 'N' });
+    if (c.legal(B(3, 'N'))) out.push({ call: B(3, 'N'), says: 'To play', hcp: R(25 - pd[0], 32 - pd[0]), when: (v) => (gf || v.hcp + pd[0] >= 25) && strainFor(v) === 'N' });
     for (const s of ['D', 'C'] as Suit[]) {
       if (c.legal(B(5, s))) out.push({ call: B(5, s), says: 'To play', hcp: R(27 - pd[0] - slack, 32 - pd[0]), when: (v) => total(v) >= 28 && fitOf(v) === s });
     }
     /* Past three no-trump with the points for game: the best spot left. */
     for (const s of ['S', 'H'] as Suit[]) {
-      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0], 32 - pd[0]), when: (v) => v.hcp + pd[0] >= 25 && !c.legal(B(3, 'N')) && v.len[s] + c.know[c.pd].len[s][0] >= 7 });
+      if (c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(25 - pd[0], 32 - pd[0]), when: (v) => (gf || v.hcp + pd[0] >= 25) && !c.legal(B(3, 'N')) && v.len[s] + c.know[c.pd].len[s][0] >= 7 });
+    }
+    if (gf) for (const s of ['D', 'C'] as Suit[]) {
+      if (c.legal(B(5, s)) && !c.legal(B(3, 'N'))) out.push({ call: B(5, s), says: 'To play', when: (v) => fitOf(v) === s });
     }
 
     /* ---- worth a try ---- */
@@ -899,7 +942,7 @@ function place(c: Ctx): Rule[] {
 
   /* ---- nothing more to look for: find somewhere to stop ---- */
   const pdBid = pdLast?.e.call.type === 'bid' ? pdLast.e.call : null;
-  const canPass = !c.forced;
+  const canPass = !c.forced && !gf;
   const pdFirst = c.acts(c.pd).find((x) => x.e.call.type === 'bid' && isSuit((x.e.call as { strain: Strain }).strain) && c.know[c.pd].len[(x.e.call as { strain: Suit }).strain][0] >= 3)?.e.call as (Call & { type: 'bid' }) | undefined;
   const playable = (v: View): boolean => !pdBid || last.seat !== c.pd || pdBid.strain === 'N'
     || v.len[pdBid.strain as Suit] + c.know[c.pd].len[pdBid.strain as Suit][0] >= 7;
@@ -918,6 +961,12 @@ function place(c: Ctx): Rule[] {
     const s = own.strain;
     const l = c.cheapest(s);
     if (l && l <= 3) out.push({ call: B(l, s), says: `Rebids ${NAME[s]}`, len: { [s]: [6, 13] }, when: (v) => v.len[s] >= 6 });
+  }
+  /* A long suit of one's own that has not been mentioned: to play, when the alternatives are worse. */
+  for (const s of ['S', 'H', 'D', 'C'] as Suit[]) {
+    if (c.cheapest(s) === 2 && !c.theirs.includes(s) && !c.acts(c.me).some((x) => x.e.call.type === 'bid' && x.e.call.strain === s)) {
+      out.push({ call: B(2, s), says: `To play: six or more ${NAME[s]}`, hcp: R(0, 22 - pd[0] + slack), len: { [s]: [6, 13] }, when: (v) => !fitOf(v) && c.know[c.pd].len[s][0] === 0 });
+    }
   }
   const n = c.cheapest('N');
   if (n === 1) out.push({ call: B(1, 'N'), says: 'No fit: 6–10 points', hcp: R(6, 10), when: (v) => !playable(v) });
@@ -1001,14 +1050,14 @@ export interface Reading {
 }
 
 /** Read an auction: what every call showed, as this system understands it. */
-export function readAuction(a: AuctionState): Reading {
+export function readAuction(a: AuctionState, sys: System = 'sayc'): Reading {
   const know: Record<Seat, Shape> = { N: anyShape(), E: anyShape(), S: anyShape(), W: anyShape() };
   const told: Told[] = [];
   const says: string[] = [];
   for (let i = 0; i < a.calls.length; i++) {
     const e = a.calls[i] as AuctionEntry;
     const prefix: AuctionState = { dealer: a.dealer, calls: a.calls.slice(0, i) };
-    const c = makeCtx(prefix, e.seat, know, told);
+    const c = makeCtx(prefix, e.seat, know, told, sys);
     const all = rulesFor(c).filter((r) => same(r.call, e.call));
     const proper = all.filter((r) => !r.fb);
     const match = proper.length ? proper : all;
@@ -1036,9 +1085,9 @@ export function readAuction(a: AuctionState): Reading {
 export interface Chosen { call: Call; says: string; alert: boolean }
 
 /** The system's call for this hand, with what it shows. */
-export function chooseSayc(hand: readonly Card[], a: AuctionState, seat: Seat): Chosen {
-  const read = readAuction(a);
-  const c = makeCtx(a, seat, read.know, read.told);
+export function chooseSayc(hand: readonly Card[], a: AuctionState, seat: Seat, sys: System = 'sayc'): Chosen {
+  const read = readAuction(a, sys);
+  const c = makeCtx(a, seat, read.know, read.told, sys);
   const v = viewOf(hand);
   const rules = rulesFor(c);
   for (const r of rules) {

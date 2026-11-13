@@ -13,7 +13,7 @@
  * is the only thing the field has to agree on.
  */
 import { SEATS, type Seat } from '../engine/cards';
-import { buildConfig, ewPairAt, firstBoardOfRound, type LobbyPlayer, type Scoring, type TournamentConfig } from './state';
+import { buildConfig, ewPairAt, firstBoardOfRound, type LobbyPlayer, type RobotSystem, type Scoring, type TournamentConfig } from './state';
 
 export interface PlanInput {
   /** Tournament id, used to name the rooms. */
@@ -28,6 +28,7 @@ export interface PlanInput {
   minTables?: number;
   idleTimeoutMs?: number;
   scoring?: Scoring;
+  robots?: RobotSystem;
 }
 
 /**
@@ -40,7 +41,7 @@ export function planConfig(input: PlanInput): TournamentConfig {
   return buildConfig({
     id: input.id, name: input.name, seed: input.seed, players: input.roster,
     boardsPerRound: input.boardsPerRound, rounds: input.rounds,
-    capacity: input.capacity, minTables: input.minTables, idleTimeoutMs: input.idleTimeoutMs, scoring: input.scoring,
+    capacity: input.capacity, minTables: input.minTables, idleTimeoutMs: input.idleTimeoutMs, scoring: input.scoring, robots: input.robots,
   });
 }
 

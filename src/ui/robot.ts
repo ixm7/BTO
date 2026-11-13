@@ -34,13 +34,13 @@ export function makeRobot(): RobotBrain {
   };
 
   return {
-    call(hand, auction, seat) {
-      const c = chooseSayc(hand, auction, seat);
+    call(hand, auction, seat, system) {
+      const c = chooseSayc(hand, auction, seat, system);
       /* Every bid and double is explained, the plain ones too: a partner or an
          opponent should never have to guess what a robot meant. */
       return { call: c.call, ...(c.call.type !== 'pass' && c.says ? { alert: c.says } : {}) };
     },
-    card(play, seat, auction) {
+    card(play, seat, auction, system) {
       const w = start();
       robotStats.asked++;
       if (!w) { robotStats.simple++; return Promise.resolve(simpleCard(play, seat)); }
@@ -54,7 +54,7 @@ export function makeRobot(): RobotBrain {
           else robotStats.simple++;
           resolve(typeof a.card === 'number' ? a.card : simpleCard(play, seat));
         });
-        const ask: Ask = { id, base, play, seat, auction };
+        const ask: Ask = { id, base, play, seat, auction, system };
         w.postMessage(ask);
       });
     },

@@ -5,12 +5,12 @@
  */
 import { makeSolver, type DdsModule, type Solve } from '../engine/dds';
 import { thinkCard } from '../engine/playEngine';
-import { readAuction } from '../engine/sayc';
+import { readAuction, type System } from '../engine/sayc';
 import type { AuctionState } from '../engine/bidding';
 import type { PlayState } from '../engine/play';
 import type { Seat } from '../engine/cards';
 
-export interface Ask { id: number; base: string; play: PlayState; seat: Seat; auction: AuctionState | null }
+export interface Ask { id: number; base: string; play: PlayState; seat: Seat; auction: AuctionState | null; system?: System }
 export interface Answer { id: number; card?: number; samples?: number; ms?: number; error?: string }
 
 interface Scope {
@@ -36,7 +36,7 @@ scope.onmessage = (e) => {
   void (async () => {
     try {
       const solve = await load(q.base);
-      const know = q.auction ? readAuction(q.auction).know : undefined;
+      const know = q.auction ? readAuction(q.auction, q.system ?? 'sayc').know : undefined;
       const t = thinkCard(q.play, q.seat, { solve, know });
       scope.postMessage({ id: q.id, card: t.card, samples: t.samples, ms: t.ms });
     } catch (err) {

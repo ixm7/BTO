@@ -496,6 +496,7 @@ function detailView(l: Listing): HTMLElement {
       h('dl.facts',
         h('dt', 'Director'), h('dd', `${l.meta.director} (@${l.initiatorLogin})`),
         h('dt', 'Type'), h('dd', scoringName(l.meta.scoring)),
+        h('dt', 'Robots bid'), h('dd', l.meta.robots === '2/1' ? '2/1' : 'SAYC'),
         h('dt', 'Start'), h('dd', when(l)),
         h('dt', 'Time zone'), h('dd', l.meta.timeZone),
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
@@ -726,13 +727,17 @@ function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?
 }
 
 /** A player's name, level and description, with room to read them. */
-function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void {
+function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }, robots?: 'sayc' | '2/1'): void {
   if (p.robot) {
     dialog(p.name, (close) => h('div.about',
       h('p.muted', p.seat),
       h('ul',
-        h('li', h('b', 'SAYC:'), ' 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, strong 2\u2663, weak twos and pre-empts, '
-          + 'limit raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
+        robots === '2/1'
+          ? h('li', h('b', '2/1:'), ' two-over-one game forcing, forcing 1NT over a major, 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, '
+            + 'strong 2\u2663, weak twos and pre-empts, limit raises (four trumps), Jacoby 2NT, take-out and negative doubles, '
+            + 'Michaels over a minor, unusual 2NT and Blackwood.')
+          : h('li', h('b', 'SAYC:'), ' 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, strong 2\u2663, weak twos and pre-empts, '
+            + 'limit raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
         h('li', 'Explains own bids via alert.'),
         h('li', 'For each card play, the robot solves multiple random hands that match the visible information. '
           + 'It plays the card that does best on average. The random hands respect the cards played, who has shown out of a suit, '
@@ -857,6 +862,7 @@ function openCreate(): void {
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
           scoring: val(f, 'type') === 'imps' ? 'imps' : 'matchpoints',
+          ...(val(f, 'robots') === '2/1' ? { robots: '2/1' as const } : {}),
           ...((f.elements.namedItem('weekly') as HTMLInputElement).checked ? { repeat: 'weekly' as const } : {}),
         });
         const number = await d.create(meta);
@@ -890,6 +896,9 @@ function openCreate(): void {
       field('Inactivity limit (seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
+      field('Robots bid',
+        h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
+        'The system robots use when they fill a seat. They explain every bid they make.'),
       h('label.check', h('input', { type: 'checkbox', name: 'weekly' }),
         'Repeat every week on the same day and time'),
       h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),
@@ -957,6 +966,7 @@ function pinnedPlan(l: Listing): TournamentConfig | null {
     boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity,
     idleTimeoutMs: idleSecOf(l.meta) * 1000,
     scoring: l.meta.scoring,
+    robots: l.meta.robots,
   });
 }
 
@@ -1365,7 +1375,8 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
         onClaim: () => openClaim(n), onAnswerClaim: (yes) => n.answerClaim(yes), onWithdrawClaim: () => n.withdrawClaim(),
         isPresent: (id) => n.isPresent(id),
         playerInfo: tablePlayerInfo(n),
-        onPlayerInfo: openPlayerInfo,
+        onPlayerInfo: (p) => openPlayerInfo(p, n.state?.config.robots),
+        robots: n.state?.config.robots,
       }));
       if (n.lastError) main.append(h('div.error', n.lastError));
     } else {

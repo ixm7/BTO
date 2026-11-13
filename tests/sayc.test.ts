@@ -155,3 +155,88 @@ describe('SAYC: whole auctions', () => {
     void SEATS; void nextSeat;
   });
 });
+
+/* ------------------------------------------------------------------ 2/1 */
+
+import { planConfig } from '../src/tournament/plan';
+import { reduce } from '../src/tournament/state';
+import { issueBody, makeMeta, parseMeta } from '../src/directory/github';
+
+describe('two-over-one', () => {
+  const bid21 = (text: string, calls: string, sys: '2/1' | 'sayc' = '2/1'): string => {
+    let a: AuctionState = newAuction('N');
+    for (const c of calls.split(' ').filter(Boolean)) a = applyCall(a, currentBidder(a), parseCall(c));
+    return callToString(chooseSayc(hand(text), a, currentBidder(a), sys).call);
+  };
+  const whole = (hands: Record<Seat, Card[]>, sys: '2/1' | 'sayc'): AuctionState => {
+    let a: AuctionState = newAuction('N');
+    for (let i = 0; i < 40 && !isAuctionOver(a); i++) { const s = currentBidder(a); a = applyCall(a, s, chooseSayc(hands[s], a, s, sys).call); }
+    return a;
+  };
+  const text = (a: AuctionState): string => a.calls.map((e) => callToString(e.call)).join(' ');
+
+  it('needs game values for a new suit at the two level; lesser hands go through a forcing no-trump', () => {
+    const eleven = 'K5.42.AJ2.Q98432';      // 10 points, six clubs
+    expect(bid21(eleven, '1S P', 'sayc')).toBe('2C');
+    expect(bid21(eleven, '1S P')).toBe('1N');
+    expect(bid21('K5.42.AJ2.KQ9432', '1S P')).toBe('2C');           // 13: game forcing
+    expect(readAuction(((): AuctionState => { let a = newAuction('N'); for (const c of ['1S', 'P', '2C']) a = applyCall(a, currentBidder(a), parseCall(c)); return a; })(), '2/1').says[2]).toMatch(/Game forcing/);
+  });
+
+  it('opener may not pass the forcing no-trump', () => {
+    const flat = 'AQ752.K4.Q62.J93';        // 12, 5-3-3-2: passes 1NT in Standard American
+    expect(bid21(flat, '1S P 1N P', 'sayc')).toBe('Pass');
+    expect(bid21(flat, '1S P 1N P')).toBe('2C');
+    expect(bid21('AQ752.K4.QJ62.93', '1S P 1N P')).toBe('2D');
+    expect(bid21('AQ7522.K4.Q62.J9', '1S P 1N P')).toBe('2S');
+  });
+
+  it('a jump raise promises four trumps; three go through the no-trump', () => {
+    const three = 'K52.Q84.AJ72.J32';       // 11 with three spades
+    expect(bid21(three, '1S P', 'sayc')).toBe('3S');
+    expect(bid21(three, '1S P')).toBe('1N');
+    expect(bid21(three, '1S P 1N P 2C P')).toBe('3S');             // then the invitation
+    expect(bid21('K852.Q8.AJ72.932', '1S P')).toBe('3S');          // four trumps: direct
+  });
+
+  it('is off after an overcall or by a passed hand', () => {
+    const cards = 'K5.42.AJ2.Q98432';
+    expect(bid21(cards, 'P P 1S P')).toBe(bid21(cards, 'P P 1S P', 'sayc'));
+    expect(bid21('K5.42.AJ2.KQ9432', '1S 2H')).toBe(bid21('K5.42.AJ2.KQ9432', '1S 2H', 'sayc'));
+  });
+
+  it('never stops short of game once a two-over-one has been bid', () => {
+    for (let b = 1; b <= 600; b++) {
+      const hands = dealBoard('gf-sweep', b);
+      /* North deals; rotate so every deal is tried with North opening if it can. */
+      const a = whole(hands, '2/1');
+      const told = readAuction(a, '2/1');
+      const i = a.calls.findIndex((e, k) => /Game forcing/.test(told.says[k] ?? '') && e.call.type === 'bid');
+      if (i < 0) continue;
+      const theyBid = a.calls.slice(i).some((e) => e.call.type !== 'pass' && ['N', 'S'].includes(e.seat) !== ['N', 'S'].includes(a.calls[i]!.seat));
+      if (theyBid) continue;
+      const c = finalContract(a)!;
+      const game = c.level >= (c.strain === 'N' ? 3 : c.strain === 'H' || c.strain === 'S' ? 4 : 5);
+      expect(game, `board ${b}: ${text(a)}`).toBe(true);
+    }
+  });
+
+  it('names the robots for their system and carries it with the tournament', () => {
+    const roster = [{ id: 'a', name: 'Ann', joinedAt: 1 }, { id: 'b', name: 'Bob', joinedAt: 2 }];
+    const cfg = planConfig({ id: 'x', name: 'X', seed: 's', roster, boardsPerRound: 1, rounds: 1, robots: '2/1' });
+    expect(cfg.robots).toBe('2/1');
+    expect(cfg.pairs.flatMap((p) => p.players).filter((p) => p.bot).every((p) => p.name.startsWith('Robot 2/1 '))).toBe(true);
+    const sayc = planConfig({ id: 'x', name: 'X', seed: 's', roster, boardsPerRound: 1, rounds: 1 });
+    expect(sayc.robots).toBeUndefined();
+    expect(sayc.pairs.flatMap((p) => p.players).filter((p) => p.bot).every((p) => p.name.startsWith('Robot SAYC '))).toBe(true);
+    /* A robot that takes over a seat is named for the system too. */
+    let s = reduce(null, { t: 'start', config: cfg });
+    s = reduce(s, { t: 'retire', playerId: 'a' });
+    expect(s.tables.flatMap((t) => Object.values(t.seats)).some((p) => p.name === 'Robot 2/1 for Ann')).toBe(true);
+
+    const meta = makeMeta({ name: 'T', director: 'Ido', start: '2030-01-01T19:30', timeZone: 'UTC', capacity: 16, rounds: 1, boardsPerRound: 2, levels: ['Expert'], robots: '2/1' } as never);
+    expect(issueBody(meta)).toContain('| **Robots** | 2/1 |');
+    expect(parseMeta(issueBody(meta))!.robots).toBe('2/1');
+    expect(parseMeta(issueBody({ ...meta, robots: undefined }))!.robots).toBeUndefined();
+  });
+});

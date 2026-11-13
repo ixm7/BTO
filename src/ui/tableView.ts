@@ -225,6 +225,8 @@ export interface TableViewOptions {
   playerInfo?: Map<string, { note?: string; skill?: string }>;
   /** Show a player's details in full. */
   onPlayerInfo?(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void;
+  /** The system this tournament's robots bid. */
+  robots?: 'sayc' | '2/1';
 }
 
 export function renderTable(o: TableViewOptions): HTMLElement {
@@ -276,7 +278,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const info = o.playerInfo?.get(player.id);
     const seatName = `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}`;
     /* The tooltip says it all in brief; a click opens it with room to read. */
-    const tip = player.bot ? `${player.name}\nBids Standard American (SAYC) and explains each bid.\nClick for details.`
+    const tip = player.bot ? `${player.name}\nBids ${o.robots === '2/1' ? 'Two-over-One (2/1)' : 'Standard American (SAYC)'} and explains each bid.\nClick for details.`
       : [player.name, `Level: ${info?.skill || 'not given'}`, `Description: ${info?.note || 'none'}`].join('\n');
     const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}), ...(info?.note ? { note: info.note } : {}) };
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,

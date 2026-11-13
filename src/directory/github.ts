@@ -76,6 +76,8 @@ export interface TournamentMeta {
   idleTimeoutSec?: number;
   /** Held again every week, same day and time, until somebody stops it. */
   repeat?: 'weekly';
+  /** The system the robots bid. Absent means Standard American (SAYC). */
+  robots?: 'sayc' | '2/1';
   /** The first tournament of a weekly series; absent on that first one itself. */
   seriesId?: number;
 }
@@ -237,6 +239,7 @@ export function issueBody(meta: TournamentMeta): string {
     `| **Capacity** | ${meta.capacity} players |`,
     `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
     `| **Inactivity limit** | ${idleSecOf(meta)} seconds, then a robot takes the seat |`,
+    `| **Robots** | ${meta.robots === '2/1' ? '2/1' : 'SAYC'} |`,
     ...(meta.repeat === 'weekly' ? ['| **Repeats** | Every week, same day and time |'] : []),
     '',
     'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered — and `level:Your Level`).',
@@ -271,6 +274,7 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
         ? { idleTimeoutSec: Math.min(MAX_IDLE_SEC, Math.max(MIN_IDLE_SEC, Math.round(Number(j.idleTimeoutSec)))) }
         : {}),
       ...(j.repeat === 'weekly' ? { repeat: 'weekly' as const } : {}),
+      ...(j.robots === '2/1' ? { robots: '2/1' as const } : {}),
       ...(Number.isInteger(j.seriesId) && (j.seriesId as number) > 0 ? { seriesId: j.seriesId } : {}),
     };
   } catch { return null; }

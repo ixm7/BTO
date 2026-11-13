@@ -44,7 +44,13 @@ export interface TournamentConfig {
   idleTimeoutMs?: number;
   /** How boards are compared across tables. Absent means matchpoints. */
   scoring?: Scoring;
+  /** The system this tournament's robots bid. Absent means Standard American. */
+  robots?: RobotSystem;
 }
+
+export type RobotSystem = 'sayc' | '2/1';
+/** The system as it appears in a robot's name. */
+export const robotLabel = (s: RobotSystem | undefined): string => (s === '2/1' ? '2/1' : 'SAYC');
 
 export type Scoring = 'matchpoints' | 'imps';
 
@@ -226,7 +232,7 @@ function reseat(state: TState): void {
     const seats = { ...t.seats };
     for (const s of SEATS) {
       const original = originalAt(state.config, t, s);
-      if (original) seats[s] = occupant(original, gone, state.substitutes);
+      if (original) seats[s] = occupant(original, gone, state.substitutes, state.config.robots);
     }
     t.seats = seats;
   }
@@ -307,17 +313,17 @@ export function seatingOf(state: TState, tables: readonly TableState[]): Seating
   return out;
 }
 
-export function standIn(p: PlayerRef): PlayerRef {
+export function standIn(p: PlayerRef, system?: RobotSystem): PlayerRef {
   const who = p.name.trim().slice(0, 24) || p.id;
-  return { id: `bot:${p.id}`, name: `Robot SAYC for ${who}`, bot: true };
+  return { id: `bot:${p.id}`, name: `Robot ${robotLabel(system)} for ${who}`, bot: true };
 }
 
 /**
  * Who actually sits in a seat: whoever has taken it over, else a robot if its
  * owner has gone, else the owner.
  */
-function occupant(ref: PlayerRef, retired: ReadonlySet<string>, subs: Record<string, PlayerRef>): PlayerRef {
-  return subs[ref.id] ?? (retired.has(ref.id) ? standIn(ref) : ref);
+function occupant(ref: PlayerRef, retired: ReadonlySet<string>, subs: Record<string, PlayerRef>, system?: RobotSystem): PlayerRef {
+  return subs[ref.id] ?? (retired.has(ref.id) ? standIn(ref, system) : ref);
 }
 
 function seatTables(c: TournamentConfig, round: number, previous?: TableState[], retired: readonly string[] = [], subs: Record<string, PlayerRef> = {}): TableState[] {
@@ -332,7 +338,7 @@ function seatTables(c: TournamentConfig, round: number, previous?: TableState[],
     /* Whether humans were dealt into this table, before any of them were
        replaced: a table that lost its players still counts as having had them. */
     const hadHuman = SEATS.some((s) => !seated[s].bot);
-    for (const s of SEATS) seated[s] = occupant(seated[s], gone, subs);
+    for (const s of SEATS) seated[s] = occupant(seated[s], gone, subs, c.robots);
     const table: TableState = {
       index: t, nsPair, ewPair,
       seats: seated,
@@ -547,7 +553,7 @@ export function reduce(prev: TState | null, ev: TEvent): TState {
       const seats = { ...t.seats };
       let changed = false;
       for (const s of SEATS) {
-        if (seats[s].id === ev.playerId && !seats[s].bot) { seats[s] = standIn(seats[s]); changed = true; }
+        if (seats[s].id === ev.playerId && !seats[s].bot) { seats[s] = standIn(seats[s], state.config.robots); changed = true; }
       }
       if (changed) { t.seats = seats; dropClaimForRobots(t); }
     }
@@ -726,9 +732,10 @@ function shuffle<T>(items: readonly T[], seed: string): T[] {
 
 let botCounter = 0;
 /* "SAYC" is the system they bid, said in the name so nobody has to ask — and so a robot playing another system can be told apart. */
-const BOT_NAMES = ['Ada', 'Blaise', 'Culbertson', 'Dorothy', 'Ely', 'Fritz', 'Goren', 'Helen'].map((n) => `Robot SAYC ${n}`);
+const BOT_NAMES = ['Ada', 'Blaise', 'Culbertson', 'Dorothy', 'Ely', 'Fritz', 'Goren', 'Helen'];
+let botSystem: RobotSystem | undefined;
 function makeBot(n: number): PlayerRef {
-  return { id: `bot:${n}`, name: BOT_NAMES[n % BOT_NAMES.length] + (n >= BOT_NAMES.length ? ` ${Math.floor(n / BOT_NAMES.length) + 1}` : ''), bot: true };
+  return { id: `bot:${n}`, name: `Robot ${robotLabel(botSystem)} ${BOT_NAMES[n % BOT_NAMES.length]}` + (n >= BOT_NAMES.length ? ` ${Math.floor(n / BOT_NAMES.length) + 1}` : ''), bot: true };
 }
 
 /**
@@ -739,9 +746,10 @@ function makeBot(n: number): PlayerRef {
 export function buildConfig(opts: {
   id: string; name: string; seed: string; players: LobbyPlayer[];
   boardsPerRound: number; rounds?: number; capacity?: number; minTables?: number;
-  idleTimeoutMs?: number; scoring?: Scoring;
+  idleTimeoutMs?: number; scoring?: Scoring; robots?: RobotSystem;
 }): TournamentConfig {
   botCounter = 0;
+  botSystem = opts.robots;
   let players = [...opts.players].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
   if (opts.capacity && players.length > opts.capacity) players = players.slice(0, opts.capacity);
 
@@ -784,5 +792,6 @@ export function buildConfig(opts: {
     pairs: full.map((players, id) => ({ id, players })),
     ...(opts.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: Math.max(0, Math.round(opts.idleTimeoutMs)) }),
     ...(opts.scoring === 'imps' ? { scoring: 'imps' as const } : {}),
+    ...(opts.robots === '2/1' ? { robots: '2/1' as const } : {}),
   };
 }

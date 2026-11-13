@@ -14,7 +14,7 @@ import { chooseCall, chooseCard } from '../engine/bot';
 import { controllerOf, illegalPlayReason, type PlayState } from '../engine/play';
 import type { Transport } from '../net/transport';
 import {
-  ALERT_MAX, buildConfig, claimWaitingOn, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
+  ALERT_MAX, type RobotSystem, buildConfig, claimWaitingOn, findSeat, originalSeatId, ownerOf, reduce, seatingOf, turnAt,
   type BoardResult, type LobbyPlayer, type Seating, type TEvent, type TState, type TableState, type TournamentConfig,
 } from './state';
 
@@ -36,8 +36,8 @@ export interface Me {
  * app supplies a stronger one that may take a few seconds over a card.
  */
 export interface RobotBrain {
-  call(hand: readonly Card[], auction: AuctionState, seat: Seat): { call: Call; alert?: string };
-  card(play: PlayState, seat: Seat, auction: AuctionState | null): Promise<Card>;
+  call(hand: readonly Card[], auction: AuctionState, seat: Seat, system: RobotSystem): { call: Call; alert?: string };
+  card(play: PlayState, seat: Seat, auction: AuctionState | null, system: RobotSystem): Promise<Card>;
 }
 
 export interface NodeOptions {
@@ -688,7 +688,7 @@ export class TournamentNode {
         let alert: string | undefined;
         if (brain) {
           try {
-            const chosen = brain.call(table.deal[turn.seat], table.auction, turn.seat);
+            const chosen = brain.call(table.deal[turn.seat], table.auction, turn.seat, this.state.config.robots ?? 'sayc');
             if (illegalReason(table.auction, turn.seat, chosen.call) === null) { call = chosen.call; alert = chosen.alert?.slice(0, ALERT_MAX); }
           } catch { /* the simple robot's call stands */ }
         }
@@ -716,7 +716,7 @@ export class TournamentNode {
         this.append({ t: 'play', table: at.table, board: at.board, seat: at.seat, card: pick });
         this.scheduleAuto();
       };
-      brain.card(play, turn.seat, table.auction ?? null).then(settle, () => settle(null));
+      brain.card(play, turn.seat, table.auction ?? null, this.state.config.robots ?? 'sayc').then(settle, () => settle(null));
     }
     if (robotsWaiting) this.scheduleAuto();
   }
