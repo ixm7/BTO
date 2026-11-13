@@ -155,7 +155,13 @@ async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
  * everybody. A token of one's own has an allowance hundreds of times larger,
  * and can afford to keep up.
  */
-const pollEvery = (): number => (settings.token ? 15000 : 120000);
+/*
+ * How often the tournament list is read. A token of one's own buys a large
+ * allowance; the relay answers from a shared 15-second cache, so asking it
+ * often costs GitHub nothing. Without either, the allowance is 60 an hour for
+ * everyone on the network, so the page asks sparingly.
+ */
+const pollEvery = (): number => (settings.token ? 15000 : relayUp ? 30000 : 120000);
 
 /** Set while the list has told us to stop asking, until it will answer again. */
 let quietUntil = 0;
@@ -207,6 +213,74 @@ function announceStart(name: string): void {
   if (!document.hidden) return;
   const plain = document.title;
   document.title = '\u{1F514} Your table is ready';
+  const back = (): void => {
+    if (document.hidden) return;
+    document.title = plain;
+    document.removeEventListener('visibilitychange', back);
+  };
+  document.addEventListener('visibilitychange', back);
+}
+
+/* ------------------------------------------------- invitations to partner */
+
+/** Invitations waiting for an answer from this player, wherever they are. */
+function invitesForMe(): { l: Listing; i: Invitation }[] {
+  const me = myId();
+  if (!me || !listings) return [];
+  const out: { l: Listing; i: Invitation }[] = [];
+  for (const l of listings) {
+    if (l.status !== 'upcoming' && l.status !== 'starting') continue;
+    for (const i of l.partners?.invitations ?? []) {
+      if (i.status === 'pending' && i.to.toLowerCase() === me) out.push({ l, i });
+    }
+  }
+  return out;
+}
+
+/** Invitations this player has already been told about, so each is announced once. */
+const toldOf = new Set<string>();
+
+/**
+ * An invitation can arrive while the player is anywhere in the app, so it is
+ * shown as a banner rather than inside the partners dialog, and announced the
+ * way the start of a tournament is.
+ */
+function inviteBanner(): HTMLElement | null {
+  const waiting = invitesForMe();
+  const fresh = waiting.filter(({ l, i }) => !toldOf.has(`${l.number}:${i.from}`));
+  if (fresh.length) {
+    for (const { l, i } of fresh) toldOf.add(`${l.number}:${i.from}`);
+    const { l, i } = fresh[0] as { l: Listing; i: Invitation };
+    announceInvite(who(l, i.from), l.meta.name);
+  }
+  if (!waiting.length) return null;
+  const d = directory();
+  const answer = (number: number, from: string, yes: boolean): void => {
+    if (!d) return;
+    void (async () => {
+      try {
+        await d.respondToInvite(number, from, yes);
+        await refresh();
+      } catch (e) { fail(e); }
+    })();
+  };
+  return h('div.invites', waiting.map(({ l, i }) => h('div.invite',
+    h('div.invite-what',
+      h('b', who(l, i.from)), ' wants to play with you in ', h('b', l.meta.name), '.',
+      i.note ? h('div.muted', i.note) : null),
+    h('div.row',
+      h('button.primary', { onclick: () => answer(l.number, i.from, true) }, 'Accept'),
+      h('button', { onclick: () => answer(l.number, i.from, false) }, 'Decline'),
+      h('button.link', { onclick: () => openPartners(l) }, 'Partners list')))));
+}
+
+/** A chime, and a flag in the tab's title for a player who is looking elsewhere. */
+function announceInvite(from: string, tournament: string): void {
+  turnChime();
+  if (!document.hidden) return;
+  const plain = document.title;
+  document.title = `\u{1F91D} ${from} invited you`;
+  void tournament;
   const back = (): void => {
     if (document.hidden) return;
     document.title = plain;
@@ -1463,6 +1537,7 @@ function render(): void {
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,
     notice ? h('div.note', notice, ' ', h('button.link', { onclick: () => { notice = null; render(); } }, 'dismiss')) : null,
+    inviteBanner(),
     view));
 }
 

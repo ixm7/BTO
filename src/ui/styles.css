@@ -561,3 +561,12 @@ button.pc:disabled { opacity: 1; }
   font-size: .8rem; font-weight: 600; text-align: center;
 }
 .acc > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* An invitation to partner, wherever the player happens to be. */
+.invites { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.invite {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; border-radius: 8px;
+  background: #e7f2ec; border: 1px solid #9ec4b2; color: var(--ink);
+}
+.invite-what { flex: 1 1 260px; }
