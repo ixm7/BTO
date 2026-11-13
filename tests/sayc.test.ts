@@ -193,12 +193,14 @@ describe('two-over-one', () => {
     expect(bid21('AQ7522.K4.Q62.J9', '1S P 1N P')).toBe('2S');
   });
 
-  it('a jump raise promises four trumps; three go through the no-trump', () => {
+  it('invitational raises go through the forcing no-trump, with three trumps or four', () => {
     const three = 'K52.Q84.AJ72.J32';       // 11 with three spades
     expect(bid21(three, '1S P', 'sayc')).toBe('2D');               // Standard American: a new suit, then raise
     expect(bid21(three, '1S P')).toBe('1N');
     expect(bid21(three, '1S P 1N P 2C P')).toBe('3S');             // then the invitation
-    expect(bid21('K852.Q8.AJ72.932', '1S P')).toBe('3S');          // four trumps: direct
+    const four = 'K852.Q8.AJ72.932';        // 10 with four spades
+    expect(bid21(four, '1S P')).toBe('1N');
+    expect(bid21(four, '1S P 1N P 2C P')).toBe('3S');
   });
 
   it('is off after an overcall or by a passed hand', () => {
@@ -275,11 +277,14 @@ describe('SAYC: jump raises are weak', () => {
     expect(at('J52.Q842.7632.93', '1H 1S').says).toMatch(/Weak jump raise/);
   });
 
-  it('two-over-one keeps its four-card limit raise', () => {
+  it('two-over-one jump raises are weak too', () => {
     let a: AuctionState = newAuction('N');
     for (const c of ['1H', 'P']) a = applyCall(a, currentBidder(a), parseCall(c));
-    const r = chooseSayc(hand('K52.Q842.AJ2.932'), a, 'S', '2/1');
+    const r = chooseSayc(hand('J52.Q842.7632.93'), a, 'S', '2/1');
     expect(callToString(r.call)).toBe('3H');
-    expect(r.says).toMatch(/Limit raise/);
+    expect(r.says).toMatch(/Weak jump raise/);
+    expect(r.alert).toBe(true);
+    /* Twelve with four trumps and no suit: invitational, so through the forcing no-trump. */
+    expect(callToString(chooseSayc(hand('K52.Q842.AK2.932'), a, 'S', '2/1').call)).toBe('1N');
   });
 });

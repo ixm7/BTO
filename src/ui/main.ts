@@ -734,7 +734,7 @@ function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?:
       h('ul',
         robots === '2/1'
           ? h('li', h('b', '2/1:'), ' two-over-one game forcing, forcing 1NT over a major, 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, '
-            + 'strong 2\u2663, weak twos and pre-empts, limit raises (four trumps), Jacoby 2NT, take-out and negative doubles, '
+            + 'strong 2\u2663, weak twos and pre-empts, weak jump raises, Jacoby 2NT, take-out and negative doubles, '
             + 'Michaels over a minor, unusual 2NT and Blackwood.')
           : h('li', h('b', 'SAYC:'), ' 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, strong 2\u2663, weak twos and pre-empts, '
             + 'weak jump raises, Jacoby 2NT, take-out and negative doubles, Michaels over a minor, unusual 2NT and Blackwood.'),
