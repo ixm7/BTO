@@ -657,7 +657,9 @@ function openSettings(): void {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
       Object.assign(settings, { sound: (f.elements.namedItem('sound') as HTMLInputElement | null)?.checked !== false,
-        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), githubLogin: val(f, 'login').replace(/^@/, ''), token: val(f, 'token') });
+        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), token: val(f, 'token') });
+      /* The GitHub username comes from the token itself; without one there is none. */
+      if (!settings.token) settings.githubLogin = '';
       if (settings.token && settings.repo) {
         try { settings.githubLogin = await new Directory(settings.repo, settings.token).whoAmI(); }
         catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); return; }
@@ -680,17 +682,14 @@ function openSettings(): void {
       h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
         h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Director'),
         h('div.grid',
-          field('Your GitHub username',
-            h('input', { name: 'login', value: settings.githubLogin, placeholder: 'optional', autocomplete: 'username',
-              title: 'GitHub is the free website where the tournament list is kept. Your username there is the short name you sign in with, shown at the top right of github.com once you are signed in.' }),
-            'The name you sign in to GitHub with (github.com is where the tournament list is kept). '
-              + 'You do not need to type it: it is filled in for you when you save a token below.'),
           /* The word and its help mark share one line: the label lays out each
              of its children as a row of its own. */
           h('label', h('span', 'Token ',
             h('button.help-icon', { type: 'button', onclick: toggleHelp, title: 'How to get a token' }, '?')),
             h('input.masked', { name: 'token', type: 'text', value: settings.token, autocomplete: 'off', spellcheck: false, placeholder: 'optional' }),
-            h('small', 'Lets you create and run tournaments from here.')),
+            h('small', settings.token && settings.githubLogin
+              ? `Lets you create and run tournaments from here. This token belongs to GitHub user @${settings.githubLogin}.`
+              : 'Lets you create and run tournaments from here.')),
           helpPanel)),
 
       err,
