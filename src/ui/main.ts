@@ -9,6 +9,7 @@ import { TournamentNode, deviceScore } from '../tournament/node';
 import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { installHoverTips } from './hoverTip';
+import { LIMIT, online, watchOnline } from './presence';
 import { makeRobot } from './robot';
 import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
 import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
@@ -212,6 +213,19 @@ function announceStart(name: string): void {
     document.removeEventListener('visibilitychange', back);
   };
   document.addEventListener('visibilitychange', back);
+}
+
+/** "4 online", in the header: people with the site open right now. */
+function onlineTag(): HTMLElement | null {
+  if (settings.transport === 'local') return null;
+  const n = online();
+  const shown = n > LIMIT ? `${LIMIT}+` : String(n);
+  return h('span.online', {
+    'data-tip': n === 1
+      ? 'You are the only one here right now. The number counts everyone with Bridge Break open.'
+      : `${shown} people have Bridge Break open right now, you included.`,
+    'aria-label': `${shown} online`,
+  }, h('span.dot'), `${shown} online`);
 }
 
 /** How to enter a listed tournament's room. */
@@ -1406,6 +1420,7 @@ function render(): void {
     h('header.top',
       h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),
       testMode() ? testSwitcher() : h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
+      onlineTag(),
       h('button', { onclick: openAbout, title: 'What this is, what it does, and how to start' }, 'About'),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,
@@ -1448,5 +1463,6 @@ render();
 /* Ask the relay first — it answers in a few milliseconds, or not at all — so
    the very first look at the list already goes the right way. */
 installHoverTips();
+watchOnline(() => render(), settings.transport !== 'local');
 void probeRelay().then(() => refresh()).then(route).then(startPolling);
 if (!settings.name) openSettings();

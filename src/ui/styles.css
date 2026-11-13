@@ -535,3 +535,8 @@ button.pc:disabled { opacity: 1; }
   background: #1f2420; color: #f3f1ea; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
   font-size: .85rem; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere;
 }
+
+/* How many people are here: quiet, with a live dot. */
+.online { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); white-space: nowrap; }
+.online .dot { width: 7px; height: 7px; border-radius: 50%; background: #009E73; box-shadow: 0 0 0 3px rgba(0, 158, 115, .18); }
+@media (max-width: 640px) { .online { display: none; } }
