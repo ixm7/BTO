@@ -650,6 +650,18 @@ async function seedFor(issue: { number: number; node_id?: string }, at: number, 
 }
 
 /**
+ * The order of the list: whatever is still to come first, the soonest at the
+ * top, so a player's next game is the first thing they see. What is over
+ * comes below it, most recent first, since nobody is waiting on those.
+ */
+export function byStart(a: Listing, b: Listing): number {
+  const over = (l: Listing): number => (l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress' ? 0 : 1);
+  if (over(a) !== over(b)) return over(a) - over(b);
+  const d = Date.parse(a.meta.startUtc) - Date.parse(b.meta.startUtc);
+  return over(a) ? -d : d;
+}
+
+/**
  * What belongs on the tournament list. One that was abandoned is of no use to
  * anybody and goes at once; one that was played stays a week so the results
  * can be read, then goes too. Nothing is deleted on GitHub: the issue is still
@@ -842,9 +854,7 @@ export class Directory {
     /* Remember what was left off the list so it can be swept away later; the
        caller decides whether to, and the next listing recomputes this anyway. */
     this.abandoned = out.filter((l) => l.status === 'aborted');
-    /* Newest first, so what is still to come is at the top of the page. */
-    return out.filter((l) => visibleInList(l, now))
-      .sort((a, b) => Date.parse(b.meta.startUtc) - Date.parse(a.meta.startUtc));
+    return out.filter((l) => visibleInList(l, now)).sort(byStart);
   }
 
   /** Abandoned tournaments found by the last `list()`, ready to be removed. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status
+} from '../src/directory/github';
 import { formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -305,14 +306,14 @@ describe('GitHub directory', () => {
 
     const now = Date.parse('2026-11-10T12:00:00Z');
     const list = await as(null).list(now); // reading needs no login
-    /* Newest first: 'Friday Pairs' starts on the 20th, 'Earlier' on the 15th. */
-    expect(list.map((l) => l.meta.name)).toEqual(['Friday Pairs', 'Earlier']);
-    const t = list[0]!;
+    /* Soonest first: 'Earlier' starts on the 15th, 'Friday Pairs' on the 20th. */
+    expect(list.map((l) => l.meta.name)).toEqual(['Earlier', 'Friday Pairs']);
+    const t = list.find((l) => l.number === number)!;
     expect(t).toMatchObject({ number, initiatorLogin: 'ido', status: 'upcoming', roomId: `club/bridge#${number}` });
     expect(t.meta).toMatchObject({ director: 'Ido', scoring: 'matchpoints', levels: ['Intermediate', 'Advanced'], capacity: 16, timeZone: 'America/New_York' });
     expect(t.registrations!.map((r) => r.name)).toEqual(['Ann', 'Bob']);
     expect(t.registrations![0]!.pairCode).toBe('red-team');
-    expect(list[1]!.registrations).toEqual([]);
+    expect(list.find((l) => l.number !== number)!.registrations).toEqual([]);
     // Tournaments without comments cost no extra request.
     expect(gh.calls.filter((c) => c.includes('/comments') && c.startsWith('GET'))).toHaveLength(1);
 
@@ -555,5 +556,26 @@ describe('closing the entry list', () => {
     expect(() => d.pinStart(1, 'has spaces in it')).toThrow(/seed/i);
     expect(randomSeed()).toMatch(/^[a-z0-9]{12}$/);
     expect(randomSeed()).not.toBe(randomSeed());
+  });
+});
+
+describe('the order of the list', () => {
+  const at = (name: string, start: string, status: Status): Listing =>
+    ({ meta: { name, startUtc: start }, status }) as unknown as Listing;
+
+  it('puts the next tournament at the top and what is over below', () => {
+    const rows = [
+      at('later today', '2030-03-01T23:00:00Z', 'upcoming'),
+      at('last week', '2030-02-22T19:00:00Z', 'finished'),
+      at('in an hour', '2030-03-01T20:00:00Z', 'upcoming'),
+      at('yesterday', '2030-02-28T19:00:00Z', 'finished'),
+      at('playing now', '2030-03-01T18:30:00Z', 'in progress'),
+      at('next week', '2030-03-08T19:00:00Z', 'upcoming'),
+      at('called off', '2030-03-01T12:00:00Z', 'cancelled'),
+    ];
+    expect([...rows].sort(byStart).map((l) => l.meta.name)).toEqual([
+      'playing now', 'in an hour', 'later today', 'next week',   // soonest first
+      'called off', 'yesterday', 'last week',                     // then the past, most recent first
+    ]);
   });
 });
