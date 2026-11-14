@@ -793,11 +793,13 @@ export function buildConfig(opts: {
    * than watching one play itself.
    */
   const peopled = full.filter((p) => !p[0].bot || !p[1].bot);
-  const queue = [...peopled, ...full.filter((p) => !peopled.includes(p))];
-  const laid: [PlayerRef, PlayerRef][] = new Array(full.length) as [PlayerRef, PlayerRef][];
-  let next = 0;
-  for (let i = 0; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
-  for (let i = 1; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
+  const laid: [PlayerRef, PlayerRef][] = [...full];
+  if (peopled.length < full.length) {
+    const queue = [...peopled, ...full.filter((p) => !peopled.includes(p))];
+    let next = 0;
+    for (let i = 0; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
+    for (let i = 1; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
+  }
 
   const tables = laid.length / 2;
   const rounds = Math.max(1, opts.rounds ?? Math.min(tables, 4));

@@ -513,15 +513,22 @@ const PANELS = [
 ] as const;
 const panelOpen: Record<string, boolean> = {};
 
-const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Start', 'Level', 'Players', 'Status', 'Result'];
+const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status', 'Result'];
+
+/** How many boards a tournament plays in all, and how they are divided up. */
+const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
+const boardsText = (meta: { rounds: number; boardsPerRound: number }): string =>
+  `${meta.rounds} round${meta.rounds === 1 ? '' : 's'} of ${meta.boardsPerRound} board${meta.boardsPerRound === 1 ? '' : 's'}`;
 
 function listTable(rows: Listing[]): HTMLElement {
   return h('div.table-scroll', h('table.list',
-    h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' ? 'th.num' : 'th', t)))),
+    h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
       h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
       h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
       h('td', scoringName(l.meta.scoring)),
+      h('td.num', { 'data-tip': boardsText(l.meta), 'aria-label': `${boardCount(l.meta)} boards: ${boardsText(l.meta)}` },
+        String(boardCount(l.meta))),
       h('td', when(l)),
       h('td', levelText(l.meta)),
       h('td.num', playersCell(l)),
@@ -782,7 +789,7 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
-        h('dt', 'Format'), h('dd', `${l.meta.rounds} round(s) × ${l.meta.boardsPerRound} board(s)`),
+        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)} — ${boardsText(l.meta)}`),
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
