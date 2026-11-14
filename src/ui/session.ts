@@ -30,6 +30,15 @@ export interface SessionOptions {
   botDelayMs?: number;
   /** How the robots at this player's table think, when this device hosts it. */
   robot?: RobotBrain;
+  /** The clock the robots wait on; see `NodeOptions.wake`. */
+  wake?: (fn: () => void, ms: number) => () => void;
+  /**
+   * Somewhere to leave what this player has seen of the tournament, so that
+   * reloading the page picks it up where it was. Without it a reloaded
+   * browser knows nothing, rejoins at the first round and plays its boards
+   * over again while the rest of the field has moved on.
+   */
+  remember?: { load(): SessionMemory | null; save(m: SessionMemory): void };
   /**
    * Set on a session that is not a person but a browser keeping a table of
    * robots going on the field's behalf. It plays its table and reports the
@@ -37,6 +46,14 @@ export interface SessionOptions {
    * anybody is sitting.
    */
   unmanned?: boolean;
+}
+
+/** What a browser needs to rejoin a tournament where it left off. */
+export interface SessionMemory {
+  round: number;
+  actingAs: string;
+  results: BoardResult[];
+  seating: Seating;
 }
 
 export class TournamentSession {
@@ -74,7 +91,22 @@ export class TournamentSession {
 
   get config(): TournamentConfig { return this.o.config; }
 
-  async start(): Promise<void> { await this.joinRound(0); }
+  async start(): Promise<void> {
+    const was = this.o.remember?.load();
+    if (was && was.results.length > 0) {
+      this.results = was.results;
+      this.seating = was.seating;
+      this.actingAs = was.actingAs;
+      await this.joinRound(Math.max(0, Math.min(was.round, this.o.config.rounds - 1)));
+      return;
+    }
+    await this.joinRound(0);
+  }
+
+  /** Leave what we know where a reloaded page will find it. */
+  private keep(): void {
+    this.o.remember?.save({ round: this.round, actingAs: this.actingAs, results: this.results, seating: this.seating });
+  }
 
   close(): void {
     this.closed = true;
@@ -120,12 +152,14 @@ export class TournamentSession {
     }, {
       botDelayMs: this.o.botDelayMs ?? 900,
       robot: this.o.robot,
+      ...(this.o.wake ? { wake: this.o.wake } : {}),
       tableIndex: table,
       idleTimeoutMs: this.o.config.idleTimeoutMs,
     });
     this.node = node;
     this.round = round;
     this.moving = false;
+    this.keep();
 
     /* A board we finish is the rest of the field's only sight of this table. */
     node.onResult((r) => {
@@ -237,7 +271,9 @@ export class TournamentSession {
   }
 
   private remember(r: BoardResult): void {
-    if (!this.results.some((x) => x.table === r.table && x.board === r.board)) this.results.push(r);
+    if (this.results.some((x) => x.table === r.table && x.board === r.board)) return;
+    this.results.push(r);
+    this.keep();
   }
 
   private async onNodeChange(): Promise<void> {

@@ -248,9 +248,13 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const vul = isVulnerable(table.vul, sideOf(seat));
     const cards = play ? play.hands[seat] : table.deal?.[seat] ?? [];
     const isDummy = !!play && play.dummy === seat;
+    /* Dummy has nothing to play — declarer plays their cards for them — so
+       they are shown declarer's hand and can follow along. They learn nothing
+       they could use: the board is in declarer's hands either way. */
+    const dummyWatching = !!play && view !== null && play.dummy === view && seat === play.contract.declarer && isDummyVisible(play);
     /* A player who claims lays their cards face up, as at a real table, so
        the others can see the claim is good before agreeing to it. */
-    const visible = !!o.revealAll || seat === view || (isDummy && !!play && isDummyVisible(play)) || table.claim?.seat === seat;
+    const visible = !!o.revealAll || seat === view || (isDummy && !!play && isDummyVisible(play)) || table.claim?.seat === seat || dummyWatching;
     const canPlayHere = iControl && turn?.phase === 'play' && turn.seat === seat;
     const legal = canPlayHere && play ? new Set(legalPlays(play.hands[seat], play.trick)) : new Set<Card>();
     const away = !player.bot && !o.isPresent(player.id);

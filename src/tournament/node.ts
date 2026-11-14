@@ -45,6 +45,12 @@ export interface NodeOptions {
   botDelayMs?: number;
   robot?: RobotBrain;
   /**
+   * How this node waits before a robot acts. The default is the page's own
+   * timer; a tab that may be left in the background passes one that keeps
+   * time there too, since a slowed timer leaves the whole field waiting.
+   */
+  wake?: (fn: () => void, ms: number) => () => void;
+  /**
    * Index of the only table this node takes part in. When set, the node plays
    * robots and enforces the inactivity rule there and nowhere else: the other
    * tables are in its state so that boards can be scored against them, but
@@ -115,7 +121,8 @@ export class TournamentNode {
   private syncReplies = new Set<string>();
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private queued: { ev: TEvent; from: string }[] = [];
-  private autoTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Calls off the wait for the next robot action, if one is pending. */
+  private autoTimer: (() => void) | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
   private pending: TEvent | null = null;
@@ -136,6 +143,7 @@ export class TournamentNode {
       idleTimeoutMs: opts.idleTimeoutMs ?? 60000,
       peerTimeoutMs: opts.peerTimeoutMs ?? 12000,
       tickMs: opts.tickMs ?? 1000,
+      wake: opts.wake ?? ((fn, ms) => { const t = setTimeout(fn, ms); return () => { clearTimeout(t); }; }),
       now: opts.now ?? (() => Date.now()),
       persist: opts.persist,
     };
@@ -365,7 +373,7 @@ export class TournamentNode {
     if (this.closed) return;
     this.closed = true;
     if (this.tickTimer) clearInterval(this.tickTimer);
-    if (this.autoTimer) clearTimeout(this.autoTimer);
+    if (this.autoTimer) this.autoTimer();
     if (this.syncTimer) clearTimeout(this.syncTimer);
     this.transport.send({ k: 'bye' } satisfies Msg);
     this.transport.leave();
@@ -631,7 +639,7 @@ export class TournamentNode {
   private scheduleAuto(): void {
     if (this.closed || this.autoTimer || !this.isCoordinator || !this.ready) return;
     if (!this.state || this.state.finished) return;
-    this.autoTimer = setTimeout(() => {
+    this.autoTimer = this.o.wake(() => {
       this.autoTimer = null;
       this.runAuto();
     }, this.o.botDelayMs);

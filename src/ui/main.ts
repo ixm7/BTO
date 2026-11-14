@@ -1,7 +1,7 @@
 import { DEFAULT_IDLE_SEC, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
-import { TournamentSession } from './session';
+import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
@@ -9,6 +9,7 @@ import { TournamentNode, deviceScore } from '../tournament/node';
 import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { installHoverTips } from './hoverTip';
+import { wakeIn } from './ticker';
 import { LIMIT, online, watchOnline } from './presence';
 import { makeRobot } from './robot';
 import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
@@ -1251,17 +1252,62 @@ function leaveRoom(): void {
   if (room?.listing) leftAt.set(room.listing.number, Date.now());
   node?.close();
   openSpares = null;
+  stopRoundWatch();
   closeSpares();
   session?.close();
   stopStartPoll();
-  // The saved log only exists to survive a page refresh; leaving on purpose discards it.
+  // What was saved only exists to survive a page refresh; leaving on purpose discards it.
   if (room) { try { sessionStorage.removeItem(`bridge-p2p:log:${room.id}`); } catch { /* storage unavailable */ } }
+  forgetSessions();
   node = null; session = null; awaitingStart = false; room = null; published = false; watchTable = 0;
   render();
 }
 
 function closeSpares(): void {
   for (const s of spares.splice(0)) s.close();
+}
+
+/** How long a field may sit waiting on a table of robots before we take it on ourselves. */
+const STALL_MS = 60_000;
+let roundWatch: ReturnType<typeof setInterval> | null = null;
+let lastMoved = 0;
+let lastSeenResults = -1;
+
+function stopRoundWatch(): void {
+  if (roundWatch) { clearInterval(roundWatch); roundWatch = null; }
+  lastSeenResults = -1;
+}
+
+/*
+ * The field moves together, so a table of robots that nobody is running stops
+ * everybody. The browser that was running it may have been closed, or sent to
+ * the back of somebody's screen; either way, if the only tables still owing
+ * boards are robot ones and nothing anywhere has been played for a minute,
+ * this browser stops waiting on whoever had it and takes the table on itself.
+ */
+function watchRound(): void {
+  stopRoundWatch();
+  lastMoved = Date.now();
+  roundWatch = setInterval(() => {
+    const state = session?.node?.state;
+    if (!state || state.finished) return;
+    if (state.results.length !== lastSeenResults) {
+      lastSeenResults = state.results.length;
+      lastMoved = Date.now();
+      return;
+    }
+    if (Date.now() - lastMoved < STALL_MS) return;
+    const c = state.config;
+    const first = firstBoardOfRound(c, state.round);
+    const done = (table: number): number =>
+      state.results.filter((r) => r.table === table && r.board >= first && r.board < first + c.boardsPerRound).length;
+    const behind = state.tables.filter((t) => done(t.index) < c.boardsPerRound).map((t) => t.index);
+    const robotOnly = new Set(unmannedTables(c).map((t) => t.table));
+    if (behind.length === 0 || !behind.every((i) => robotOnly.has(i))) return;
+    lastMoved = Date.now();
+    closeSpares();
+    openSpares?.();
+  }, 15_000);
 }
 
 /*
@@ -1271,10 +1317,34 @@ function closeSpares(): void {
  * would leave the whole field waiting on a hand being played at a crawl. On
  * the way out it hands the table over; on the way back it offers again.
  */
+let sparesWereVisible = false;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) closeSpares();
-  else openSpares?.();
+  /* Coming back to the tab: offer again, now as the better host. Leaving it
+     changes nothing — whoever is running that table keeps running it. */
+  if (document.hidden || !openSpares) return;
+  if (!sparesWereVisible) closeSpares();
+  openSpares();
 });
+
+/**
+ * Where a browser leaves what it has seen of a tournament, so that a reload
+ * rejoins the round being played rather than starting the tournament again.
+ * One per table this browser plays, the robot tables included. It lasts as
+ * long as the tab, and leaving the room on purpose throws it away.
+ */
+function sessionMemory(id: string, which = 'me'): { load(): SessionMemory | null; save(m: SessionMemory): void } {
+  const key = `bridge-p2p:ses:${id}:${which}`;
+  memoryKeys.add(key);
+  return {
+    load: () => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as SessionMemory | null; } catch { return null; } },
+    save: (m) => { try { sessionStorage.setItem(key, JSON.stringify(m)); } catch { /* quota, or no storage */ } },
+  };
+}
+const memoryKeys = new Set<string>();
+function forgetSessions(): void {
+  for (const k of memoryKeys) { try { sessionStorage.removeItem(k); } catch { /* none to remove */ } }
+  memoryKeys.clear();
+}
 
 /** The field, as it stood when entries closed. */
 function pinnedPlan(l: Listing): TournamentConfig | null {
@@ -1319,7 +1389,7 @@ async function openSession(l: Listing): Promise<void> {
   session = new TournamentSession({
     config, me, connect,
     onChange: () => { node = session?.node ?? null; if (node) maybeReseat(node); render(); },
-    robot,
+    robot, wake: wakeIn, remember: sessionMemory(config.id),
   });
   await session.start();
   node = session.node;
@@ -1335,23 +1405,31 @@ async function openSession(l: Listing): Promise<void> {
   closeSpares();
   openSpares = () => {
     if (spares.length || !session) return;
+    sparesWereVisible = !document.hidden;
     for (const t of unmannedTables(config)) {
       const spare = new TournamentSession({
-        config, connect, actingAs: t.follow, robot: spareRobot, unmanned: true,
+        config, connect, actingAs: t.follow, robot: spareRobot, unmanned: true, wake: wakeIn,
+        remember: sessionMemory(config.id, `t${t.table}`),
         /* Nobody is at that table to follow the cards, and the field waits for
            its boards before it can move on, so it plays them without the pause
            that lets a person keep up. */
         botDelayMs: 0,
-        /* Last in line to host it: anybody actually sitting at that table — a
-           player who took a robot's seat — should run it instead. */
-        me: { playerId: `spare:${t.table}:${me.playerId}`, name: `Table ${t.table + 1}`, deviceScore: 1, isDirector: false },
+        /* A tab somebody is looking at is the better host — its robots are
+           quicker and it is less likely to vanish — but a tab in the
+           background still offers, because the alternative is a table nobody
+           plays and a field that never moves on. */
+        me: {
+          playerId: `spare:${t.table}:${me.playerId}`, name: `Table ${t.table + 1}`,
+          deviceScore: sparesWereVisible ? 40 : 2, isDirector: false,
+        },
         onChange: () => { /* nobody is watching this table */ },
       });
       spares.push(spare);
       void spare.start().catch(() => { /* the field plays on without it */ });
     }
   };
-  if (!document.hidden) openSpares();
+  openSpares();
+  watchRound();
 }
 
 function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDelayMs: number): TournamentNode {
@@ -1379,6 +1457,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
 async function enterRoom(info: RoomInfo): Promise<void> {
   node?.close();
   openSpares = null;
+  stopRoundWatch();
   closeSpares();
   session?.close();
   session = null;

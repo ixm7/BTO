@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryHub, type Transport } from '../src/net/transport';
-import { TournamentSession } from '../src/ui/session';
+import { TournamentSession, type SessionMemory } from '../src/ui/session';
 import { SEATS } from '../src/engine/cards';
 import { planConfig, tableRoom, unmannedTables } from '../src/tournament/plan';
 import { standings, turnAt, type LobbyPlayer } from '../src/tournament/state';
@@ -282,5 +282,59 @@ describe('playing a tournament a table at a time', () => {
     expect(mine.node!.state!.results).toHaveLength(6);
     expect(mine.round).toBe(config.rounds - 1);
     expect(theirs.round).toBe(config.rounds - 1);
+  }, 120000);
+
+  it('picks a reloaded browser up where it left off, rather than playing the tournament again', async () => {
+    const config = planConfig({ id: 'ses7', name: 'Reload', seed: 'fixed', roster: roster(8), boardsPerRound: 1, rounds: 3 });
+    const net = world();
+    /* What one browser's tab remembers across a refresh. */
+    let kept: SessionMemory | null = null;
+    const remember = { load: () => kept, save: (m: SessionMemory) => { kept = JSON.parse(JSON.stringify(m)) as SessionMemory; } };
+    const open = (id: string, score: number, extra: Record<string, unknown> = {}): TournamentSession => {
+      const s = new TournamentSession({
+        config, botDelayMs: 0,
+        me: { playerId: id, name: id, deviceScore: score, isDirector: false },
+        connect: (room) => net.connect(room),
+        onChange: () => { /* the interface would redraw here */ },
+        ...extra,
+      });
+      live.push(s);
+      return s;
+    };
+    const sessions = roster(8).map((p) => open(p.id, Number(p.id.slice(1)), p.id === 'p0' ? { remember } : {}));
+    await Promise.all(sessions.map((s) => s.start()));
+    await until(() => sessions.every((s) => s.node?.state));
+
+    const tick = setInterval(() => {
+      for (const s of sessions) {
+        const n = s.node;
+        const at = n?.mySeat();
+        if (!n || !at) continue;
+        const turn = turnAt(at.table);
+        if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) continue;
+        if (turn.phase === 'auction') n.call(chooseCall(at.table.deal![turn.seat], at.table.auction!, turn.seat));
+        else n.play(turn.seat, chooseCard(at.table.play!, turn.seat));
+      }
+    }, 4);
+
+    try {
+      /* Play on until the field is into its second round. */
+      await until(() => sessions.every((s) => s.round === 1), 60000);
+      const played = sessions[0]!.node!.state!.results.length;
+      expect(played).toBe(config.tables); // every table's first board
+
+      /* That tab is refreshed: a new session, nothing in hand but what the
+         tab kept. It must come back to the round being played. */
+      const back = open('p0', 0, { remember });
+      await back.start();
+      await until(() => !!back.node?.state, 30000);
+      expect(back.round).toBe(1);
+      expect(back.node!.state!.round).toBe(1);
+      expect(back.node!.state!.results).toHaveLength(played);
+      /* And it is sitting at its own table, not watching from the side. */
+      expect(back.notPlaying).toBe(false);
+    } finally {
+      clearInterval(tick);
+    }
   }, 120000);
 });
