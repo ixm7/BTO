@@ -513,10 +513,11 @@ const PANELS = [
 ] as const;
 const panelOpen: Record<string, boolean> = {};
 
-/* No result here: the winners are on the tournament's own page, which is
-   where somebody who wants them is going anyway, and a column that is a dash
-   on every tournament still to be played is a column of dashes. */
-const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status'];
+/* Neither the director nor the result is here: both are on the tournament's
+   own page, which is where somebody who wants them is going anyway. A column
+   that is a dash on every tournament still to be played is a column of
+   dashes, and who created one says nothing about whether to enter it. */
+const LIST_COLUMNS = ['Tournament', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status'];
 
 /** How many boards a tournament plays in all, and how they are divided up. */
 const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
@@ -528,7 +529,6 @@ function listTable(rows: Listing[]): HTMLElement {
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
       h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
-      h('td', l.meta.director, h('div.muted', `@${l.initiatorLogin}`)),
       h('td', scoringName(l.meta.scoring)),
       h('td.num', { 'data-tip': boardsText(l.meta), 'aria-label': `${boardCount(l.meta)} boards: ${boardsText(l.meta)}` },
         String(boardCount(l.meta))),
