@@ -70,7 +70,13 @@ describe('time zones', () => {
     expect(zonedToUtc('2026-03-08T03:30', 'America/New_York').toISOString()).toBe('2026-03-08T07:30:00.000Z');
   });
   it('formats an instant in another zone', () => {
-    expect(formatInZone(new Date('2026-11-21T00:30:00Z'), 'America/New_York', 'en-US')).toMatch(/Fri, Nov 20, 2026.*7:30.*PM.*EST/);
+    const now = Date.parse('2026-11-14T15:00:00Z');
+    /* This year, so no year; half past, so the minutes are worth saying. */
+    expect(formatInZone(new Date('2026-11-21T00:30:00Z'), 'America/New_York', 'en-US', now)).toMatch(/^Fri, Nov 20, 7:30\s*PM EST$/);
+    /* On the hour, where nobody says the minutes. */
+    expect(formatInZone(new Date('2026-11-21T16:00:00Z'), 'America/New_York', 'en-US', now)).toMatch(/^Sat, Nov 21, 11\s*AM EST$/);
+    /* Another year is the one thing worth saying, so it is said. */
+    expect(formatInZone(new Date('2027-01-02T16:00:00Z'), 'America/New_York', 'en-US', now)).toMatch(/^Sat, Jan 2, 2027, 11\s*AM EST$/);
   });
 });
 

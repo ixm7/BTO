@@ -32,10 +32,22 @@ export function isValidTimeZone(timeZone: string): boolean {
   try { new Intl.DateTimeFormat('en-US', { timeZone }); return true; } catch { return false; }
 }
 
-export function formatInZone(d: Date, timeZone: string, locale?: string): string {
+/**
+ * A tournament's start, as a player reads it: "Sat, Nov 14, 11 AM EST".
+ *
+ * No year, because everything on the list is within days — except over New
+ * Year, when the year is the one thing that would be missed, so it is kept
+ * for a date in another year. No minutes on the hour either: "11 AM" is how
+ * somebody would say it, and the hours that are not on the hour stand out
+ * better for it.
+ */
+export function formatInZone(d: Date, timeZone: string, locale?: string, now: number = Date.now()): string {
+  const year = partsInZone(d, timeZone).year;
+  const onTheHour = partsInZone(d, timeZone).minute === 0;
   return new Intl.DateTimeFormat(locale, {
-    timeZone, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+    timeZone, weekday: 'short', month: 'short', day: 'numeric',
+    ...(year === partsInZone(new Date(now), timeZone).year ? {} : { year: 'numeric' }),
+    hour: 'numeric', ...(onTheHour ? {} : { minute: '2-digit' }), timeZoneName: 'short',
   }).format(d);
 }
 
