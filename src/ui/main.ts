@@ -583,15 +583,19 @@ const clock = (t: number): string => new Date(t).toLocaleTimeString([], { hour: 
 function startNote(l: Listing): string | null {
   const plan = l.plan;
   if (l.status === 'upcoming') {
-    return `Starts automatically at the start time if all ${l.meta.capacity} places are taken. Otherwise entries stay open `
-      + `a minute longer, and another minute each time somebody joins (up to five more). It needs at least ${MIN_PLAYERS} players, `
+    return `Starts automatically at the start time if all ${l.meta.capacity} places are taken, or if the players registered `
+      + 'fill whole tables of four. Otherwise entries stay open a minute longer to look for the players who would spare a table '
+      + `its robots, and another minute each time somebody joins, up to five more. It needs at least ${MIN_PLAYERS} players, `
       + 'and is cancelled if it does not have them within five minutes of the start time.';
   }
   if (l.status === 'starting' && plan?.kind === 'wait') {
     const n = l.registrations?.length ?? 0;
     if (Date.now() >= plan.until) return 'Entries have closed. Settling the field and the deals…';
     if (n < MIN_PLAYERS) return `Waiting for at least ${MIN_PLAYERS} players: ${n} so far. Entries stay open until ${clock(plan.until)}, then it is cancelled if there are still too few.`;
-    return `Entries close at ${clock(plan.until)} — later if somebody else joins before then, or sooner if all places are taken.`;
+    const short = n % 4;
+    return `Entries close at ${clock(plan.until)} — later if somebody else joins before then.`
+      + (short ? ` ${short === 3 ? 'One more player' : `${4 - short} more players`} would fill the last table, and start it straight away.`
+        : ' It starts as soon as the tables come out even.');
   }
   return null;
 }

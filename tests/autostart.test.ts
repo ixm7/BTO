@@ -29,11 +29,19 @@ describe('automatic start', () => {
     expect(planStart(meta, players(MIN_PLAYERS - 1, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
   });
 
-  it('2→3. the eighth arriving inside five minutes opens the one-minute window from then', () => {
-    const fourth = T0 + 3 * M;
-    const cs = [...players(7, T0 - M), reg('late', fourth)];
-    expect(planStart(meta, cs, fourth + 30 * S)).toEqual({ kind: 'wait', until: fourth + EXTEND_MS, extensions: 0 });
-    expect(planStart(meta, cs, later(fourth + EXTEND_MS))).toEqual({ kind: 'start', at: fourth + EXTEND_MS });
+  it('2→3. reaching the minimum starts it at once when the tables come out even', () => {
+    const eighth = T0 + 3 * M;
+    const cs = [...players(7, T0 - M), reg('late', eighth)];
+    expect(planStart(meta, cs, eighth + 10 * S).kind).toBe('wait');       // still settling
+    expect(planStart(meta, cs, later(eighth))).toEqual({ kind: 'start', at: eighth });
+  });
+
+  it('2→3. reaching it with an odd number opens the one-minute window from then', () => {
+    const when = T0 + 3 * M;
+    /* Two arrive together: nine players, so a table would need robots. */
+    const cs = [...players(7, T0 - M), reg('x', when), reg('y', when)];
+    expect(planStart(meta, cs, when + 30 * S)).toEqual({ kind: 'wait', until: when + EXTEND_MS, extensions: 0 });
+    expect(planStart(meta, cs, later(when + EXTEND_MS))).toEqual({ kind: 'start', at: when + EXTEND_MS });
   });
 
   it('3. short of full: one minute, then starts if nobody else came', () => {
@@ -43,9 +51,14 @@ describe('automatic start', () => {
   });
 
   it('3. each newcomer buys another minute, at most five times', () => {
-    const cs = players(8, T0 - M);
-    /* Someone arrives in every minute, more often than the rule allows for. */
-    for (let k = 0; k < 7; k++) cs.push(reg(`x${k}`, T0 + k * M + 30 * S));
+    /* Nine players throughout: somebody new arrives each minute as somebody
+       else drops out, so the tables never come out even and the waiting is
+       only ever ended by the cap on extensions. */
+    const cs = players(9, T0 - M);
+    for (let k = 0; k < 7; k++) {
+      const at = T0 + k * M + 30 * S;
+      cs.push(reg(`x${k}`, at), wd(k === 0 ? 'p0' : `x${k - 1}`, at));
+    }
     const big = { ...meta, capacity: 100 };
     expect(planStart(big, cs, T0 + 2 * M + 10 * S)).toEqual({ kind: 'wait', until: T0 + 3 * M, extensions: 2 });
     const end = T0 + (MAX_EXTENSIONS + 1) * EXTEND_MS;
@@ -58,8 +71,28 @@ describe('automatic start', () => {
   });
 
   it('3. withdrawals that leave it short at the close cancel it', () => {
-    const cs = [...players(8, T0 - M), wd('p0', T0 + 10 * S)];
+    /* Nine, then two leave at once: seven is below the minimum. */
+    const cs = [...players(9, T0 - M), wd('p0', T0 + 10 * S), wd('p1', T0 + 10 * S)];
     expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'cancel', at: T0 + EXTEND_MS });
+  });
+
+  it('waits only for a tournament that would need robots', () => {
+    /* Whole tables of four: nobody to wait for, whatever the capacity. */
+    for (const n of [8, 12, 16]) {
+      expect(planStart({ ...meta, capacity: 20 }, players(n, T0 - M), later(T0))).toEqual({ kind: 'start', at: T0 });
+    }
+    /* Ten would leave a table of two, so entries stay open … */
+    const ten = players(10, T0 - M);
+    expect(planStart(meta, ten, T0 + 20 * S)).toEqual({ kind: 'wait', until: T0 + EXTEND_MS, extensions: 0 });
+    /* … an eleventh still leaves a table short, so it keeps waiting … */
+    const eleven = [...ten, reg('k', T0 + 20 * S)];
+    expect(planStart(meta, eleven, T0 + 30 * S)).toEqual({ kind: 'wait', until: T0 + EXTEND_MS, extensions: 0 });
+    /* … and a twelfth makes three full tables, which ends it at that moment. */
+    const twelve = [...eleven, reg('l', T0 + 40 * S)];
+    expect(planStart(meta, twelve, later(T0 + 40 * S))).toEqual({ kind: 'start', at: T0 + 40 * S });
+    /* A withdrawal can even them out, which also ends the wait. */
+    const nine = [...players(9, T0 - M), wd('p0', T0 + 25 * S)];
+    expect(planStart(meta, nine, later(T0 + 25 * S))).toEqual({ kind: 'start', at: T0 + 25 * S });
   });
 });
 

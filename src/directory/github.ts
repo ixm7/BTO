@@ -559,9 +559,11 @@ export type StartPlan =
  *  1. Full at the start time: it starts then.
  *  2. Fewer than four: wait up to five minutes for the fourth; failing that,
  *     it is cancelled.
- *  3. Otherwise, short of full: entries stay open one more minute. If anybody
- *     registers in that minute, another minute, up to five times. Filling up
- *     at any point starts it at once.
+ *  3. Otherwise, short of full and with a table that would need robots to
+ *     fill it: entries stay open one more minute. If anybody registers in
+ *     that minute, another minute, up to five times. Whenever the players
+ *     registered fill whole tables of four, the waiting ends at once — there
+ *     is nobody left to wait for.
  *
  * Times are GitHub's own comment times, not anybody's clock, so all agree.
  */
@@ -578,8 +580,15 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
   const settled = (plan: StartPlan & { at: number }): StartPlan =>
     now >= plan.at + SETTLE_MS ? plan : { kind: 'wait', until: plan.at, extensions: 0 };
 
+  /*
+   * Nothing is gained by waiting once every table is full: the extra minutes
+   * exist only to find the players who would otherwise leave a table short
+   * and have robots make up the numbers.
+   */
+  const ready = (n: number): boolean => n >= cap || (n >= MIN_PLAYERS && n % 4 === 0);
+
   if (now < T0) return { kind: 'wait', until: T0, extensions: 0 };
-  if (count(T0) >= cap) return settled({ kind: 'start', at: T0 });
+  if (ready(count(T0))) return settled({ kind: 'start', at: T0 });
 
   let from = T0;
   if (count(T0) < MIN_PLAYERS) {
@@ -588,14 +597,15 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
       return now < T0 + MIN_WAIT_MS ? { kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 }
         : settled({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
     }
-    if (count(reached) >= cap) return settled({ kind: 'start', at: reached });
+    if (ready(count(reached))) return settled({ kind: 'start', at: reached });
     from = reached;
   }
 
   for (let ext = 0; ; ext++) {
     const to = from + EXTEND_MS;
-    const full = firstIn(from, to, (n) => n >= cap);
-    if (full !== null) return settled({ kind: 'start', at: full });
+    /* Filling the last table ends the wait, as does filling the tournament. */
+    const done = firstIn(from, to, ready);
+    if (done !== null) return settled({ kind: 'start', at: done });
     if (now < to) return { kind: 'wait', until: to, extensions: ext };
     const before = new Set(regsAt(from).map((r) => r.login));
     const joined = regsAt(to).some((r) => !before.has(r.login));
