@@ -177,9 +177,17 @@ function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Tol
     rhoCall,
     tagOf: (i) => told[i]?.tag ?? '',
     sys,
-    /* A strong two clubs is a hand on its own: once it is opened, the
-       partnership is in for game whatever responder holds. */
-    gf: a.calls.some((e, i) => sideOf(e.seat) === sideOf(me) && (told[i]?.tag === 'gf' || told[i]?.tag === '2c')),
+    /*
+     * A strong two clubs is a hand on its own: once it is opened, the
+     * partnership is in for game whatever responder holds. The one exception
+     * is opener's 22-24 no-trump rebid, which responder is allowed to pass
+     * with a bust — from there the auction is read as a no-trump opening of
+     * that strength, and the points decide where it stops.
+     */
+    gf: (() => {
+      const ours = a.calls.map((e, i) => (sideOf(e.seat) === sideOf(me) ? told[i]?.tag ?? '' : null));
+      return ours.includes('gf') || (ours.includes('2c') && !ours.includes('nt22'));
+    })(),
     passedHand: by(me)[0]?.e.call.type === 'pass',
   };
 }
@@ -254,7 +262,9 @@ function ntResponses(c: Ctx, level: number, lo: number, hi: number): Rule[] {
     out.push({ call: B(L, 'D'), says: 'Transfer: five or more hearts', len: { H: [5, 13] }, when: (v) => fiveMajor(v) === 'H', forcing: true, tag: 'transfer:H', alert: true });
     out.push({ call: B(L, 'H'), says: 'Transfer: five or more spades', len: { S: [5, 13] }, when: (v) => fiveMajor(v) === 'S', forcing: true, tag: 'transfer:S', alert: true });
     out.push({
-      call: B(L, 'C'), says: 'Stayman: asks for a four-card major', hcp: R(level === 1 ? invite : game - 1, 37),
+      /* Over one no-trump there is room to ask and then invite; at the three
+         level there is not, so asking at all promises the values for game. */
+      call: B(L, 'C'), says: 'Stayman: asks for a four-card major', hcp: R(level === 1 ? invite : game, 37),
       when: (v) => (v.len.H === 4 || v.len.S === 4) && !(v.len.H === 4 && v.len.S <= 3 && v.len.D === 3 && v.len.C === 3 && false),
       forcing: true, tag: 'stayman', alert: true,
     });

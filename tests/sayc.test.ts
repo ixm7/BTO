@@ -370,10 +370,17 @@ describe('SAYC: after a strong two clubs', () => {
     expect(bid('52.KJ843.762.932', '2C P 2D P 2N P')).toBe('3D');
   });
 
-  it('does not let a two club auction die below game', () => {
-    /* Responder has nothing at all, but 22 opposite nothing is still a game
-       try the partnership has committed itself to. */
-    expect(bid('52.843.7632.9432', '2C P 2D P 2N P')).not.toBe('Pass');
+  it('lets a bust pass the two no-trump rebid, and nothing else', () => {
+    /* The one exception to the force: 22-24 opposite a hand with nothing in
+       it belongs in two no-trump, not in game. */
+    expect(bid('52.843.7632.9432', '2C P 2D P 2N P')).toBe('Pass');
+    /* Three points is not a bust, and 25 between them is a game. */
+    expect(bid('K52.843.7632.943', '2C P 2D P 2N P')).toBe('3N');
+    /* A bust with a suit of its own may still improve the contract. */
+    expect(bid('Q8642.84.763.943', '2C P 2D P 2N P')).toBe('3H'); // transfer to spades
+    /* Every other two club auction is forced to game, bust or no bust. */
+    expect(bid('52.843.7632.9432', '2C P 2D P 2S P')).not.toBe('Pass');
+    expect(bid('52.843.7632.9432', '2C P 2D P 3C P')).not.toBe('Pass');
     /* And a responder with four points raises the answer to game rather
        than settling in a part score. */
     expect(bid('KJ52.843.762.932', '2C P 2D P 2N P 3C P 3S P')).toBe('4S');
