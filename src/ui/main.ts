@@ -633,6 +633,42 @@ function detailView(l: Listing): HTMLElement {
     return regs?.find((o) => o.login !== r.login && o.pairCode?.trim().toLowerCase() === code)?.name ?? null;
   };
 
+  /**
+   * The last cell of a registered player's row: who they are playing with, or
+   * a way to ask them. Two players who already know each other can pair up
+   * here without going near the partner list.
+   */
+  const partnerCell = (r: { login: string; name: string; pairCode?: string }): Node | string => {
+    /* An accepted invitation settles it at once; a shared pair code covers
+       partners who arranged themselves by other means. */
+    const agreed = (l.partners?.invitations ?? []).find((i) => i.status === 'accepted'
+      && (i.from.toLowerCase() === r.login.toLowerCase() || i.to.toLowerCase() === r.login.toLowerCase()));
+    const other = !agreed ? null : agreed.from.toLowerCase() === r.login.toLowerCase() ? agreed.to : agreed.from;
+    const partner = other ? who(l, other) : partnerNameOf(r);
+    if (partner) return `Partner: ${partner}`;
+    const them = r.login.toLowerCase();
+    if (them === myLogin) return h('span.muted', 'you');
+    /* Only a registered player with no partner of their own can ask. */
+    if (!open || !amRegistered || !myLogin || myPartnerLogin || !d.canAct) return '';
+    const invites = l.partners?.invitations ?? [];
+    const mine = (i: Invitation): boolean => i.status === 'pending' && i.from.toLowerCase() === myLogin && i.to.toLowerCase() === them;
+    const theirs = (i: Invitation): boolean => i.status === 'pending' && i.to.toLowerCase() === myLogin && i.from.toLowerCase() === them;
+    if (invites.some(theirs)) {
+      return h('div.row',
+        h('span', 'Invited you:'),
+        h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`) }, 'Accept'),
+        h('button', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.') }, 'Decline'));
+    }
+    if (invites.some(mine)) {
+      return h('div.row', h('span.muted', 'Invitation sent'),
+        h('button.link', { onclick: act(() => d.cancelInvite(l.number, r.login), 'Invitation cancelled.') }, 'Cancel'));
+    }
+    return h('button', {
+      title: `Ask ${r.name} to be your partner for this tournament.`,
+      onclick: act(() => d.invitePartner(l.number, r.login), `Invitation sent to ${r.name}.`),
+    }, 'Invite to Partner');
+  };
+
   const myAcceptedInvite = l.partners?.invitations.find((i) =>
     i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
   const myPartnerLogin = myAcceptedInvite
@@ -712,7 +748,7 @@ function detailView(l: Listing): HTMLElement {
       regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
         h('td.num', i + 1), h('td', r.name), h('td.muted', isRelayed(r.login) ? '' : `@${r.login}`),
         h('td.muted', r.skill ?? ''),
-        h('td.muted', partnerNameOf(r) ? `Partner: ${partnerNameOf(r)}` : ''),
+        h('td.muted', partnerCell(r)),
         h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
         : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
 }
