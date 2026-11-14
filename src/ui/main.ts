@@ -170,8 +170,13 @@ let quietUntil = 0;
 /** When the list was last asked for. */
 let lastRefresh = 0;
 
-/** Tournaments this player walked out of, so they are not hauled back in. */
-const leftOnPurpose = new Set<number>();
+/**
+ * When this player last walked out of a tournament's room. Leaving one that
+ * is under way means "do not haul me back in"; leaving the waiting room
+ * before the tournament starts means nothing of the sort, so only a departure
+ * after the start keeps them out.
+ */
+const leftAt = new Map<number, number>();
 
 /**
  * Around the start of a tournament this player is in, the list is read
@@ -379,7 +384,9 @@ function autoSeat(): void {
   const me = myId();
   if (!me) return;
   for (const l of listings) {
-    if (l.status !== 'in progress' || !l.pinned || leftOnPurpose.has(l.number)) continue;
+    if (l.status !== 'in progress' || !l.pinned) continue;
+    const gone = leftAt.get(l.number);
+    if (gone !== undefined && gone >= Date.parse(l.pinned.at)) continue;
     /* Long under way: they can still go in themselves, but are not pulled in. */
     if (Date.now() - Date.parse(l.pinned.at) > 30 * 60000) continue;
     if (!pinnedRoster(l).some((r) => r.login.toLowerCase() === me)) continue;
@@ -708,7 +715,7 @@ function detailView(l: Listing): HTMLElement {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
-    actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => { leftOnPurpose.delete(l.number); void enterRoom(roomInfoOf(l)); } }, 'Enter playing room'));
+    actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => { leftAt.delete(l.number); void enterRoom(roomInfoOf(l)); } }, 'Enter playing room'));
   }
   if (open && welcome) {
     const seeking = l.partners?.seekers.length;
@@ -1188,7 +1195,7 @@ function stopStartPoll(): void {
 }
 
 function leaveRoom(): void {
-  if (room?.listing) leftOnPurpose.add(room.listing.number);
+  if (room?.listing) leftAt.set(room.listing.number, Date.now());
   node?.close();
   session?.close();
   stopStartPoll();
@@ -1236,7 +1243,7 @@ async function openSession(l: Listing): Promise<void> {
     connect: async (roomName) => settings.transport === 'local'
       ? localTransport(roomName)
       : (await import('../net/trystero')).trysteroTransport(roomName),
-    onChange: () => { node = session?.node ?? null; render(); },
+    onChange: () => { node = session?.node ?? null; if (node) maybeReseat(node); render(); },
     robot,
   });
   await session.start();
@@ -1262,7 +1269,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
       save: (events) => { try { sessionStorage.setItem(key, JSON.stringify(events)); } catch { /* quota */ } },
     },
   });
-  n.onChange(render);
+  n.onChange(() => { maybeReseat(n); render(); });
   return n;
 }
 
@@ -1272,6 +1279,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   session = null;
   stopStartPoll();
   errorMsg = null; notice = null; published = false;
+  steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
      Until entries close there is nothing to join, so we wait
@@ -1411,7 +1419,7 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
      tournament with nobody in it and end it there and then. */
   if (n.mySeat()) {
     if (demo) return null;
-    return h('button', { title: 'Please replace me with a Robot', onclick: () => { n.withdraw(); render(); } }, 'Withdraw');
+    return h('button', { title: 'Please replace me with a Robot', onclick: () => { steppedAside = true; n.withdraw(); render(); } }, 'Withdraw');
   }
 
   /* A seat already asked for is given out when the board in progress ends. */
@@ -1423,7 +1431,7 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
     const mate = partnerName(state, me);
     return h('button.primary', {
       title: `Reseat me on next hand with${mate ? ` ${mate}` : ''}`,
-      onclick: () => { n.takeSeat(me); render(); },
+      onclick: () => { steppedAside = false; noteActivity(); n.takeSeat(me); render(); },
     }, 'Reseat me');
   }
 
@@ -1440,6 +1448,34 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
       : session?.notPlaying
         ? 'No robot is playing at this table; looking at another one shortly.'
         : 'No robot is playing at this table.'));
+}
+
+/**
+ * A seat lost to the clock is given back without asking. A player who stood
+ * down on purpose is left alone, and so is one whose page is merely open
+ * somewhere: without a sign that somebody is actually there, putting them
+ * back would only hand the seat to a robot again a minute later.
+ */
+let steppedAside = false;
+let lastSeenHere = Date.now();
+const BACK_WITHIN_MS = 2 * 60_000;
+const AUTO_RESEATS = 3;
+let autoReseats = 0;
+
+export function noteActivity(): void { lastSeenHere = Date.now(); }
+
+function maybeReseat(n: TournamentNode): void {
+  const state = n.state;
+  if (!state || state.finished || steppedAside || autoReseats >= AUTO_RESEATS) return;
+  const me = n.me.playerId;
+  if (n.mySeat() || !state.retired.includes(me) || state.substitutes[me]) return;
+  if (document.hidden || Date.now() - lastSeenHere > BACK_WITHIN_MS) return;
+  /* Already asked for: it comes back when the board in progress ends. */
+  if (Object.entries(state.pendingSeats).some(([id, who]) => (who === null ? id === me : who?.id === me))) return;
+  autoReseats++;
+  notice = 'You timed out, so a robot played for you. You have been put back in your seat for the next board.';
+  turnChime();
+  n.takeSeat(me);
 }
 
 /** Sit down in place of one of the robots, from the next board. */
@@ -1696,6 +1732,13 @@ window.addEventListener('pagehide', () => node?.close());
 render();
 /* Ask the relay first — it answers in a few milliseconds, or not at all — so
    the very first look at the list already goes the right way. */
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, noteActivity, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  /* Coming back to the tab is the moment a timed-out player is here again. */
+  noteActivity();
+  if (node) { maybeReseat(node); render(); }
+});
 installHoverTips();
 /* A countdown that never moves is worse than none, and the list is read far
    less often than once a minute, so the page redraws itself on the minute. */
