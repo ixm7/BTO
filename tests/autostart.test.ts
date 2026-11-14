@@ -58,7 +58,7 @@ describe('automatic start', () => {
     expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'start', at: T0 + EXTEND_MS });
   });
 
-  it('3. each newcomer buys another minute, at most five times', () => {
+  it('3. each newcomer buys another minute, at most three times', () => {
     /* Nine players throughout: somebody new arrives each minute as somebody
        else drops out, so the tables never come out even and the waiting is
        only ever ended by the cap on extensions. */
@@ -70,6 +70,7 @@ describe('automatic start', () => {
     const big = { ...meta, capacity: 100 };
     expect(planStart(big, cs, T0 + 2 * M + 10 * S)).toEqual({ kind: 'wait', until: T0 + 3 * M, extensions: 2 });
     const end = T0 + (MAX_EXTENSIONS + 1) * EXTEND_MS;
+    expect(MAX_EXTENSIONS).toBe(3);
     expect(planStart(big, cs, later(end))).toEqual({ kind: 'start', at: end });
   });
 
@@ -245,6 +246,16 @@ describe('a rule that changed', () => {
     expect(planStart(old, players(2, O - M), later(O + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
     /* Long afterwards, it is still called off and not suddenly under way. */
     expect(planStart(old, players(2, O - M), O + 6 * 3600 * 1000)).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
+    /* The extensions it was cut to do not reach back either: this one was
+       due when five were still on offer, so five it had. */
+    const many = [...players(9, O - M)];
+    for (let k = 0; k < 7; k++) {
+      const t = O + k * M + 30 * S;
+      many.push(reg(`x${k}`, t), wd(k === 0 ? 'p0' : `x${k - 1}`, t));
+    }
+    const old100 = { ...old, capacity: 100 };
+    expect(planStart(old100, many, later(O + 6 * EXTEND_MS))).toEqual({ kind: 'start', at: O + 6 * EXTEND_MS });
+
     /* And one due after the change plays with robots, as it should. */
     const now = makeMeta({ ...old, start: '2026-11-20T19:30' } as never);
     const N = Date.parse(now.startUtc);

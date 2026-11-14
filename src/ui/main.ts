@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, MAX_EXTENSIONS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -593,6 +593,9 @@ function directoryView(): HTMLElement {
     body);
 }
 
+/** Small numbers read better as words in a sentence. */
+const inWords = (n: number): string => ['no', 'one', 'two', 'three', 'four', 'five', 'six'][n] ?? String(n);
+
 const clock = (t: number): string => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
 /** How the tournament gets going, said in terms of this one's numbers. */
@@ -601,7 +604,7 @@ function startNote(l: Listing): string | null {
   if (l.status === 'upcoming') {
     return `Starts automatically at the start time if all ${l.meta.capacity} places are taken, or if the players registered `
       + 'fill whole tables of four. Otherwise entries stay open a minute longer to look for the players who would spare a table '
-      + `its robots, and another minute each time somebody joins, up to five more. Short of ${MIN_PLAYERS} players it waits `
+      + `its robots, and another minute each time somebody joins, up to ${inWords(MAX_EXTENSIONS)} more. Short of ${MIN_PLAYERS} players it waits `
       + 'five minutes for them, then plays anyway with robots in the empty seats — however few turn up, you get your game.';
   }
   if (l.status === 'starting' && plan?.kind === 'wait') {

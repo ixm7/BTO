@@ -554,7 +554,9 @@ export const MIN_TABLES = 2;
 export const MIN_WAIT_MS = 5 * 60 * 1000;
 /** Short of a full field, entries stay open this much longer, again each time somebody joins. */
 export const EXTEND_MS = 60 * 1000;
-export const MAX_EXTENSIONS = 5;
+export const MAX_EXTENSIONS = 3;
+/** What it was before the wait was shortened; see `rulesAt`. */
+const MAX_EXTENSIONS_WAS = 5;
 /**
  * A comment can take a few seconds to show up for everyone. Nobody acts on a
  * decision until it has been this long past its moment, so every browser has
@@ -574,6 +576,22 @@ export const SETTLE_MS = 30 * 1000;
  * start, which leaves what already happened as it was.
  */
 export const ROBOT_FILL_FROM = Date.parse('2026-11-14T15:45:00Z');
+
+/** When the extensions were cut from five to three; see `rulesAt`. */
+export const SHORTER_WAIT_FROM = Date.parse('2026-11-14T17:10:00Z');
+
+/**
+ * The rules a tournament is judged by: those in force when it was due to
+ * start. Nothing about a start is written down — every browser works it out
+ * from the comments, every time it looks — so a rule changed today would
+ * otherwise rewrite what happened yesterday.
+ */
+function rulesAt(startUtc: number): { fewest: number; extensions: number } {
+  return {
+    fewest: startUtc >= ROBOT_FILL_FROM ? 1 : MIN_PLAYERS,
+    extensions: startUtc >= SHORTER_WAIT_FROM ? MAX_EXTENSIONS : MAX_EXTENSIONS_WAS,
+  };
+}
 
 /**
  * Where a tournament's start stands.
@@ -597,7 +615,7 @@ export type StartPlan =
  *     is sent away. Only an empty entry list is called off.
  *  3. Otherwise, short of full and with a table that would need robots to
  *     fill it: entries stay open one more minute. If anybody registers in
- *     that minute, another minute, up to five times. Whenever the players
+ *     that minute, another minute, up to three times. Whenever the players
  *     registered fill whole tables of four, the waiting ends at once — there
  *     is nobody left to wait for.
  *
@@ -622,8 +640,7 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
    * and have robots make up the numbers.
    */
   const ready = (n: number): boolean => n >= cap || (n >= MIN_PLAYERS && n % 4 === 0);
-  /* Older tournaments are still judged by the rule they were called off under. */
-  const fewest = T0 >= ROBOT_FILL_FROM ? 1 : MIN_PLAYERS;
+  const { fewest, extensions } = rulesAt(T0);
 
   if (now < T0) return { kind: 'wait', until: T0, extensions: 0 };
   if (ready(count(T0))) return settled({ kind: 'start', at: T0 });
@@ -650,7 +667,7 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
     if (now < to) return { kind: 'wait', until: to, extensions: ext };
     const before = new Set(regsAt(from).map((r) => r.login));
     const joined = regsAt(to).some((r) => !before.has(r.login));
-    if (joined && ext < MAX_EXTENSIONS) { from = to; continue; }
+    if (joined && ext < extensions) { from = to; continue; }
     /* Withdrawals in the meantime can leave it short, which robots cover;
        only an empty list is nothing to play. */
     return settled(count(to) >= fewest ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
