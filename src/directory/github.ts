@@ -128,7 +128,7 @@ export interface TournamentResults {
   rankings: ResultRow[];
 }
 
-export type Status = 'upcoming' | 'starting' | 'in progress' | 'finished' | 'cancelled' | 'aborted';
+export type Status = 'upcoming' | 'starting' | 'in progress' | 'finished' | 'cancelled' | 'abandoned';
 
 /** Someone who has put themselves on the "looking for a partner" list for this tournament. */
 export interface PartnerSeeker {
@@ -516,13 +516,17 @@ export function resultsBody(r: TournamentResults): string {
  */
 export function playingWindowMs(meta: TournamentMeta): number {
   const boards = Math.max(1, meta.rounds * meta.boardsPerRound);
-  return boards * 10 * 60 * 1000 + 3600 * 1000;
+  /* Ten minutes a board is already generous, and half an hour on top covers a
+     slow table. Past that, a tournament with no result posted was left
+     unfinished: everybody closed their page, and with no server there is
+     nobody to carry it on. */
+  return boards * 10 * 60 * 1000 + 30 * 60 * 1000;
 }
 
 /** How long a played-out tournament stays on the list before it is dropped. */
 export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 
-/** How long a cancelled tournament stays on the list, so players can see what became of it. */
+/** How long a cancelled or abandoned tournament stays on the list, so players can see what became of it. */
 export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
 
 /* ------------------------------------------------------- automatic start */
@@ -687,7 +691,9 @@ export function byStart(a: Listing, b: Listing): number {
  * there to be opened directly, this only decides what the list shows.
  */
 export function visibleInList(l: { status: Status; meta: TournamentMeta }, now: number): boolean {
-  if (l.status === 'aborted') return false;
+  /* Abandoned ones stay a day, so the players who were in it can see why it
+     never finished, rather than finding it gone. */
+  if (l.status === 'abandoned') return now - Date.parse(l.meta.startUtc) < playingWindowMs(l.meta) + KEEP_CANCELLED_MS;
   if (l.status === 'finished') return now - Date.parse(l.meta.startUtc) < KEEP_FINISHED_MS;
   if (l.status === 'cancelled') return now - Date.parse(l.meta.startUtc) < KEEP_CANCELLED_MS;
   return true;
@@ -703,10 +709,12 @@ export function deriveStatus(
   if (now < start) return 'upcoming';
   /* It began, but no result was ever posted: it ran out of players or was
      abandoned part-way. Either way it is not still in progress. */
-  if (now >= start + playingWindowMs(meta)) return 'aborted';
-  if (entry.started) return 'in progress';
+  /* Called off for want of players: that is what it was, however long ago. */
   if (entry.plan?.kind === 'cancel') return 'cancelled';
-  if (entry.plan?.kind === 'wait') return 'starting';
+  const over = now >= start + playingWindowMs(meta);
+  if (entry.plan?.kind === 'wait' && !over) return 'starting';
+  /* It began and no result was ever posted: it was left unfinished. */
+  if (over) return 'abandoned';
   return 'in progress';
 }
 
@@ -872,7 +880,10 @@ export class Directory {
     const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now)));
     /* Remember what was left off the list so it can be swept away later; the
        caller decides whether to, and the next listing recomputes this anyway. */
-    this.abandoned = out.filter((l) => l.status === 'aborted');
+    /* Whatever is over and left no result to keep — called off for want of
+       players, or begun and never finished — once it has dropped off the
+       list of its own accord. */
+    this.abandoned = out.filter((l) => (l.status === 'abandoned' || l.status === 'cancelled') && !visibleInList(l, now));
     return out.filter((l) => visibleInList(l, now)).sort(byStart);
   }
 

@@ -80,7 +80,7 @@ table.list tr.me td { background: #f3ecd2; }
 .badge.in-progress { background: #fff4d6; border-color: #e5cf8a; }
 .badge.starting { background: #e3eefa; border-color: #a9c4e2; }
 .badge.finished { background: #ecebe6; }
-.badge.cancelled, .badge.aborted { color: var(--muted); }
+.badge.cancelled, .badge.abandoned { color: var(--muted); }
 /* Checkbox filter in a toolbar row. */
 label.check { display: inline-flex; align-items: center; gap: 5px; font-size: .9rem; cursor: pointer; user-select: none; }
 label.check input { margin: 0; cursor: pointer; }

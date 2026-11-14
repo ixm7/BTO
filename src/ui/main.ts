@@ -503,7 +503,7 @@ const PANELS = [
   { key: 'pending', title: 'Pending', open: true, holds: (st: Status) => st === 'upcoming' || st === 'starting' },
   { key: 'running', title: 'Running', open: true, holds: (st: Status) => st === 'in progress' },
   { key: 'finished', title: 'Finished', open: false, holds: (st: Status) => st === 'finished' },
-  { key: 'cancelled', title: 'Cancelled', open: false, holds: (st: Status) => st === 'cancelled' || st === 'aborted' },
+  { key: 'cancelled', title: 'Cancelled', open: false, holds: (st: Status) => st === 'cancelled' || st === 'abandoned' },
 ] as const;
 const panelOpen: Record<string, boolean> = {};
 

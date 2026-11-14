@@ -193,7 +193,7 @@ describe('issue format', () => {
     expect(deriveStatus(meta, { state: 'open' }, null, start + 60000)).toBe('in progress');
     /* Started, but no result was ever posted: abandoned, not still running. */
     expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) - 1)).toBe('in progress');
-    expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) + 1)).toBe('aborted');
+    expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) + 1)).toBe('abandoned');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'not_planned' }, null, start)).toBe('cancelled');
     expect(deriveStatus(meta, { state: 'closed', state_reason: 'completed' }, null, start)).toBe('finished');
     /* Waiting on the automatic start, and called off by it. */
@@ -210,7 +210,9 @@ describe('issue format', () => {
     const start = Date.parse(meta.startUtc);
     const at = (status: Parameters<typeof visibleInList>[0]['status']) => ({ status, meta });
     /* Abandoned events are of no use to anyone and go straight off the list. */
-    expect(visibleInList(at('aborted'), start + 1000)).toBe(false);
+    /* An abandoned one is shown for a day after it should have finished, then dropped. */
+    expect(visibleInList(at('abandoned'), start + playingWindowMs(meta) + 1000)).toBe(true);
+    expect(visibleInList(at('abandoned'), start + playingWindowMs(meta) + KEEP_CANCELLED_MS + 1000)).toBe(false);
     /* A played event stays a week so its results can be read, then goes. */
     expect(visibleInList(at('finished'), start + KEEP_FINISHED_MS - 1000)).toBe(true);
     expect(visibleInList(at('finished'), start + KEEP_FINISHED_MS + 1000)).toBe(false);
@@ -463,7 +465,30 @@ describe('GitHub directory', () => {
 describe('clearing away abandoned tournaments', () => {
   /** A tournament that started long enough ago to count as abandoned. */
   const longAgo = { ...base, name: 'Abandoned', start: '2026-11-01T19:00' };
-  const after = Date.parse(makeMeta(longAgo).startUtc) + playingWindowMs(makeMeta(longAgo)) + 1000;
+  /* They are swept only once they have dropped off the list of their own accord. */
+  const unfinished = Date.parse(makeMeta(longAgo).startUtc) + playingWindowMs(makeMeta(longAgo)) + 1000;
+  const after = unfinished + KEEP_CANCELLED_MS;
+
+  it('leaves what is over on the list for a day, saying what became of it', async () => {
+    const gh = fakeGitHub({ canDelete: true });
+    const d = new Directory('club/bridge', 'ido', gh.fetcher);
+    await d.create(makeMeta(longAgo));
+    /* Nobody registered, so this one was called off rather than left unfinished. */
+    const shown = await d.list(unfinished);
+    expect(shown.map((l) => [l.meta.name, l.status])).toEqual([['Abandoned', 'cancelled']]);
+    expect(d.abandoned).toEqual([]);
+    expect(await d.sweepAbandoned()).toEqual([]);
+  });
+
+  it('calls a tournament that began and never finished abandoned', () => {
+    const meta = makeMeta(longAgo);
+    const start = Date.parse(meta.startUtc);
+    const started = { started: true, plan: null };
+    expect(deriveStatus(meta, { state: 'open' }, null, start + 60_000, started)).toBe('in progress');
+    expect(deriveStatus(meta, { state: 'open' }, null, start + playingWindowMs(meta) + 1, started)).toBe('abandoned');
+    /* A result posted at any point settles it, however late. */
+    expect(deriveStatus(meta, { state: 'open' }, { rankings: [] } as never, start + playingWindowMs(meta) + 1, started)).toBe('finished');
+  });
 
   it('deletes the issue outright when the token may', async () => {
     const gh = fakeGitHub({ canDelete: true });
@@ -492,8 +517,10 @@ describe('clearing away abandoned tournaments', () => {
     const issue = gh.issues.find((i: any) => i.number === 1);
     expect(issue.deleted).toBeUndefined();
     expect(issue).toMatchObject({ state: 'closed', state_reason: 'not_planned' });
-    /* Closed as not planned, so it reads as cancelled rather than abandoned. */
-    expect((await d.list(after))[0]).toMatchObject({ status: 'cancelled' });
+    /* Closed as not planned, so for the day it is still listed it reads as
+       cancelled rather than abandoned — and after that it is gone. */
+    expect((await d.list(unfinished))[0]).toMatchObject({ status: 'cancelled' });
+    expect(await d.list(after)).toEqual([]);
   });
 
   it('leaves everything else alone', async () => {
@@ -519,7 +546,7 @@ describe('clearing away abandoned tournaments', () => {
     /* Results make it finished, so it is not swept at all. */
     expect(list[0]).toMatchObject({ status: 'finished' });
     expect(d.abandoned).toEqual([]);
-    await expect(d.remove({ ...list[0]!, status: 'aborted' })).rejects.toThrow(/results/);
+    await expect(d.remove({ ...list[0]!, status: 'abandoned' })).rejects.toThrow(/results/);
     expect(gh.issues[0].deleted).toBeUndefined();
   });
 
