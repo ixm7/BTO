@@ -2015,7 +2015,10 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       const left = replacedPanel(state, table);
       if (left) side.append(left);
       side.append(h('div.panel', h('h3', `Round ${state.round + 1} of ${state.config.rounds} · Table ${table.index + 1}`),
-        h('div.muted', `${state.results.length} of ${state.config.tables * state.config.rounds * state.config.boardsPerRound} boards played in the room`),
+        /* Boards of the tournament, not scores collected: every table plays
+           the same boards, so counting the results of all of them made a
+           nine-board tournament read as eighteen. */
+        h('div.muted', `${new Set(state.results.map((r) => r.board)).size} of ${state.config.rounds * state.config.boardsPerRound} boards played`),
         table.lastResult ? h('p', { style: 'margin:8px 0 0' }, `Last board (${table.lastResult.board}): `, h('b', table.lastResult.text),
           table.lastResult.claimed ? ' (claimed)' : '',
           `, N-S ${table.lastResult.nsScore > 0 ? '+' : ''}${table.lastResult.nsScore}`) : null));
