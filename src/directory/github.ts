@@ -317,6 +317,24 @@ export function parseStart(comments: readonly RawComment[], directorLogin: strin
   return null;
 }
 
+const ABANDONED_RE = /^\s*\/abandoned\s*$/im;
+
+/**
+ * Was the tournament given up on? A table empties when the last player at it
+ * leaves or times out, and when every table has emptied there is nobody to
+ * play the boards and nobody to post a result. A browser that was there says
+ * so on the tournament page, so the list can stop calling it a tournament in
+ * progress at once rather than waiting out the time it would have taken.
+ *
+ * Only the director's own word counts: a word from anybody else would be a
+ * way to call off a tournament that is being played perfectly happily.
+ */
+export function parseAbandoned(comments: readonly RawComment[], directorLogin: string): boolean {
+  const director = directorLogin.trim().toLowerCase();
+  if (!director) return false;
+  return comments.some((c) => (c.user?.login ?? '').toLowerCase() === director && ABANDONED_RE.test(c.body ?? ''));
+}
+
 export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
 
 /* ------------------------------------------------------------ the relay */
@@ -756,7 +774,7 @@ export function visibleInList(l: { status: Status; meta: TournamentMeta }, now: 
 
 export function deriveStatus(
   meta: TournamentMeta, issue: { state: string; state_reason?: string | null }, results: TournamentResults | null, now: number,
-  entry: { started: boolean; plan: StartPlan | null } = { started: false, plan: null },
+  entry: { started: boolean; plan: StartPlan | null; abandoned?: boolean } = { started: false, plan: null },
 ): Status {
   if (results) return 'finished';
   if (issue.state === 'closed') return issue.state_reason === 'completed' ? 'finished' : 'cancelled';
@@ -766,6 +784,8 @@ export function deriveStatus(
      abandoned part-way. Either way it is not still in progress. */
   /* Called off for want of players: that is what it was, however long ago. */
   if (entry.plan?.kind === 'cancel') return 'cancelled';
+  /* Somebody who was there says it was given up on, which settles it. */
+  if (entry.abandoned) return 'abandoned';
   const over = now >= start + playingWindowMs(meta);
   if (entry.plan?.kind === 'wait' && !over) return 'starting';
   /* It began and no result was ever posted: it was left unfinished. */
@@ -878,6 +898,7 @@ export class Directory {
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [], notes: {} };
     let pinned: PinnedStart | null = null;
+    let abandoned = false;
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];
     let readable = true;
@@ -892,6 +913,7 @@ export class Directory {
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
         partners = parsePartners(cs);
         pinned = parseStart(cs, issue.user?.login ?? '');
+        abandoned = parseAbandoned(cs, issue.user?.login ?? '');
       } catch { registrations = null; partners = null; readable = false; }
     }
     /* A director's /start, from before starts were automatic, still counts. */
@@ -906,7 +928,7 @@ export class Directory {
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
-      status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan }),
+      status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan, abandoned }),
       registrations, results, partners, roomId: this.roomId(issue.number),
       pinned, names, plan, ...(field ? { field } : {}),
       ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
@@ -1124,6 +1146,11 @@ export class Directory {
       await this.req(this.api(`/issues/${number}`), 'PATCH', { state: 'closed', state_reason: 'completed' });
       return { closed: true };
     } catch { return { closed: false }; }
+  }
+
+  /** Say that the tournament was given up on, so the list stops calling it live. */
+  async markAbandoned(number: number): Promise<void> {
+    await this.comment(number, ['/abandoned', '', 'Every table was left without a player, so this tournament was given up on.'].join('\n'));
   }
 
   async cancel(number: number): Promise<void> {

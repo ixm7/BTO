@@ -138,6 +138,20 @@ describe('the listing every browser sees', () => {
     expect(pinnedRoster(on)).toHaveLength(7);
   });
 
+  it('shows a tournament that was given up on as abandoned at once', async () => {
+    const cs = players(8, T0 - M);
+    const live = await new Directory('ixm7/BTO', null, fakeGitHub(cs) as never).get(7, later(T0) + M);
+    expect(live.status).toBe('in progress');
+
+    /* A player's word is not enough: the rest of the field may be playing. */
+    const said = (who: string) => [...cs, { user: { login: who }, body: '/abandoned', created_at: new Date(T0 + 2 * M).toISOString() }];
+    expect((await new Directory('ixm7/BTO', null, fakeGitHub(said('p3')) as never).get(7, later(T0) + 3 * M)).status).toBe('in progress');
+
+    /* The director's is, and it does not wait for the playing time to run out. */
+    const off = await new Directory('ixm7/BTO', null, fakeGitHub(said('ixm7')) as never).get(7, later(T0) + 3 * M);
+    expect(off.status).toBe('abandoned');
+  });
+
   it('calls off a tournament nobody entered', async () => {
     const d = new Directory('ixm7/BTO', null, fakeGitHub([]) as never);
     const off = await d.get(7, later(T0 + MIN_WAIT_MS));

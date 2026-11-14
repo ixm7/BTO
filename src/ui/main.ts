@@ -3,7 +3,7 @@ import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directo
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
-import { pairOf } from '../tournament/review';
+import { cardImps, cardTotal, impText, pairOf, scorecard } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
 import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
@@ -90,6 +90,8 @@ let recBoard: number | null = null;
 let recTable: number | null = null;
 let recMode: RecordsMode = 'mine';
 let published = false;
+/** Set once this browser has reported a tournament as given up on. */
+let markedAbandoned = false;
 /** While a tournament detail page is open, poll it so a partner's invite/accept/unregister
  * elsewhere shows up here without the person having to hit Refresh themselves. */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -1349,6 +1351,25 @@ function forgetSessions(): void {
   memoryKeys.clear();
 }
 
+/*
+ * A tournament nobody is left to play is reported as such at once, rather
+ * than sitting in the list as a tournament in progress until the time it
+ * would have taken has run out. The tables this browser can see have all gone
+ * quiet, and only the director's word is taken for it, so a player whose own
+ * table empties cannot call off a tournament the rest of the field is still
+ * playing.
+ */
+function maybeMarkAbandoned(n: TournamentNode): void {
+  const l = room?.listing;
+  if (markedAbandoned || !l || !n.state?.aborted) return;
+  const login = settings.githubLogin.trim().toLowerCase();
+  if (!login || login !== l.initiatorLogin.toLowerCase()) return;
+  const d = directory();
+  if (!d?.canWrite) return;
+  markedAbandoned = true;
+  void d.markAbandoned(l.number).then(() => refresh()).catch(() => { markedAbandoned = false; });
+}
+
 /** The field, as it stood when entries closed. */
 function pinnedPlan(l: Listing): TournamentConfig | null {
   if (!l.pinned) return null;
@@ -1391,7 +1412,11 @@ async function openSession(l: Listing): Promise<void> {
 
   session = new TournamentSession({
     config, me, connect,
-    onChange: () => { node = session?.node ?? null; if (node) maybeReseat(node); render(); },
+    onChange: () => {
+      node = session?.node ?? null;
+      if (node) { maybeReseat(node); maybeMarkAbandoned(node); }
+      render();
+    },
     robot, wake: wakeIn, remember: sessionMemory(config.id),
   });
   await session.start();
@@ -1465,7 +1490,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   session?.close();
   session = null;
   stopStartPoll();
-  errorMsg = null; notice = null; published = false;
+  errorMsg = null; notice = null; published = false; markedAbandoned = false;
   steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
@@ -1525,15 +1550,40 @@ function startDemo(): void {
 
 const pairNames = (s: Standing): string => s.pair.players.map((p) => p.name).join(' & ');
 
-function standingsPanel(state: TState, title: string): HTMLElement {
-  const rows = standings(state);
-  const me = settings.playerId;
+/**
+ * The player's own card, which is what a player at a table actually wants
+ * beside them: where they stand, and then every board they have played with
+ * what it was worth. The full ranking is a tournament-wide thing and waits
+ * for the end; this is their evening.
+ */
+function myCardPanel(state: TState, meId: string): HTMLElement {
   const byImps = state.config.scoring === 'imps';
-  return h('div.panel', h('h3', title), h('div.table-scroll', h('table.list',
-    h('thead', h('tr', h('th.num', '#'), h('th', 'Pair'), h('th.num', byImps ? 'IMPs' : '%'))),
-    h('tbody', rows.map((r) => h(`tr${r.pair.players.some((p) => p.id === me) ? '.me' : ''}`,
-      h('td.num', r.boardsPlayed ? r.rank : '–'), h('td', pairNames(r), h('div.muted', `${r.direction} · ${r.boardsPlayed} board${r.boardsPlayed === 1 ? '' : 's'}`)),
-      h('td.num', r.boardsPlayed ? (byImps ? impsText(r.imps) : r.percent.toFixed(1)) : '–')))))));
+  const rows = scorecard(state, pairOf(state, meId));
+  const table = standings(state);
+  const us = table.find((r) => r.pair.players.some((p) => p.id === meId));
+  const place = us && us.boardsPlayed
+    ? `${ordinal(us.rank)} of ${table.length} \u00b7 ${byImps ? `${impText(cardImps(rows))} IMPs` : `${cardTotal(rows).we.toFixed(1)}%`}`
+    : 'Nothing scored yet';
+  return h('div.panel',
+    h('h3', 'Your card'),
+    h('div.muted', place),
+    rows.length === 0
+      ? h('p.muted', { style: 'margin:8px 0 0' }, 'The boards you play appear here as the field scores them.')
+      : h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list',
+        h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', byImps ? 'IMPs' : '%'))),
+        h('tbody', [...rows].reverse().map((r) => h('tr',
+          h('td.num', r.board),
+          r.result.contract
+            ? h('td', r.result.text, h('div.muted', r.weScore !== null ? `+${r.weScore}` : r.theyScore !== null ? `\u2212${r.theyScore}` : '0'))
+            : h('td.muted', 'Passed out'),
+          h('td.num', byImps ? impText(r.weImps) : r.wePercent.toFixed(1))))))));
+}
+
+/** "1st", "2nd", "3rd" \u2014 a rank as it is spoken. */
+function ordinal(n: number): string {
+  const last = n % 10, two = n % 100;
+  const suffix = last === 1 && two !== 11 ? 'st' : last === 2 && two !== 12 ? 'nd' : last === 3 && two !== 13 ? 'rd' : 'th';
+  return `${n}${suffix}`;
 }
 
 function toResults(state: TState): TournamentResults {
@@ -1888,7 +1938,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
           `, N-S ${table.lastResult.nsScore > 0 ? '+' : ''}${table.lastResult.nsScore}`) : null));
     }
   }
-  side.append(standingsPanel(state, state.finished ? 'Final standings' : 'Standings so far'));
+  side.append(myCardPanel(state, n.me.playerId));
   return h('div', head, h('div.room', main, side));
 }
 
