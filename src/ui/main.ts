@@ -513,7 +513,10 @@ const PANELS = [
 ] as const;
 const panelOpen: Record<string, boolean> = {};
 
-const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status', 'Result'];
+/* No result here: the winners are on the tournament's own page, which is
+   where somebody who wants them is going anyway, and a column that is a dash
+   on every tournament still to be played is a column of dashes. */
+const LIST_COLUMNS = ['Tournament', 'Director', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status'];
 
 /** How many boards a tournament plays in all, and how they are divided up. */
 const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
@@ -533,7 +536,6 @@ function listTable(rows: Listing[]): HTMLElement {
       h('td', levelText(l.meta)),
       h('td.num', playersCell(l)),
       h('td', badge(l.status)),
-      h('td', l.results?.rankings[0] ? `1st: ${l.results.rankings[0].players} (${l.results.scoring === 'imps' ? `${impsText(l.results.rankings[0].imps ?? 0)} IMPs` : `${l.results.rankings[0].percent.toFixed(1)}%`})` : h('span.muted', '—')),
     )))));
 }
 
