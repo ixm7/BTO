@@ -151,6 +151,12 @@ export interface Invitation {
 export interface PartnersData {
   seekers: PartnerSeeker[];
   invitations: Invitation[];
+  /**
+   * The last description each player wrote for this tournament, by lowercased
+   * login, kept whether or not they are still looking for a partner: it is how
+   * they describe their game, and the rest of the page shows it as such.
+   */
+  notes: Record<string, string>;
 }
 
 export interface Listing {
@@ -411,6 +417,7 @@ export function parseRegistrations(comments: readonly RawComment[]): Registratio
 export function parsePartners(comments: readonly RawComment[]): PartnersData {
   const seekers = new Map<string, PartnerSeeker>();
   const invitations = new Map<string, Invitation>();
+  const notes: Record<string, string> = {};
   for (const c of comments) {
     const login = c.user?.login;
     if (!login) continue;
@@ -420,7 +427,10 @@ export function parsePartners(comments: readonly RawComment[]): PartnersData {
       if ((m = /^\/seek-partner\b(.*)$/i.exec(t))) {
         const rest = (m[1] as string).trim();
         if (/^cancel$/i.test(rest)) seekers.delete(login.toLowerCase());
-        else seekers.set(login.toLowerCase(), { login, note: rest || undefined, at: c.created_at });
+        else {
+          seekers.set(login.toLowerCase(), { login, note: rest || undefined, at: c.created_at });
+          if (rest) notes[login.toLowerCase()] = rest;
+        }
         continue;
       }
       // A login never contains '.', ',', ':', ';' or '!', so excluding them from the
@@ -470,6 +480,7 @@ export function parsePartners(comments: readonly RawComment[]): PartnersData {
   return {
     seekers: [...seekers.values()].sort((a, b) => a.at.localeCompare(b.at)),
     invitations: [...invitations.values()].sort((a, b) => a.at.localeCompare(b.at)),
+    notes,
   };
 }
 
@@ -821,7 +832,7 @@ export class Directory {
   private async toListing(issue: RawIssue, meta: TournamentMeta, now: number): Promise<Listing> {
     let registrations: Registration[] | null = [];
     let results: TournamentResults | null = null;
-    let partners: PartnersData | null = { seekers: [], invitations: [] };
+    let partners: PartnersData | null = { seekers: [], invitations: [], notes: {} };
     let pinned: PinnedStart | null = null;
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];

@@ -154,6 +154,11 @@ describe('issue format', () => {
     /* Somebody who never joined the list is not added to it by pairing up. */
     const dan = [c('cat', '/seek-partner', '2026-11-01T10:02:00Z'), c('dan', '/invite @cat', '2026-11-01T10:03:00Z'), c('cat', '/accept @dan', '2026-11-01T10:04:00Z')];
     expect(parsePartners(dan).seekers).toEqual([]);
+
+    /* The descriptions outlive the list: they say how somebody plays, which
+       the registered players panel shows whether or not they still want a partner. */
+    expect(after.notes).toEqual({ ann: 'happy to play anything', bob: 'weekends only' });
+    expect(parsePartners([...base, c('ann', '/seek-partner cancel', '2026-11-01T10:05:00Z')]).notes.ann).toBe('happy to play anything');
   });
   it('ignores a self-invite and treats accept/decline of a non-pending invite as a no-op', () => {
     const c = (login: string, body: string, t: number) => ({ user: { login }, body, created_at: `2026-11-01T00:00:${String(t).padStart(2, '0')}Z` });

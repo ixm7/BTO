@@ -263,6 +263,9 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 /* ---- player name tooltip (click to see note) ---- */
 .seat .who .pname { cursor: pointer; }
 .seat .who .pname:hover { text-decoration: underline; }
+/* The same name badge in a list of players, where there is no table. */
+table.list .pname { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+table.list .pname:hover, table.list .pname:focus-visible { text-decoration: underline; }
 .seat .who { position: relative; }
 .player-tooltip {
   position: absolute; z-index: 50;

@@ -649,13 +649,39 @@ function detailView(l: Listing): HTMLElement {
    * a way to ask them. Two players who already know each other can pair up
    * here without going near the partner list.
    */
-  const partnerCell = (r: { login: string; name: string; pairCode?: string }): Node | string => {
-    /* An accepted invitation settles it at once; a shared pair code covers
-       partners who arranged themselves by other means. */
+  /* Who a registered player is playing with, where it is settled: an accepted
+     invitation says so at once, and a shared pair code covers partners who
+     arranged themselves by other means. */
+  const pairedWith = (r: { login: string; pairCode?: string }): string | null => {
     const agreed = (l.partners?.invitations ?? []).find((i) => i.status === 'accepted'
       && (i.from.toLowerCase() === r.login.toLowerCase() || i.to.toLowerCase() === r.login.toLowerCase()));
     const other = !agreed ? null : agreed.from.toLowerCase() === r.login.toLowerCase() ? agreed.to : agreed.from;
-    const partner = other ? who(l, other) : partnerNameOf(r);
+    return other ? who(l, other) : partnerNameOf(r);
+  };
+
+  /**
+   * A registered player's name, with their level and description on hover and
+   * on click, as at the table: you can see who you are playing with before you
+   * sit down. The description is the one they gave on the partner list, which
+   * is the only place a player writes one for a tournament.
+   */
+  const nameCell = (r: { login: string; name: string; skill?: Skill; pairCode?: string }): Node => {
+    const partner = pairedWith(r);
+    const note = l.partners?.notes[r.login.toLowerCase()];
+    const tip = [r.name, `Level: ${r.skill || 'not given'}`, `Description: ${note || 'none'}`,
+      ...(partner ? [`Partner: ${partner}`] : [])].join('\n');
+    const show = (): void => openPlayerInfo({
+      name: r.name, robot: false,
+      ...(r.skill ? { skill: r.skill } : {}), ...(note ? { note } : {}), ...(partner ? { partner } : {}),
+    });
+    return h('span.pname', {
+      role: 'button', tabindex: 0, 'data-tip': tip, 'aria-label': tip, onclick: show,
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); } },
+    }, r.name);
+  };
+
+  const partnerCell = (r: { login: string; name: string; pairCode?: string }): Node | string => {
+    const partner = pairedWith(r);
     if (partner) return `Partner: ${partner}`;
     const them = r.login.toLowerCase();
     if (them === myLogin) return h('span.muted', 'you');
@@ -757,7 +783,7 @@ function detailView(l: Listing): HTMLElement {
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
-        h('td.num', i + 1), h('td', r.name), h('td.muted', isRelayed(r.login) ? '' : `@${r.login}`),
+        h('td.num', i + 1), h('td', nameCell(r)),
         h('td.muted', r.skill ?? ''),
         h('td.muted', partnerCell(r)),
         h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
@@ -981,10 +1007,13 @@ function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?
 }
 
 /** A player's name, level and description, with room to read them. */
-function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }, robots?: 'sayc' | '2/1'): void {
+function openPlayerInfo(
+  p: { name: string; seat?: string; robot: boolean; skill?: string; note?: string; partner?: string },
+  robots?: 'sayc' | '2/1',
+): void {
   if (p.robot) {
     dialog(p.name, (close) => h('div.about',
-      h('p.muted', p.seat),
+      p.seat ? h('p.muted', p.seat) : null,
       h('ul',
         robots === '2/1'
           ? h('li', h('b', '2/1:'), ' two-over-one game forcing, forcing 1NT over a major, 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, '
@@ -1001,9 +1030,10 @@ function openPlayerInfo(p: { name: string; seat: string; robot: boolean; skill?:
   }
   dialog(p.name, (close) => h('div',
     h('dl.facts',
-      h('dt', 'Seat'), h('dd', p.seat),
+      p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
-      h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description'))),
+      h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description')),
+      p.partner ? [h('dt', 'Partner'), h('dd', p.partner)] : null),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
 }
 
