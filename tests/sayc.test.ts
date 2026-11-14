@@ -341,3 +341,43 @@ describe('a raise is a jump only when the suit could have been bid lower', () =>
     expect(at(weak, '1H 2D', '2/1').says).toMatch(/Weak jump raise/);
   });
 });
+
+describe('SAYC: after a strong two clubs', () => {
+  /* 2♣ is the one opening that promises a hand on its own, so the auction
+     does not stop short of game — and opener's 2NT rebid is answered the way
+     a 2NT opening is: three clubs asks for a major, three of a red suit is a
+     transfer. Opener passing any of them leaves the partnership in a part
+     score with 25 or more points between them. */
+  const strong = 'AKQ5.AK4.AQ62.K3'; // 25, balanced: opens 2♣, rebids 2NT
+
+  it('answers three clubs over the two no-trump rebid instead of passing', () => {
+    expect(bid(strong, '2C P 2D P 2N P 3C P')).not.toBe('Pass');
+    expect(bid(strong, '2C P 2D P 2N P 3C P')).toBe('3S'); // four spades
+    expect(bid('AK54.A4.AKQ62.K3', '2C P 2D P 2N P 3C P')).toBe('3S');
+    expect(bid('A4.AKQ5.AKQ62.K3', '2C P 2D P 2N P 3C P')).toBe('3H');
+    expect(bid('A43.A42.AKQ62.KQ', '2C P 2D P 2N P 3C P')).toBe('3D'); // no major
+  });
+
+  it('completes a transfer over the two no-trump rebid', () => {
+    expect(bid(strong, '2C P 2D P 2N P 3D P')).toBe('3H');
+    expect(bid(strong, '2C P 2D P 2N P 3H P')).toBe('3S');
+  });
+
+  it('uses the asking bids itself as responder', () => {
+    /* Four spades and enough to want a game: ask, do not pass. */
+    expect(bid('KJ52.843.K62.932', '2C P 2D P 2N P')).toBe('3C');
+    /* Five hearts: transfer. */
+    expect(bid('52.KJ843.762.932', '2C P 2D P 2N P')).toBe('3D');
+  });
+
+  it('does not let a two club auction die below game', () => {
+    /* Responder has nothing at all, but 22 opposite nothing is still a game
+       try the partnership has committed itself to. */
+    expect(bid('52.843.7632.9432', '2C P 2D P 2N P')).not.toBe('Pass');
+    /* And a responder with four points raises the answer to game rather
+       than settling in a part score. */
+    expect(bid('KJ52.843.762.932', '2C P 2D P 2N P 3C P 3S P')).toBe('4S');
+    /* Game reached, the auction may of course stop. */
+    expect(bid(strong, '2C P 2D P 2N P 3C P 3S P 4S P')).toBe('Pass');
+  });
+});

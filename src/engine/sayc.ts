@@ -177,7 +177,9 @@ function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Tol
     rhoCall,
     tagOf: (i) => told[i]?.tag ?? '',
     sys,
-    gf: a.calls.some((e, i) => sideOf(e.seat) === sideOf(me) && told[i]?.tag === 'gf'),
+    /* A strong two clubs is a hand on its own: once it is opened, the
+       partnership is in for game whatever responder holds. */
+    gf: a.calls.some((e, i) => sideOf(e.seat) === sideOf(me) && (told[i]?.tag === 'gf' || told[i]?.tag === '2c')),
     passedHand: by(me)[0]?.e.call.type === 'pass',
   };
 }
@@ -259,9 +261,11 @@ function ntResponses(c: Ctx, level: number, lo: number, hi: number): Rule[] {
   }
   out.push({ call: B(6, 'N'), says: 'To play: enough for a small slam', hcp: R(slam, 37) });
   out.push({ call: B(4, 'N'), says: 'Invites six no-trump', hcp: R(quant, slam - 1), tag: 'quant' });
-  out.push({ call: B(3, 'N'), says: 'To play', hcp: R(game, quant - 1) });
+  /* In a forcing auction there is no stopping below game, so three no-trump
+     is where a hand with nothing to say belongs, however little it holds. */
+  out.push({ call: B(3, 'N'), says: 'To play', hcp: R(c.gf ? 0 : game, quant - 1) });
   if (level === 1) out.push({ call: B(2, 'N'), says: 'Invites game', hcp: R(invite, game - 1), tag: 'invite' });
-  out.push({ call: PASS, says: 'Not enough for game', hcp: R(0, (level === 1 ? invite : game) - 1) });
+  if (!c.gf) out.push({ call: PASS, says: 'Not enough for game', hcp: R(0, (level === 1 ? invite : game) - 1) });
   return out;
 }
 
@@ -604,6 +608,11 @@ function rebid(c: Ctx): Rule[] {
         { call: B(4, x), says: 'A minimum opening', hcp: R(0, 14), read: R(12, 14) },
       ];
     }
+    /* Opener's 22-24 rebid after two clubs. It is a no-trump opening in all
+       but name, so it is answered like one: three clubs asks for a major,
+       three of a red suit transfers. Without this, opener heard three clubs
+       as a suit of responder's own and passed it. */
+    if (pdTag === 'nt22' && pdCall.strain === 'N') return ntResponses(c, pdCall.level, 22, 24);
     if (pdTag === 'waiting') {
       const out: Rule[] = [
         { call: B(3, 'N'), says: '25–27 points, balanced', hcp: R(25, 27), when: (v) => v.balanced },
@@ -698,9 +707,9 @@ function afterStayman(c: Ctx, answer: Call & { type: 'bid' }): Rule[] {
     out.push({ call: B(4, m), says: 'To play: a fit, and enough for game', hcp: R(game, 37), len: { [m]: [4, 4] }, when: (v) => v.len[m] >= 4 });
     if (L === 2) out.push({ call: B(3, m), says: 'A fit: invites game', hcp: R(game - 2, game - 1), len: { [m]: [4, 4] }, when: (v) => v.len[m] >= 4, tag: 'invite' });
   }
-  out.push({ call: B(3, 'N'), says: 'To play', hcp: R(game, 37) });
-  if (L === 2) out.push({ call: B(2, 'N'), says: 'Invites game', hcp: R(game - 2, game - 1), tag: 'invite' });
-  out.push({ call: PASS, says: 'Pass' });
+  out.push({ call: B(3, 'N'), says: 'To play', hcp: R(c.gf ? 0 : game, 37) });
+  if (L === 2 && !c.gf) out.push({ call: B(2, 'N'), says: 'Invites game', hcp: R(game - 2, game - 1), tag: 'invite' });
+  if (!c.gf) out.push({ call: PASS, says: 'Pass' });
   return out;
 }
 
@@ -713,9 +722,10 @@ function afterTransfer(c: Ctx, m: Suit): Rule[] {
   out.push({ call: B(6, 'N'), says: 'To play: enough for a small slam', hcp: R(33 - pd[0], 37), tag: 'final' });
   out.push({ call: B(4, m), says: 'To play: six or more trumps', hcp: R(game - 1, 37), len: { [m]: [6, 13] } });
   if (accepted === 2) out.push({ call: B(3, m), says: 'Six trumps: invites game', hcp: R(game - 3, game - 2), len: { [m]: [6, 13] }, tag: 'invite' });
-  out.push({ call: B(3, 'N'), says: 'Exactly five trumps, enough for game: choose', hcp: R(game, 37), len: { [m]: [5, 5] }, tag: 'choice' });
-  if (accepted === 2) out.push({ call: B(2, 'N'), says: 'Exactly five trumps: invites game', hcp: R(game - 2, game - 1), len: { [m]: [5, 5] }, tag: 'invite-choice' });
-  out.push({ call: PASS, says: 'To play', hcp: R(0, game - 3) });
+  out.push({ call: B(3, 'N'), says: 'Exactly five trumps, enough for game: choose', hcp: R(c.gf ? 0 : game, 37), len: { [m]: [5, 5] }, tag: 'choice' });
+  if (accepted === 2 && !c.gf) out.push({ call: B(2, 'N'), says: 'Exactly five trumps: invites game', hcp: R(game - 2, game - 1), len: { [m]: [5, 5] }, tag: 'invite-choice' });
+  if (c.gf) out.push({ call: B(4, m), says: 'To play: six or more trumps', len: { [m]: [6, 13] } });
+  else out.push({ call: PASS, says: 'To play', hcp: R(0, game - 3) });
   return out;
 }
 
