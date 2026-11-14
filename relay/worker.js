@@ -152,6 +152,15 @@ async function act(request, url, env, ctx) {
   });
   if (!posted.ok) throw new Refusal(`The tournament page would not take that (error ${posted.status}).`, 502);
 
+  /* A tournament with its result on it is over, and an issue that says so can
+     be told apart from one still being played without reading it through —
+     which is what keeps a list of hundreds affordable. */
+  if (input.act === 'results') {
+    await github(`/repos/${owner}/${repo}/issues/${issue}`, env, {
+      method: 'PATCH', body: JSON.stringify({ state: 'closed', state_reason: 'completed' }),
+    });
+  }
+
   /* So the person who just acted sees it straight away rather than in a few seconds. */
   ctx.waitUntil(forget(url.origin, owner, repo, issue));
   return json({ ok: true, tag });

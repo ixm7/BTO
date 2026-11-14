@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTEND_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, ROBOT_FILL_FROM, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
+import { EXTEND_MS, READ_AHEAD_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, ROBOT_FILL_FROM, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
 
 const meta: TournamentMeta = makeMeta({
   name: 'Auto', director: 'Ido', start: '2030-01-01T19:30', timeZone: 'UTC',
@@ -278,5 +278,57 @@ describe('a rule that changed', () => {
     const N = Date.parse(now.startUtc);
     expect(N).toBeGreaterThan(ROBOT_FILL_FROM);
     expect(planStart(now, players(2, N - M), later(N + MIN_WAIT_MS))).toEqual({ kind: 'start', at: N + MIN_WAIT_MS });
+  });
+});
+
+describe('a list of hundreds', () => {
+  /* A club that runs something every hour has a tournament for every hour of
+     the week. Reading every one of their entry lists, over and over, for
+     every player looking at the page, is more than the relay's allowance of
+     GitHub will bear — so a long list is read where it matters. */
+  const many = (count: number, now: number) => {
+    const issues = Array.from({ length: count }, (_, i) => {
+      const start = new Date(now + (i - 2) * 3600 * 1000).toISOString();
+      const m = { ...meta, name: `Hour ${i}`, startUtc: start, start: start.slice(0, 16), rounds: 1, boardsPerRound: 1 };
+      return { number: 100 + i, node_id: `I_${i}`, html_url: 'u', title: m.name, body: issueBody(m), state: 'open', user: { login: 'ixm7' }, comments: 3 };
+    });
+    let reads = 0;
+    const fetcher = async (url: string): Promise<Response> => {
+      const asked = /\/issues\/(\d+)\/comments/.exec(url);
+      if (asked) {
+        reads++;
+        return new Response(JSON.stringify(players(4, now - 3600 * 1000)), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      const one = /\/issues\/(\d+)$/.exec(url);
+      if (one) return new Response(JSON.stringify(issues.find((x) => x.number === Number(one[1]))), { status: 200, headers: { 'content-type': 'application/json' } });
+      /* The list, a page at a time. */
+      const page = Number(/[?&]page=(\d+)/.exec(url)?.[1] ?? 1);
+      return new Response(JSON.stringify(issues.slice((page - 1) * 100, page * 100)), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    return { fetcher, reads: () => reads };
+  };
+
+  it('reads every tournament while there are few of them', async () => {
+    const now = Date.parse('2030-01-01T12:00:00Z');
+    const { fetcher, reads } = many(12, now);
+    const list = await new Directory('ixm7/BTO', null, fetcher as never).list(now);
+    expect(list).toHaveLength(12);
+    expect(reads()).toBe(12);
+    expect(list.every((l) => l.registrations !== null)).toBe(true);
+  });
+
+  it('reads the ones that matter when there are hundreds, and still lists them all', async () => {
+    const now = Date.parse('2030-01-01T12:00:00Z');
+    const { fetcher, reads } = many(168, now);
+    const list = await new Directory('ixm7/BTO', null, fetcher as never).list(now);
+    /* Every one of them is on the list — not just the first hundred. */
+    expect(list).toHaveLength(168);
+    /* But only the ones near enough to matter were read. */
+    expect(reads()).toBeLessThan(20);
+    const read = list.filter((l) => l.registrations !== null);
+    expect(read.length).toBe(reads());
+    for (const l of read) expect(Date.parse(l.meta.startUtc) - now).toBeLessThanOrEqual(READ_AHEAD_MS);
+    /* The rest say plainly that the numbers are not known yet. */
+    expect(list.filter((l) => l.registrations === null).length).toBeGreaterThan(140);
   });
 });

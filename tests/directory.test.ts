@@ -687,7 +687,7 @@ describe('making a week of tournaments at once', () => {
     expect(() => repeatStarts('2026-11-18T10:30', [], [10, 11])).toThrow(/on the hour/);
     expect(() => repeatStarts('2026-11-18T10:00', [9], [10])).toThrow(/days of the week/);
     expect(() => repeatStarts('2026-11-18T10:00', [], [24])).toThrow(/hours of the day/);
-    /* Seven days by every hour is more than anybody meant to ask for. */
-    expect(() => repeatStarts('2026-11-18T00:00', [0, 1, 2, 3, 4, 5, 6], [...Array(24).keys()])).toThrow(/at a time/);
+    /* Every hour of every day is a whole week of them, which is allowed. */
+    expect(repeatStarts('2026-11-18T00:00', [0, 1, 2, 3, 4, 5, 6], [...Array(24).keys()])).toHaveLength(168);
   });
 });

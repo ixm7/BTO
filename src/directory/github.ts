@@ -225,7 +225,7 @@ export const WEEKDAYS: readonly { day: number; name: string }[] = [
 ];
 
 /** The most tournaments one go at the form will make. */
-export const MOST_AT_ONCE = 48;
+export const MOST_AT_ONCE = 168;
 
 /**
  * The start times one filling-in of the form comes to.
@@ -600,6 +600,20 @@ export function playingWindowMs(meta: TournamentMeta): number {
   return boards * 10 * 60 * 1000 + 30 * 60 * 1000;
 }
 
+/** How many hundreds of tournaments a list will hold. */
+const LIST_PAGES = 4;
+
+/**
+ * How far ahead of a tournament its entry list is read, on a list too long to
+ * read through. Far enough that a player sees the numbers before they decide,
+ * near enough that a week of hourly tournaments is not fetched in full every
+ * time anybody refreshes.
+ */
+export const READ_AHEAD_MS = 12 * 3600 * 1000;
+
+/** Up to this many tournaments, every one of them is read in full. */
+export const READ_ALL_UP_TO = 40;
+
 /** How long a played-out tournament stays on the list before it is dropped. */
 export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 
@@ -941,7 +955,7 @@ export class Directory {
     return all;
   }
 
-  private async toListing(issue: RawIssue, meta: TournamentMeta, now: number): Promise<Listing> {
+  private async toListing(issue: RawIssue, meta: TournamentMeta, now: number, readAll = true): Promise<Listing> {
     let registrations: Registration[] | null = [];
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [], notes: {} };
@@ -950,7 +964,20 @@ export class Directory {
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];
     let readable = true;
-    if (issue.comments > 0) {
+    /*
+     * Who has entered, who is looking for a partner and what the result was
+     * all live in the tournament's comments, which is a request each. A list
+     * of a few is nothing; a list of a few hundred, asked again every minute
+     * by every player, is more than the relay's allowance of GitHub will
+     * bear. So they are read for the tournaments where the answer can still
+     * change something — about to start, being played, lately finished — and
+     * the rest are shown from the issue alone, with their numbers filled in
+     * as their turn comes round. Opening one always reads it.
+     */
+    const start = Date.parse(meta.startUtc);
+    const near = readAll || (now >= start - READ_AHEAD_MS && now <= start + playingWindowMs(meta) + KEEP_FINISHED_MS);
+    if (issue.comments > 0 && !near) { registrations = null; partners = null; readable = false; }
+    else if (issue.comments > 0) {
       try {
         const read = asActors(await this.comments(issue.number), this.relay?.login ?? '');
         cs = read.comments;
@@ -986,7 +1013,15 @@ export class Directory {
 
   /** All tournaments in the repository, soonest upcoming first, then past ones newest first. */
   async list(now: number = Date.now()): Promise<Listing[]> {
-    const issues = await this.req<RawIssue[]>(this.api('/issues?state=all&per_page=100&sort=created&direction=desc'));
+    /* A club that runs something every hour has hundreds of these, so the
+       list is read a page at a time until it runs out or reaches the most a
+       list is worth showing. */
+    const issues: RawIssue[] = [];
+    for (let page = 1; page <= LIST_PAGES; page++) {
+      const batch = await this.req<RawIssue[]>(this.api(`/issues?state=all&per_page=100&sort=created&direction=desc&page=${page}`));
+      issues.push(...batch);
+      if (batch.length < 100) break;
+    }
     const found: { issue: RawIssue; meta: TournamentMeta }[] = [];
     for (const issue of issues) {
       if (issue.pull_request) continue;
@@ -1002,7 +1037,10 @@ export class Directory {
       return true;
     });
     this.due = seriesDue(unique, now);
-    const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now)));
+    /* A handful of tournaments are read in full, numbers and all. A list in
+       the hundreds is read where it matters — see `toListing`. */
+    const readAll = unique.length <= READ_ALL_UP_TO;
+    const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now, readAll)));
     /* Remember what was left off the list so it can be swept away later; the
        caller decides whether to, and the next listing recomputes this anyway. */
     /* Whatever is over and left no result to keep — called off for want of

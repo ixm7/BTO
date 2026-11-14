@@ -497,6 +497,8 @@ function when(l: Listing): HTMLElement {
 
 const badge = (status: string): HTMLElement => h(`span.badge.${status.replace(' ', '-')}`, status);
 const playersCell = (l: Listing): string => `${l.registrations ? l.registrations.length : '?'} / ${l.meta.capacity}`;
+/** Why a list of hundreds shows a question mark instead of a number. */
+const PLAYERS_LATER = 'The entry list is read closer to the start, and whenever you open the tournament. Open it to see who has entered.';
 
 /** What becomes of you if you enter without a partner, shown wherever you enter. */
 const PARTNERING_NOTE = 'Registered players without a partner will be assigned a player at random (or a robot if no partner is available).';
@@ -541,7 +543,7 @@ function listTable(rows: Listing[]): HTMLElement {
         String(boardCount(l.meta))),
       h('td', when(l)),
       h('td', levelText(l.meta)),
-      h('td.num', playersCell(l)),
+      h('td.num', l.registrations ? {} : { 'data-tip': PLAYERS_LATER, 'aria-label': PLAYERS_LATER }, playersCell(l)),
       h('td', badge(l.status)),
     )))));
 }
@@ -1191,19 +1193,31 @@ function openCreate(): void {
         const metas = starts.map((start) => makeMeta({ ...common, start }));
         close();
         let first = 0;
-        for (const [i, meta] of metas.entries()) {
-          notice = metas.length === 1 ? 'Creating the tournament…' : `Creating tournaments… ${i + 1} of ${metas.length}`;
+        let made = 0;
+        try {
+          for (const [i, meta] of metas.entries()) {
+            notice = metas.length === 1 ? 'Creating the tournament…'
+              : `Creating tournaments… ${i + 1} of ${metas.length}. Leave this page open until it is done.`;
+            render();
+            const number = await d.create(meta);
+            made++;
+            if (!first) { first = number; location.hash = `t=${number}`; }
+            /* Gently, so GitHub does not take a run of new issues for a flood. */
+            if (i + 1 < metas.length) await new Promise((r) => setTimeout(r, 1200));
+          }
+        } catch (x) {
+          /* The dialog has gone, so this has to be said on the page itself. */
+          notice = null;
+          errorMsg = `${made} of ${metas.length} tournaments were created, and then GitHub refused: ${(x as Error).message}`;
           render();
-          const number = await d.create(meta);
-          if (!first) { first = number; location.hash = `t=${number}`; }
-          /* Gently, so GitHub does not take a run of new issues for a flood. */
-          if (i + 1 < metas.length) await new Promise((r) => setTimeout(r, 700));
+          if (made > 0) await refresh(first);
+          return;
         }
         /* Only say it is done once it is on the list, so that going back to
            the list shows it there. */
         await refresh(first);
-        const made = metas.length === 1 ? 'Tournament created.' : `${metas.length} tournaments created.`;
-        notice = listings?.some((x) => x.number === first) ? made : `${made} They may take a moment to appear on the list.`;
+        const done = metas.length === 1 ? 'Tournament created.' : `${metas.length} tournaments created.`;
+        notice = listings?.some((x) => x.number === first) ? done : `${done} They may take a moment to appear on the list.`;
         render();
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
