@@ -240,4 +240,47 @@ describe('playing a tournament a table at a time', () => {
     expect(table).toHaveLength(4);
     expect(table.find((r) => r.pair.players.some((p) => p.id === 'p0'))!.boardsPlayed).toBe(1);
   }, 120000);
+
+  it('carries a table of robots through every round, not just the first', async () => {
+    const config = planConfig({ id: 'ses6', name: 'Short', seed: 'fixed', roster: roster(1), boardsPerRound: 1, rounds: 3, minTables: 2 });
+    const spare = unmannedTables(config);
+    expect(spare).toHaveLength(1);
+
+    const net = world();
+    const open = (id: string, score: number, extra: Record<string, unknown> = {}): TournamentSession => {
+      const s = new TournamentSession({
+        config, botDelayMs: 0,
+        me: { playerId: id, name: id, deviceScore: score, isDirector: false },
+        connect: (room) => net.connect(room),
+        onChange: () => { /* the interface would redraw here */ },
+        ...extra,
+      });
+      live.push(s);
+      return s;
+    };
+    const mine = open('p0', 50);
+    const theirs = open('spare:1', 1, { actingAs: spare[0]!.follow, unmanned: true });
+    await Promise.all([mine.start(), theirs.start()]);
+    await until(() => !!mine.node?.state && !!theirs.node?.state);
+
+    const tick = setInterval(() => {
+      const n = mine.node;
+      const at = n?.mySeat();
+      if (!n || !at) return;
+      const turn = turnAt(at.table);
+      if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return;
+      if (turn.phase === 'auction') n.call(chooseCall(at.table.deal![turn.seat], at.table.auction!, turn.seat));
+      else n.play(turn.seat, chooseCard(at.table.play!, turn.seat));
+    }, 4);
+
+    try {
+      await until(() => !!mine.node?.state?.finished, 90000);
+    } finally {
+      clearInterval(tick);
+    }
+    /* Every round, at both tables. */
+    expect(mine.node!.state!.results).toHaveLength(6);
+    expect(mine.round).toBe(config.rounds - 1);
+    expect(theirs.round).toBe(config.rounds - 1);
+  }, 120000);
 });

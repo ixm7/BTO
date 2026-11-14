@@ -563,6 +563,19 @@ export const MAX_EXTENSIONS = 5;
 export const SETTLE_MS = 30 * 1000;
 
 /**
+ * When robots began making up the numbers instead of a short field being
+ * called off.
+ *
+ * Nothing about a start is written down: every browser works it out from the
+ * comments, every time it looks. So changing the rule changes the past as
+ * well as the future — tournaments that were called off for want of players
+ * came back to life, hours late, and tried to seat whoever was still
+ * registered. A tournament is judged by the rule in force when it was due to
+ * start, which leaves what already happened as it was.
+ */
+export const ROBOT_FILL_FROM = Date.parse('2026-11-14T15:45:00Z');
+
+/**
  * Where a tournament's start stands.
  *  - wait: entries are open; nothing can be decided before `until`.
  *  - start: entries closed at `at`; whoever was registered then plays.
@@ -609,6 +622,8 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
    * and have robots make up the numbers.
    */
   const ready = (n: number): boolean => n >= cap || (n >= MIN_PLAYERS && n % 4 === 0);
+  /* Older tournaments are still judged by the rule they were called off under. */
+  const fewest = T0 >= ROBOT_FILL_FROM ? 1 : MIN_PLAYERS;
 
   if (now < T0) return { kind: 'wait', until: T0, extensions: 0 };
   if (ready(count(T0))) return settled({ kind: 'start', at: T0 });
@@ -621,7 +636,7 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
       /* The five minutes are up and they did not come. Whoever did is played
          with, robots filling the seats nobody took. */
       return now < close ? { kind: 'wait', until: close, extensions: 0 }
-        : settled(count(close) > 0 ? { kind: 'start', at: close } : { kind: 'cancel', at: close });
+        : settled(count(close) >= fewest ? { kind: 'start', at: close } : { kind: 'cancel', at: close });
     }
     if (ready(count(reached))) return settled({ kind: 'start', at: reached });
     from = reached;
@@ -638,7 +653,7 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
     if (joined && ext < MAX_EXTENSIONS) { from = to; continue; }
     /* Withdrawals in the meantime can leave it short, which robots cover;
        only an empty list is nothing to play. */
-    return settled(count(to) > 0 ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
+    return settled(count(to) >= fewest ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
   }
 }
 

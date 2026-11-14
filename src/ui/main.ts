@@ -6,7 +6,7 @@ import { planConfig, unmannedTables } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
-import { originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
+import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { installHoverTips } from './hoverTip';
 import { LIMIT, online, watchOnline } from './presence';
@@ -1237,7 +1237,9 @@ function joinByCode(): void {
  */
 let session: TournamentSession | null = null;
 /** Tables of robots this browser is running for the field; see `unmannedTables`. */
-let spares: TournamentSession[] = [];
+const spares: TournamentSession[] = [];
+/** Set while a tournament is under way: puts this browser forward to run them. */
+let openSpares: (() => void) | null = null;
 let awaitingStart = false;
 let startPoll: ReturnType<typeof setInterval> | null = null;
 
@@ -1248,6 +1250,7 @@ function stopStartPoll(): void {
 function leaveRoom(): void {
   if (room?.listing) leftAt.set(room.listing.number, Date.now());
   node?.close();
+  openSpares = null;
   closeSpares();
   session?.close();
   stopStartPoll();
@@ -1260,6 +1263,18 @@ function leaveRoom(): void {
 function closeSpares(): void {
   for (const s of spares.splice(0)) s.close();
 }
+
+/*
+ * A table of robots is only ever run by a tab somebody is looking at. A
+ * browser slows a background tab's timers right down — to a tick a minute
+ * after a while — so a hidden tab that had won the right to run that table
+ * would leave the whole field waiting on a hand being played at a crawl. On
+ * the way out it hands the table over; on the way back it offers again.
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) closeSpares();
+  else openSpares?.();
+});
 
 /** The field, as it stood when entries closed. */
 function pinnedPlan(l: Listing): TournamentConfig | null {
@@ -1318,17 +1333,25 @@ async function openSession(l: Listing): Promise<void> {
    * their scores against.
    */
   closeSpares();
-  for (const t of unmannedTables(config)) {
-    const spare = new TournamentSession({
-      config, connect, actingAs: t.follow, robot: spareRobot, unmanned: true,
-      /* Last in line to host it: anybody actually sitting at that table — a
-         player who took a robot's seat — should run it instead. */
-      me: { playerId: `spare:${t.table}:${me.playerId}`, name: `Table ${t.table + 1}`, deviceScore: 1, isDirector: false },
-      onChange: () => { /* nobody is watching this table */ },
-    });
-    spares.push(spare);
-    void spare.start().catch(() => { /* the field plays on without it */ });
-  }
+  openSpares = () => {
+    if (spares.length || !session) return;
+    for (const t of unmannedTables(config)) {
+      const spare = new TournamentSession({
+        config, connect, actingAs: t.follow, robot: spareRobot, unmanned: true,
+        /* Nobody is at that table to follow the cards, and the field waits for
+           its boards before it can move on, so it plays them without the pause
+           that lets a person keep up. */
+        botDelayMs: 0,
+        /* Last in line to host it: anybody actually sitting at that table — a
+           player who took a robot's seat — should run it instead. */
+        me: { playerId: `spare:${t.table}:${me.playerId}`, name: `Table ${t.table + 1}`, deviceScore: 1, isDirector: false },
+        onChange: () => { /* nobody is watching this table */ },
+      });
+      spares.push(spare);
+      void spare.start().catch(() => { /* the field plays on without it */ });
+    }
+  };
+  if (!document.hidden) openSpares();
 }
 
 function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDelayMs: number): TournamentNode {
@@ -1355,6 +1378,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
 
 async function enterRoom(info: RoomInfo): Promise<void> {
   node?.close();
+  openSpares = null;
   closeSpares();
   session?.close();
   session = null;
@@ -1476,6 +1500,32 @@ function waitingRoom(info: RoomInfo): HTMLElement {
     h('p', `Starting now would make ${Math.max(MIN_TABLES, tables)} tables; robots fill any empty seats.`),
     l && startNote(l) ? h('p.muted', startNote(l)) : null,
     h('p.muted', 'This page moves you to your table by itself once the tournament starts.')));
+}
+
+/**
+ * What the field is still waiting for, for a player whose own table has
+ * finished the round. Without this the wait looks like a hang; with it you can
+ * watch the last table count its boards off — and see that the table holding
+ * everybody up is robots, which is a table this browser may be playing itself.
+ */
+function roundProgress(state: TState): HTMLElement {
+  const c = state.config;
+  const first = firstBoardOfRound(c, state.round);
+  const spare = new Set(unmannedTables(c).map((t) => t.table));
+  const rows = state.tables
+    .map((t) => {
+      const done = state.results.filter((r) => r.table === t.index && r.board >= first && r.board < first + c.boardsPerRound).length;
+      return { index: t.index, done };
+    })
+    .filter((t) => t.done < c.boardsPerRound);
+  if (rows.length === 0) return h('p.muted', 'All in. Moving on…');
+  return h('div',
+    h('div.table-scroll', h('table.list', h('tbody', rows.map((t) => h('tr',
+      h('td', `Table ${t.index + 1}`, spare.has(t.index) ? h('div.muted', 'robots') : null),
+      h('td.num.muted', `${t.done} of ${c.boardsPerRound} board${c.boardsPerRound === 1 ? '' : 's'}`)))))),
+    [...spare].some((i) => rows.some((r) => r.index === i))
+      ? h('p.muted', { style: 'margin-bottom:0' }, 'A table of robots plays its own boards through before the field moves on. It takes a minute or two.')
+      : null);
 }
 
 /** The name of whoever the entry list paired this player with. */
@@ -1742,7 +1792,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       }));
       if (n.lastError) main.append(h('div.error', n.lastError));
     } else {
-      main.append(h('div.panel', h('h3', 'Round complete at your table'), h('p.muted', 'Waiting for the other tables to finish this round…')));
+      main.append(h('div.panel', h('h3', 'Round complete at your table'),
+        h('p.muted', 'Waiting for the other tables to finish this round…'),
+        roundProgress(state)));
     }
     if (table) {
       const left = replacedPanel(state, table);

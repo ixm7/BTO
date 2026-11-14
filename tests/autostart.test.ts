@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTEND_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
+import { EXTEND_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, ROBOT_FILL_FROM, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
 
 const meta: TournamentMeta = makeMeta({
   name: 'Auto', director: 'Ido', start: '2030-01-01T19:30', timeZone: 'UTC',
@@ -225,5 +225,30 @@ describe('weekly tournaments', () => {
       expect((await ask(made.number)).status).toBe(409);
       expect((await ask(6)).status).toBe(409);
     } finally { globalThis.fetch = real; }
+  });
+});
+
+describe('a rule that changed', () => {
+  /* Nothing about a start is written down, so every browser works it out
+     afresh every time it looks — and a tournament called off under the old
+     rule must stay called off, rather than coming back to life hours later
+     and trying to seat whoever was still registered. */
+  const old = makeMeta({
+    name: 'Before', director: 'Ido', start: '2026-11-14T10:00', timeZone: 'UTC',
+    capacity: 16, rounds: 1, boardsPerRound: 2, levels: ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'],
+  } as never);
+  const O = Date.parse(old.startUtc);
+
+  it('judges a tournament by the rule in force when it was due to start', () => {
+    expect(O).toBeLessThan(ROBOT_FILL_FROM);
+    /* Two players, five minutes gone: called off then, called off now. */
+    expect(planStart(old, players(2, O - M), later(O + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
+    /* Long afterwards, it is still called off and not suddenly under way. */
+    expect(planStart(old, players(2, O - M), O + 6 * 3600 * 1000)).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
+    /* And one due after the change plays with robots, as it should. */
+    const now = makeMeta({ ...old, start: '2026-11-20T19:30' } as never);
+    const N = Date.parse(now.startUtc);
+    expect(N).toBeGreaterThan(ROBOT_FILL_FROM);
+    expect(planStart(now, players(2, N - M), later(N + MIN_WAIT_MS))).toEqual({ kind: 'start', at: N + MIN_WAIT_MS });
   });
 });
