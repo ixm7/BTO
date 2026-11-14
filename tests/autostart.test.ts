@@ -143,13 +143,16 @@ describe('the listing every browser sees', () => {
     const live = await new Directory('ixm7/BTO', null, fakeGitHub(cs) as never).get(7, later(T0) + M);
     expect(live.status).toBe('in progress');
 
-    /* A player's word is not enough: the rest of the field may be playing. */
+    /* Whoever was last at a dead table is the one who knows, so any player
+       who was in it may say so, and it does not wait for the playing time to
+       run out. Nobody is in charge of a tournament here. */
     const said = (who: string) => [...cs, { user: { login: who }, body: '/abandoned', created_at: new Date(T0 + 2 * M).toISOString() }];
-    expect((await new Directory('ixm7/BTO', null, fakeGitHub(said('p3')) as never).get(7, later(T0) + 3 * M)).status).toBe('in progress');
+    for (const who of ['p3', 'ixm7']) {
+      expect((await new Directory('ixm7/BTO', null, fakeGitHub(said(who)) as never).get(7, later(T0) + 3 * M)).status, who).toBe('abandoned');
+    }
 
-    /* The director's is, and it does not wait for the playing time to run out. */
-    const off = await new Directory('ixm7/BTO', null, fakeGitHub(said('ixm7')) as never).get(7, later(T0) + 3 * M);
-    expect(off.status).toBe('abandoned');
+    /* A word from somebody who was not in it counts for nothing. */
+    expect((await new Directory('ixm7/BTO', null, fakeGitHub(said('passer-by')) as never).get(7, later(T0) + 3 * M)).status).toBe('in progress');
   });
 
   it('calls off a tournament nobody entered', async () => {

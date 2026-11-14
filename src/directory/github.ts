@@ -84,6 +84,8 @@ export interface TournamentMeta {
 
 /** The inactivity limit used when a tournament does not name one. */
 export const DEFAULT_IDLE_SEC = 60;
+/** What a new tournament is offered: long enough to think, short enough not to hold a table up. */
+export const NEW_IDLE_SEC = 30;
 /** Below this there is no time to think, so the director may not go lower. */
 export const MIN_IDLE_SEC = 20;
 export const MAX_IDLE_SEC = 900;
@@ -216,6 +218,50 @@ export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc
   return { v: 1, ...input, scoring: input.scoring === 'imps' ? 'imps' : 'matchpoints', levels, name, director: input.director.trim(), startUtc };
 }
 
+/** Monday first, as a week is read; the numbers are JavaScript's own. */
+export const WEEKDAYS: readonly { day: number; name: string }[] = [
+  { day: 1, name: 'Mon' }, { day: 2, name: 'Tue' }, { day: 3, name: 'Wed' }, { day: 4, name: 'Thu' },
+  { day: 5, name: 'Fri' }, { day: 6, name: 'Sat' }, { day: 0, name: 'Sun' },
+];
+
+/** The most tournaments one go at the form will make. */
+export const MOST_AT_ONCE = 48;
+
+/**
+ * The start times one filling-in of the form comes to.
+ *
+ * A club that runs something every hour through the afternoon, three days a
+ * week, should not have to fill the form in twenty times. Given the hours of
+ * the day and the days of the week, this works out every start between them,
+ * as wall-clock times in the tournament's own zone — the first week only,
+ * since each of them can then repeat weekly on its own.
+ *
+ * The days are counted from the start date, so a Monday asked for on a
+ * Wednesday is the Monday after it rather than one in the past.
+ */
+export function repeatStarts(start: string, days: readonly number[], hours: readonly number[]): string[] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(start);
+  if (!m) throw new Error('That start time could not be read');
+  const [y, mo, d, hh, mi] = m.slice(1).map(Number) as [number, number, number, number, number];
+  const base = Date.UTC(y, mo - 1, d);
+  const everyHour = hours.length > 0;
+  if (everyHour && mi !== 0) throw new Error('A tournament on every hour has to start on the hour, with no minutes');
+  if (everyHour && hours.some((x) => !Number.isInteger(x) || x < 0 || x > 23)) throw new Error('Those hours are not hours of the day');
+  const wanted = days.length > 0 ? [...new Set(days)] : [new Date(base).getUTCDay()];
+  if (wanted.some((x) => !Number.isInteger(x) || x < 0 || x > 6)) throw new Error('Those are not days of the week');
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const out: string[] = [];
+  for (const day of wanted.map((x) => (x - new Date(base).getUTCDay() + 7) % 7).sort((a, b) => a - b)) {
+    const on = new Date(base + day * 86400000);
+    const date = `${on.getUTCFullYear()}-${pad(on.getUTCMonth() + 1)}-${pad(on.getUTCDate())}`;
+    for (const hour of everyHour ? [...hours].sort((a, b) => a - b) : [hh]) {
+      out.push(`${date}T${pad(hour)}:${pad(everyHour ? 0 : mi)}`);
+    }
+  }
+  if (out.length > MOST_AT_ONCE) throw new Error(`That comes to ${out.length} tournaments; ${MOST_AT_ONCE} at a time is the most the form will make`);
+  return out;
+}
+
 /**
  * The entry list as it stood when the director closed it: everyone registered
  * at or before that moment, in the order they entered. Every player derives
@@ -318,6 +364,7 @@ export function parseStart(comments: readonly RawComment[], directorLogin: strin
 }
 
 const ABANDONED_RE = /^\s*\/abandoned\s*$/im;
+export const ABANDONED_BODY = ['/abandoned', '', 'Every table was left without a player, so this tournament was given up on.'].join('\n');
 
 /**
  * Was the tournament given up on? A table empties when the last player at it
@@ -326,13 +373,14 @@ const ABANDONED_RE = /^\s*\/abandoned\s*$/im;
  * so on the tournament page, so the list can stop calling it a tournament in
  * progress at once rather than waiting out the time it would have taken.
  *
- * Only the director's own word counts: a word from anybody else would be a
- * way to call off a tournament that is being played perfectly happily.
+ * Anybody who was playing may say it, since whoever is last at a dead table
+ * is the one who knows — nobody is in charge of a tournament here. A word
+ * from somebody who was not in it is ignored, and a word that turns out to be
+ * wrong is undone by the results, which outrank it.
  */
-export function parseAbandoned(comments: readonly RawComment[], directorLogin: string): boolean {
-  const director = directorLogin.trim().toLowerCase();
-  if (!director) return false;
-  return comments.some((c) => (c.user?.login ?? '').toLowerCase() === director && ABANDONED_RE.test(c.body ?? ''));
+export function parseAbandoned(comments: readonly RawComment[], trusted: Iterable<string>): boolean {
+  const may = new Set([...trusted].map((x) => x.trim().toLowerCase()).filter(Boolean));
+  return comments.some((c) => may.has((c.user?.login ?? '').toLowerCase()) && ABANDONED_RE.test(c.body ?? ''));
 }
 
 export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
@@ -909,11 +957,11 @@ export class Directory {
         names = read.names;
         registrations = parseRegistrations(cs);
         // Only the director or a registered player can publish results.
-        const trusted = new Set([issue.user?.login, ...registrations.map((r) => r.login)]);
-        results = parseResults(cs.filter((c) => trusted.has(c.user?.login)));
+        const trusted = new Set([issue.user?.login ?? '', ...registrations.map((r) => r.login)]);
+        results = parseResults(cs.filter((c) => trusted.has(c.user?.login ?? '')));
         partners = parsePartners(cs);
         pinned = parseStart(cs, issue.user?.login ?? '');
-        abandoned = parseAbandoned(cs, issue.user?.login ?? '');
+        abandoned = parseAbandoned(cs, trusted);
       } catch { registrations = null; partners = null; readable = false; }
     }
     /* A director's /start, from before starts were automatic, still counts. */
@@ -1140,8 +1188,16 @@ export class Directory {
   }
 
   /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */
+  /**
+   * Post the result. Any player may: whoever's browser sees the last board
+   * scored puts it up, because nobody here is in charge of a tournament and
+   * waiting for somebody in particular would mean results that never appear.
+   * With a token of their own it also closes the issue, which is tidier; the
+   * relay cannot close issues, and a result is a result either way.
+   */
   async publishResults(number: number, results: TournamentResults): Promise<{ closed: boolean }> {
-    await this.comment(number, resultsBody(results));
+    await this.playerAct(number, resultsBody(results), 'results', { results });
+    if (!this.token) return { closed: false };
     try {
       await this.req(this.api(`/issues/${number}`), 'PATCH', { state: 'closed', state_reason: 'completed' });
       return { closed: true };
@@ -1150,7 +1206,7 @@ export class Directory {
 
   /** Say that the tournament was given up on, so the list stops calling it live. */
   async markAbandoned(number: number): Promise<void> {
-    await this.comment(number, ['/abandoned', '', 'Every table was left without a player, so this tournament was given up on.'].join('\n'));
+    await this.playerAct(number, ABANDONED_BODY, 'abandoned');
   }
 
   async cancel(number: number): Promise<void> {

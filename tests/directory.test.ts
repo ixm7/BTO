@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status
-} from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts } from '../src/directory/github';
 import { countdown, formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -663,5 +662,32 @@ describe('the countdown to a start', () => {
     expect(countdown(at(48 * 3600_000), now)).toBeNull();
     expect(countdown(at(-60_000), now)).toBeNull();
     expect(countdown('not a date', now)).toBeNull();
+  });
+});
+
+describe('making a week of tournaments at once', () => {
+  /* 2026-11-18 is a Wednesday. */
+  it('takes the hours of the day across the days of the week', () => {
+    expect(repeatStarts('2026-11-18T19:30', [], [])).toEqual(['2026-11-18T19:30']);
+    /* Every hour from 10 to 12 on the start date itself. */
+    expect(repeatStarts('2026-11-18T10:00', [], [10, 11, 12])).toEqual([
+      '2026-11-18T10:00', '2026-11-18T11:00', '2026-11-18T12:00',
+    ]);
+    /* Monday and Wednesday, counted forward from the Wednesday asked on. */
+    expect(repeatStarts('2026-11-18T10:00', [3, 1], [10])).toEqual(['2026-11-18T10:00', '2026-11-23T10:00']);
+    /* Days and hours together, in order. */
+    expect(repeatStarts('2026-11-18T14:00', [4, 6], [14, 15])).toEqual([
+      '2026-11-19T14:00', '2026-11-19T15:00', '2026-11-21T14:00', '2026-11-21T15:00',
+    ]);
+    /* A day keeps the hour and minute it was given when no hours are named. */
+    expect(repeatStarts('2026-11-18T19:45', [0], [])).toEqual(['2026-11-22T19:45']);
+  });
+
+  it('refuses what it cannot make sense of', () => {
+    expect(() => repeatStarts('2026-11-18T10:30', [], [10, 11])).toThrow(/on the hour/);
+    expect(() => repeatStarts('2026-11-18T10:00', [9], [10])).toThrow(/days of the week/);
+    expect(() => repeatStarts('2026-11-18T10:00', [], [24])).toThrow(/hours of the day/);
+    /* Seven days by every hour is more than anybody meant to ask for. */
+    expect(() => repeatStarts('2026-11-18T00:00', [0, 1, 2, 3, 4, 5, 6], [...Array(24).keys()])).toThrow(/at a time/);
   });
 });

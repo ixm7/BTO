@@ -1,4 +1,4 @@
-import { DEFAULT_IDLE_SEC, MAX_EXTENSIONS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -92,6 +92,10 @@ let recMode: RecordsMode = 'mine';
 let published = false;
 /** Set once this browser has reported a tournament as given up on. */
 let markedAbandoned = false;
+/** Set while this browser is putting the result up, so it only tries once. */
+let publishing = false;
+/** Why the result could not be put up, if it could not. */
+let publishFailed: string | null = null;
 /** While a tournament detail page is open, poll it so a partner's invite/accept/unregister
  * elsewhere shows up here without the person having to hit Refresh themselves. */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -594,6 +598,12 @@ function directoryView(): HTMLElement {
         : h('span.tip', { title: DIRECTOR_NOTE }, h('button.primary', { disabled: true }, 'New tournament'))),
     body);
 }
+
+/** The hours of the day, as a person reads them. */
+const HOURS: readonly { hour: number; name: string }[] = Array.from({ length: 24 }, (_, hour) => ({
+  hour,
+  name: `${hour === 0 || hour === 12 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`,
+}));
 
 /** Small numbers read better as words in a sentence. */
 const inWords = (n: number): string => ['no', 'one', 'two', 'three', 'four', 'five', 'six'][n] ?? String(n);
@@ -1160,28 +1170,42 @@ function openCreate(): void {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
       try {
-        const meta = makeMeta({
-          name: val(f, 'name'), director: val(f, 'director'), start: val(f, 'start'), timeZone: val(f, 'tz'),
+        const hourly = (f.elements.namedItem('hourly') as HTMLInputElement).checked;
+        const from = Number(val(f, 'from')), to = Number(val(f, 'to'));
+        if (hourly && to < from) throw new Error('The last hour comes before the first one');
+        const common = {
+          name: val(f, 'name'), director: val(f, 'director'), timeZone: val(f, 'tz'),
           levels: SKILLS.filter((x) => (f.elements.namedItem(`lvl-${x}`) as HTMLInputElement | null)?.checked),
           capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
           idleTimeoutSec: Number(val(f, 'idle')),
-          scoring: val(f, 'type') === 'imps' ? 'imps' : 'matchpoints',
+          scoring: val(f, 'type') === 'imps' ? 'imps' as const : 'matchpoints' as const,
           ...(val(f, 'robots') === '2/1' ? { robots: '2/1' as const } : {}),
           ...((f.elements.namedItem('weekly') as HTMLInputElement).checked ? { repeat: 'weekly' as const } : {}),
-        });
-        const number = await d.create(meta);
+        };
+        const days = WEEKDAYS.filter((x) => (f.elements.namedItem(`day-${x.day}`) as HTMLInputElement | null)?.checked).map((x) => x.day);
+        const hours = hourly ? Array.from({ length: to - from + 1 }, (_, i) => from + i) : [];
+        const starts = repeatStarts(val(f, 'start'), days, hours);
+        /* Everything is checked before anything is made, so a form that is
+           not quite right does not leave half a week of tournaments behind. */
+        const metas = starts.map((start) => makeMeta({ ...common, start }));
         close();
-        notice = 'Creating the tournament…';
-        location.hash = `t=${number}`;
+        let first = 0;
+        for (const [i, meta] of metas.entries()) {
+          notice = metas.length === 1 ? 'Creating the tournament…' : `Creating tournaments… ${i + 1} of ${metas.length}`;
+          render();
+          const number = await d.create(meta);
+          if (!first) { first = number; location.hash = `t=${number}`; }
+          /* Gently, so GitHub does not take a run of new issues for a flood. */
+          if (i + 1 < metas.length) await new Promise((r) => setTimeout(r, 700));
+        }
         /* Only say it is done once it is on the list, so that going back to
            the list shows it there. */
-        await refresh(number);
-        notice = listings?.some((x) => x.number === number)
-          ? 'Tournament created.'
-          : 'Tournament created. It may take a moment to appear on the list.';
+        await refresh(first);
+        const made = metas.length === 1 ? 'Tournament created.' : `${metas.length} tournaments created.`;
+        notice = listings?.some((x) => x.number === first) ? made : `${made} They may take a moment to appear on the list.`;
         render();
-      } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); }
+      } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
       field('Tournament name', h('input', { name: 'name', required: true, maxLength: 60 })),
       field('Director (your name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
@@ -1199,7 +1223,7 @@ function openCreate(): void {
           field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 4, required: true })),
           field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
       field('Inactivity limit (seconds)',
-        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: DEFAULT_IDLE_SEC, required: true }),
+        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: NEW_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
       field('Robots bid',
         h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
@@ -1207,6 +1231,15 @@ function openCreate(): void {
       h('label.check', h('input', { type: 'checkbox', name: 'weekly' }),
         'Repeat every week on the same day and time'),
       h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),
+      h('label.check', h('input', { type: 'checkbox', name: 'hourly' }),
+        'Hold it on every hour, and on more than one day'),
+      h('div.two',
+        field('From', h('select', { name: 'from' }, HOURS.map((x) => h('option', { value: x.hour, selected: x.hour === 10 }, x.name)))),
+        field('To', h('select', { name: 'to' }, HOURS.map((x) => h('option', { value: x.hour, selected: x.hour === 13 }, x.name))))),
+      field('On these days', h('div.levels', WEEKDAYS.map((x) => h('label.check',
+        h('input', { type: 'checkbox', name: `day-${x.day}` }), x.name))),
+        'One tournament for every hour on every day ticked, the first week only \u2014 each then repeats weekly if that is ticked too. '
+        + 'The start time above gives the week to start from, and must be on the hour. No day ticked means the day it starts on.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
         h('button.primary', { type: 'submit' }, 'Create tournament')));
@@ -1362,12 +1395,48 @@ function forgetSessions(): void {
 function maybeMarkAbandoned(n: TournamentNode): void {
   const l = room?.listing;
   if (markedAbandoned || !l || !n.state?.aborted) return;
-  const login = settings.githubLogin.trim().toLowerCase();
-  if (!login || login !== l.initiatorLogin.toLowerCase()) return;
   const d = directory();
-  if (!d?.canWrite) return;
+  if (!d?.canAct) return;
   markedAbandoned = true;
   void d.markAbandoned(l.number).then(() => refresh()).catch(() => { markedAbandoned = false; });
+}
+
+/**
+ * The result goes up on its own. Nobody here is in charge of a tournament —
+ * the person who created it may be asleep — so the browsers that played it
+ * post it themselves, and whichever gets there first is the one that counts.
+ * They go in turn, a few seconds apart in an order every one of them works
+ * out the same way, so the usual case is one browser posting and the rest
+ * finding it already done.
+ */
+function maybePublish(n: TournamentNode): void {
+  const l = room?.listing;
+  const state = n.state;
+  /* A tournament that was given up on is reported as that, not finished:
+     half a result is not the result of a tournament. */
+  if (published || publishing || !l || !state?.finished || state.aborted || state.results.length === 0) return;
+  const d = directory();
+  if (!d?.canAct) return;
+  publishing = true;
+  const people = [...new Set(state.config.pairs.flatMap((p) => p.players).filter((p) => !p.bot).map((p) => p.id))].sort();
+  const turn = Math.max(0, people.indexOf(n.me.playerId));
+  setTimeout(() => {
+    void (async () => {
+      try {
+        await d.publishResults(l.number, toResults(state));
+        published = true;
+        render();
+        void refresh();
+      } catch (e) {
+        publishing = false;
+        /* Somebody else's browser may yet manage it, and the player can do
+           nothing about it either way, so this is said quietly beside the
+           result rather than thrown across the page. */
+        publishFailed = (e as Error).message;
+        render();
+      }
+    })();
+  }, 1500 + turn * 5000);
 }
 
 /** The field, as it stood when entries closed. */
@@ -1414,7 +1483,7 @@ async function openSession(l: Listing): Promise<void> {
     config, me, connect,
     onChange: () => {
       node = session?.node ?? null;
-      if (node) { maybeReseat(node); maybeMarkAbandoned(node); }
+      if (node) { maybeReseat(node); maybeMarkAbandoned(node); maybePublish(node); }
       render();
     },
     robot, wake: wakeIn, remember: sessionMemory(config.id),
@@ -1490,7 +1559,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   session?.close();
   session = null;
   stopStartPoll();
-  errorMsg = null; notice = null; published = false; markedAbandoned = false;
+  errorMsg = null; notice = null; published = false; markedAbandoned = false; publishing = false; publishFailed = null;
   steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
@@ -1891,11 +1960,11 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       const l = info.listing;
       main.append(h('div.row', { style: 'margin-top:10px' }, published
         ? h('span', 'Results published to ', h('a', { href: l.url, target: '_blank', rel: 'noopener' }, 'the tournament page'), '.')
-        : d.canWrite
-          ? h('button.primary', { onclick: async () => {
-              try { await d.publishResults(l.number, toResults(state)); published = true; render(); void refresh(); } catch (e) { fail(e); }
-            } }, 'Publish results')
-          : h('span.muted', 'Add a token in Settings to publish the results to the tournament page.')));
+        : publishFailed
+          ? h('span.muted', `These results are not on the tournament page: ${publishFailed}`)
+          : d.canAct
+            ? h('span.muted', 'Publishing the results to the tournament page\u2026')
+            : h('span.muted', 'These results stay on this device: there is no way from here to put them on the tournament page.')));
     }
   } else {
     /* A latecomer looking for a seat watches the one table whose room they

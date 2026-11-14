@@ -118,6 +118,10 @@ form.grid label.check input { width: auto; padding: 0; margin: 0; flex: none; }
 /* Carries a tooltip for a control that cannot have one: a disabled button. */
 span.tip { display: inline-flex; }
 
+/* Claim and concede, beside the running commentary on the hand. */
+.status-line .claim-btn { padding: 4px 12px; font-size: 14px; }
+.status-line .claim-btn:disabled { opacity: .55; cursor: not-allowed; }
+
 /* Tournament Director subsection in Settings */
 details.director-section { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 details.director-section summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--ink); padding: 4px 0; }

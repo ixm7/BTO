@@ -140,6 +140,11 @@ async function act(request, url, env, ctx) {
   if (found.pull_request || !/<!--\s*bridge-tournament/.test(found.body || '')) throw new Refusal('No such tournament.', 404);
   if (found.state !== 'open') throw new Refusal('That tournament is over.', 409);
 
+  /* A tournament has one result, and every browser that saw the last board
+     scored offers one. The first is kept and the rest are told it is done,
+     so the page is not filled with the same table over and over. */
+  if (input.act === 'results' && await hasResults(owner, repo, issue, env)) return json({ ok: true, already: true });
+
   /* The command a person reads on the page, then the signature the app reads. */
   const trailer = `<!-- player ${JSON.stringify({ t: tag, n: name })} -->`;
   const posted = await github(`/repos/${owner}/${repo}/issues/${issue}/comments`, env, {
@@ -150,6 +155,18 @@ async function act(request, url, env, ctx) {
   /* So the person who just acted sees it straight away rather than in a few seconds. */
   ctx.waitUntil(forget(url.origin, owner, repo, issue));
   return json({ ok: true, tag });
+}
+
+/** Is the result already on the page? */
+async function hasResults(owner, repo, issue, env) {
+  for (let page = 1; page <= 5; page++) {
+    const res = await github(`/repos/${owner}/${repo}/issues/${issue}/comments?per_page=100&page=${page}`, env);
+    if (!res.ok) return false;
+    const batch = await res.json();
+    if (batch.some((c) => /<!--\s*bridge-results/.test(c.body || ''))) return true;
+    if (batch.length < 100) return false;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------- weekly series */
@@ -264,8 +281,77 @@ function command(action, input, name) {
     case 'accept': return `/accept @${who()}`;
     case 'decline': return `/decline @${who()}`;
     case 'unpair': return `/unpair @${who()}`;
+    case 'abandoned': return ABANDONED_BODY;
+    case 'results': return resultsBody(input.results);
     default: throw new Refusal('That is not something the relay does.');
   }
+}
+
+const ABANDONED_BODY = ['/abandoned', '', 'Every table was left without a player, so this tournament was given up on.'].join('\n');
+
+/* --------------------------------------------------------- the result */
+
+const int = (x, lo, hi, what) => {
+  const n = Number(x);
+  if (!Number.isInteger(n) || n < lo || n > hi) throw new Refusal(`That result makes no sense (${what}).`);
+  return n;
+};
+const num = (x, lo, hi, what) => {
+  const n = Number(x);
+  if (!Number.isFinite(n) || n < lo || n > hi) throw new Refusal(`That result makes no sense (${what}).`);
+  return Math.round(n * 100) / 100;
+};
+const imps = (n) => {
+  const r = Math.round(Number(n) * 100) / 100;
+  const body = Math.abs(r).toFixed(2).replace(/\.?0+$/, '');
+  return r > 0 ? `+${body}` : r < 0 ? `\u2212${body}` : '0';
+};
+
+/**
+ * The result of a tournament, as the page carries it: a table for a person to
+ * read and the same thing as data underneath. Every number is checked and the
+ * comment is built here, so what a player's browser sends is a result and not
+ * a comment of its own choosing.
+ */
+function resultsBody(input) {
+  if (!input || typeof input !== 'object') throw new Refusal('That result could not be read.');
+  const rows = Array.isArray(input.rankings) ? input.rankings : null;
+  if (!rows || rows.length === 0 || rows.length > 128) throw new Refusal('That result has no standings in it.');
+  const byImps = input.scoring === 'imps';
+  const r = {
+    v: 1,
+    ...(byImps ? { scoring: 'imps' } : {}),
+    finishedAt: new Date().toISOString(),
+    tables: int(input.tables, 1, 500, 'tables'),
+    boards: int(input.boards, 1, 500, 'boards'),
+    rankings: rows.map((x) => {
+      const players = clean(x && x.players, 120);
+      if (!players) throw new Refusal('That result has a pair without names.');
+      const direction = x.direction === 'EW' ? 'EW' : 'NS';
+      return {
+        rank: int(x.rank, 1, 999, 'rank'), players, direction,
+        percent: num(x.percent, 0, 100, 'percentage'),
+        matchpoints: num(x.matchpoints, 0, 1e6, 'matchpoints'),
+        maxMatchpoints: num(x.maxMatchpoints, 0, 1e6, 'matchpoints'),
+        ...(byImps ? { imps: num(x.imps, -1e4, 1e4, 'IMPs') } : {}),
+      };
+    }),
+  };
+  return [
+    `### Final results — ${r.tables} table(s), ${r.boards} board(s)`,
+    '',
+    ...(byImps ? [
+      '| Rank | Pair | Dir | IMPs |',
+      '|---:|---|:-:|---:|',
+      ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${imps(x.imps)} |`),
+    ] : [
+      '| Rank | Pair | Dir | Score | MP |',
+      '|---:|---|:-:|---:|---:|',
+      ...r.rankings.map((x) => `| ${x.rank} | ${x.players} | ${x.direction} | ${x.percent.toFixed(2)}% | ${x.matchpoints}/${x.maxMatchpoints} |`),
+    ]),
+    '',
+    `<!-- bridge-results\n${JSON.stringify(r)}\n-->`,
+  ].join('\n');
 }
 
 /**
@@ -275,7 +361,7 @@ function command(action, input, name) {
  */
 function clean(text, max) {
   return String(text ?? '')
-    .replace(/[\u0000-\u001f\u007f<>@`]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f<>@`|]/g, ' ')
     .replace(/\b(pair|level|player):\S*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()

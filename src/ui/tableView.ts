@@ -378,7 +378,10 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const why = claimBlocked(table, mySeat);
     const label = mySeat === play.contract.declarer ? 'Claim…' : 'Concede…';
     const btn = h('button.claim-btn', { onclick: () => o.onClaim?.(), disabled: !!why }, label);
-    claimBtn = why ? h('span.tip', { title: why }, btn) : btn;
+    /* Kept in sight even when it cannot be used, with the reason on hover:
+       a control that disappears leaves a player wondering where it went. The
+       tip hangs on the wrapper, since a disabled button answers no hover. */
+    claimBtn = why ? h('span.tip', { 'data-tip': why, 'aria-label': why }, btn) : btn;
   }
   out.append(h('div.status-line', { role: 'status' }, h('span', iControl ? h('b', status) : status), claimBtn));
   return out;
