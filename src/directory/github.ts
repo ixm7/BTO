@@ -787,7 +787,7 @@ export function seriesDue(found: readonly { issue: { number: number; state: stri
 }
 
 /** Same deals in every browser, and nobody's to choose. */
-async function seedFor(issue: { number: number; node_id?: string }, at: number, field: readonly Registration[]): Promise<string> {
+export async function seedFor(issue: { number: number; node_id?: string }, at: number, field: readonly Registration[]): Promise<string> {
   const text = `bridgebreak-start:${issue.node_id ?? issue.number}:${at}:${field.map((r) => r.login).join(',')}`;
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
