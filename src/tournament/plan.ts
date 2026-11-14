@@ -67,6 +67,24 @@ export function seatingAt(c: TournamentConfig, table: number, round: number): Re
   return { N: ns[0]!.id, S: ns[1]!.id, E: ew[0]!.id, W: ew[1]!.id };
 }
 
+/**
+ * Tables with nobody of their own to play them: both their pairs are robots,
+ * so no player's browser is ever in that room. A field short of people has
+ * one — somebody has to run it, or its boards are never played and the people
+ * who did turn up have nothing to compare their scores against.
+ *
+ * North-South keeps its table, so following its first player stays there all
+ * evening, whoever East-West turns out to be.
+ */
+export function unmannedTables(c: TournamentConfig): { table: number; follow: string }[] {
+  const out: { table: number; follow: string }[] = [];
+  for (let table = 0; table < c.tables; table++) {
+    const ns = c.pairs[nsPairAt(table)]!.players;
+    if (ns.every((p) => p.bot)) out.push({ table, follow: ns[0]!.id });
+  }
+  return out;
+}
+
 /** Where this player sits in a given round, or null if they are not playing. */
 export function seatOf(c: TournamentConfig, round: number, playerId: string): SeatAssignment | null {
   for (let table = 0; table < c.tables; table++) {

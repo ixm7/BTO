@@ -1,8 +1,8 @@
-import { DEFAULT_IDLE_SEC, MIN_PLAYERS, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { DEFAULT_IDLE_SEC, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession } from './session';
-import { planConfig } from '../tournament/plan';
+import { planConfig, unmannedTables } from '../tournament/plan';
 import { pairOf } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
 import { TournamentNode, deviceScore } from '../tournament/node';
@@ -107,6 +107,12 @@ const directory = (): Directory | null => {
 
 /** One brain for every robot this device plays for. */
 const robot = makeRobot();
+/**
+ * The brain for a table of robots this browser is keeping going for the field.
+ * It thinks in short order: nobody is watching that table, and the person's
+ * own robots ask the same worker.
+ */
+const spareRobot = makeRobot({ budgetMs: 600, maxSamples: 10 });
 
 const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message : String(e); render(); };
 
@@ -585,13 +591,13 @@ function startNote(l: Listing): string | null {
   if (l.status === 'upcoming') {
     return `Starts automatically at the start time if all ${l.meta.capacity} places are taken, or if the players registered `
       + 'fill whole tables of four. Otherwise entries stay open a minute longer to look for the players who would spare a table '
-      + `its robots, and another minute each time somebody joins, up to five more. It needs at least ${MIN_PLAYERS} players, `
-      + 'and is cancelled if it does not have them within five minutes of the start time.';
+      + `its robots, and another minute each time somebody joins, up to five more. Short of ${MIN_PLAYERS} players it waits `
+      + 'five minutes for them, then plays anyway with robots in the empty seats — however few turn up, you get your game.';
   }
   if (l.status === 'starting' && plan?.kind === 'wait') {
     const n = l.registrations?.length ?? 0;
     if (Date.now() >= plan.until) return 'Entries have closed. Settling the field and the deals…';
-    if (n < MIN_PLAYERS) return `Waiting for at least ${MIN_PLAYERS} players: ${n} so far. Entries stay open until ${clock(plan.until)}, then it is cancelled if there are still too few.`;
+    if (n < MIN_PLAYERS) return `Looking for ${MIN_PLAYERS} players: ${n} so far. Entries stay open until ${clock(plan.until)}, then it starts with whoever is here and robots in the empty seats.`;
     const short = n % 4;
     return `Entries close at ${clock(plan.until)} — later if somebody else joins before then.`
       + (short ? ` ${short === 3 ? 'One more player' : `${4 - short} more players`} would fill the last table, and start it straight away.`
@@ -762,8 +768,8 @@ function detailView(l: Listing): HTMLElement {
        link sits with the action it belongs to. */
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
-    l.tooFew ? h('div.note', { style: 'margin-top:10px' },
-      `Cancelled: fewer than ${MIN_PLAYERS} players had registered five minutes after the start time.`) : null,
+    l.noPlayers ? h('div.note', { style: 'margin-top:10px' },
+      'Cancelled: nobody had registered five minutes after the start time.') : null,
     startNote(l) ? h('p.muted', { style: 'margin-top:10px' }, startNote(l)) : null,
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),
@@ -1221,6 +1227,8 @@ function joinByCode(): void {
  * single room, which is all a handful of players needs.
  */
 let session: TournamentSession | null = null;
+/** Tables of robots this browser is running for the field; see `unmannedTables`. */
+let spares: TournamentSession[] = [];
 let awaitingStart = false;
 let startPoll: ReturnType<typeof setInterval> | null = null;
 
@@ -1231,6 +1239,7 @@ function stopStartPoll(): void {
 function leaveRoom(): void {
   if (room?.listing) leftAt.set(room.listing.number, Date.now());
   node?.close();
+  closeSpares();
   session?.close();
   stopStartPoll();
   // The saved log only exists to survive a page refresh; leaving on purpose discards it.
@@ -1239,15 +1248,22 @@ function leaveRoom(): void {
   render();
 }
 
+function closeSpares(): void {
+  for (const s of spares.splice(0)) s.close();
+}
+
 /** The field, as it stood when entries closed. */
 function pinnedPlan(l: Listing): TournamentConfig | null {
   if (!l.pinned) return null;
   const entries = pinnedRoster(l);
-  if (entries.length < 4) return null;
+  if (entries.length < 1) return null;
   return planConfig({
     id: l.roomId, name: l.meta.name, seed: l.pinned.seed,
     roster: entries.map((r) => ({ id: r.login, name: r.name, pairCode: r.pairCode, joinedAt: Date.parse(r.at) })),
     boardsPerRound: l.meta.boardsPerRound, rounds: l.meta.rounds, capacity: l.meta.capacity,
+    /* However few turn up, the boards are played twice, so there is a score
+       rather than a practice hand: robots make up the rest of the field. */
+    minTables: MIN_TABLES,
     idleTimeoutMs: idleSecOf(l.meta) * 1000,
     scoring: l.meta.scoring,
     robots: l.meta.robots,
@@ -1272,17 +1288,38 @@ async function openSession(l: Listing): Promise<void> {
     note: settings.partnerNote || undefined,
     skill: settings.skill || undefined,
   };
+  const connect = async (roomName: string): Promise<Transport> => settings.transport === 'local'
+    ? localTransport(roomName)
+    : (await import('../net/trystero')).trysteroTransport(roomName);
+
   session = new TournamentSession({
-    config, me,
-    connect: async (roomName) => settings.transport === 'local'
-      ? localTransport(roomName)
-      : (await import('../net/trystero')).trysteroTransport(roomName),
+    config, me, connect,
     onChange: () => { node = session?.node ?? null; if (node) maybeReseat(node); render(); },
     robot,
   });
   await session.start();
   node = session.node;
   render();
+
+  /*
+   * A field too small to fill two tables leaves one with four robots at it and
+   * nobody in its room to play them. Every browser here offers to run it; the
+   * room settles on one of them, and the boards come back to the field like
+   * any other table's, so the people who turned up have something to compare
+   * their scores against.
+   */
+  closeSpares();
+  for (const t of unmannedTables(config)) {
+    const spare = new TournamentSession({
+      config, connect, actingAs: t.follow, robot: spareRobot, unmanned: true,
+      /* Last in line to host it: anybody actually sitting at that table — a
+         player who took a robot's seat — should run it instead. */
+      me: { playerId: `spare:${t.table}:${me.playerId}`, name: `Table ${t.table + 1}`, deviceScore: 1, isDirector: false },
+      onChange: () => { /* nobody is watching this table */ },
+    });
+    spares.push(spare);
+    void spare.start().catch(() => { /* the field plays on without it */ });
+  }
 }
 
 function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDelayMs: number): TournamentNode {
@@ -1309,6 +1346,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
 
 async function enterRoom(info: RoomInfo): Promise<void> {
   node?.close();
+  closeSpares();
   session?.close();
   session = null;
   stopStartPoll();
@@ -1426,9 +1464,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
     h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until entries close. Entries so far:'),
     h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === myId() ? '.me' : ''}`,
       h('td.num', i + 1), h('td', r.name), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : '')))))),
-    h('p', entries.length < MIN_PLAYERS
-      ? `At least ${MIN_PLAYERS} players are needed to start.`
-      : `Starting now would make ${tables} table${tables === 1 ? '' : 's'}; robots fill any empty seats.`),
+    h('p', `Starting now would make ${Math.max(MIN_TABLES, tables)} tables; robots fill any empty seats.`),
     l && startNote(l) ? h('p.muted', startNote(l)) : null,
     h('p.muted', 'This page moves you to your table by itself once the tournament starts.')));
 }

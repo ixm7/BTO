@@ -24,9 +24,17 @@ describe('automatic start', () => {
     expect(planStart(meta, cs, later(T0))).toEqual({ kind: 'start', at: T0 });
   });
 
-  it('2. with fewer than eight, waits five minutes, then cancels', () => {
+  it('2. with fewer than eight, waits five minutes, then plays with robots in the empty seats', () => {
     expect(planStart(meta, [], T0 + 4 * M)).toEqual({ kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 });
-    expect(planStart(meta, players(MIN_PLAYERS - 1, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
+    /* Nobody is sent away for being too few — one player is enough to play. */
+    for (const n of [1, 2, MIN_PLAYERS - 1]) {
+      expect(planStart(meta, players(n, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'start', at: T0 + MIN_WAIT_MS });
+    }
+    /* Only an empty entry list is nothing to play. */
+    expect(planStart(meta, [], later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
+    /* And everyone withdrawing is an empty list too. */
+    const gone = [...players(3, T0 - M), wd('p0', T0 + M), wd('p1', T0 + M), wd('p2', T0 + M)];
+    expect(planStart(meta, gone, later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
   });
 
   it('2→3. reaching the minimum starts it at once when the tables come out even', () => {
@@ -70,10 +78,10 @@ describe('automatic start', () => {
     expect(planStart(meta, cs, later(T0 + 40 * S))).toEqual({ kind: 'start', at: T0 + 40 * S });
   });
 
-  it('3. withdrawals that leave it short at the close cancel it', () => {
-    /* Nine, then two leave at once: seven is below the minimum. */
+  it('3. withdrawals that leave it short at the close are covered by robots', () => {
+    /* Nine, then two leave at once: seven play on, with a robot each side. */
     const cs = [...players(9, T0 - M), wd('p0', T0 + 10 * S), wd('p1', T0 + 10 * S)];
-    expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'cancel', at: T0 + EXTEND_MS });
+    expect(planStart(meta, cs, later(T0 + EXTEND_MS))).toEqual({ kind: 'start', at: T0 + EXTEND_MS });
   });
 
   it('waits only for a tournament that would need robots', () => {
@@ -120,12 +128,20 @@ describe('the listing every browser sees', () => {
     expect(pinnedRoster(a).map((r) => r.login)).toEqual(Array.from({ length: 10 }, (_, i) => `p${i}`));
   });
 
-  it('shows "starting" while entries are open, and cancelled for want of players', async () => {
+  it('shows "starting" while entries are open, then plays a short field rather than calling it off', async () => {
     const d = new Directory('ixm7/BTO', null, fakeGitHub(players(7, T0 - M)) as never);
     expect((await d.get(7, T0 + M)).status).toBe('starting');
+    const on = await d.get(7, later(T0 + MIN_WAIT_MS));
+    expect(on.status).toBe('in progress');
+    expect(on.noPlayers).toBeUndefined();
+    expect(pinnedRoster(on)).toHaveLength(7);
+  });
+
+  it('calls off a tournament nobody entered', async () => {
+    const d = new Directory('ixm7/BTO', null, fakeGitHub([]) as never);
     const off = await d.get(7, later(T0 + MIN_WAIT_MS));
     expect(off.status).toBe('cancelled');
-    expect(off.tooFew).toBe(true);
+    expect(off.noPlayers).toBe(true);
     expect(off.pinned).toBeNull();
   });
 });

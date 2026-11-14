@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryHub, type Transport } from '../src/net/transport';
 import { TournamentSession } from '../src/ui/session';
 import { SEATS } from '../src/engine/cards';
-import { planConfig, tableRoom } from '../src/tournament/plan';
+import { planConfig, tableRoom, unmannedTables } from '../src/tournament/plan';
 import { standings, turnAt, type LobbyPlayer } from '../src/tournament/state';
 import { chooseCall, chooseCard } from '../src/engine/bot';
 
@@ -186,5 +186,58 @@ describe('playing a tournament a table at a time', () => {
     } finally {
       clearInterval(tick);
     }
+  }, 120000);
+
+  it('keeps the other table going when there are not enough people to fill it', async () => {
+    /* One person turns up. Rather than calling it off, the field is dealt
+       into two tables with robots in the empty seats — and this browser runs
+       the table nobody is sitting at, so its boards are played and there is
+       something to compare the person's score against. */
+    const config = planConfig({ id: 'ses5', name: 'Short', seed: 'fixed', roster: roster(1), boardsPerRound: 1, rounds: 1, minTables: 2 });
+    const spare = unmannedTables(config);
+    expect(spare).toHaveLength(1);
+
+    const net = world();
+    const open = (id: string, score: number, extra: Record<string, unknown> = {}): TournamentSession => {
+      const s = new TournamentSession({
+        config, botDelayMs: 0,
+        me: { playerId: id, name: id, deviceScore: score, isDirector: false },
+        connect: (room) => net.connect(room),
+        onChange: () => { /* the interface would redraw here */ },
+        ...extra,
+      });
+      live.push(s);
+      return s;
+    };
+    const mine = open('p0', 50);
+    const theirs = open('spare:1', 1, { actingAs: spare[0]!.follow, unmanned: true });
+    await Promise.all([mine.start(), theirs.start()]);
+    await until(() => !!mine.node?.state && !!theirs.node?.state);
+    expect(theirs.notPlaying).toBe(false);
+    expect(mine.node!.mySeat()).not.toBeNull();
+
+    const tick = setInterval(() => {
+      const n = mine.node;
+      const at = n?.mySeat();
+      if (!n || !at) return;
+      const turn = turnAt(at.table);
+      if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return;
+      if (turn.phase === 'auction') n.call(chooseCall(at.table.deal![turn.seat], at.table.auction!, turn.seat));
+      else n.play(turn.seat, chooseCard(at.table.play!, turn.seat));
+    }, 4);
+
+    try {
+      /* Both boards come back: the one the person played, and the one the
+         robots played at the table this browser is running for the field. */
+      await until(() => mine.node!.state!.results.length === 2, 90000);
+    } finally {
+      clearInterval(tick);
+    }
+    expect(mine.node!.state!.results.map((r) => r.table).sort()).toEqual([0, 1]);
+    /* So the person has a score, worked out against the other table's result
+       on the same cards, as a duplicate pair's score should be. */
+    const table = standings(mine.node!.state!);
+    expect(table).toHaveLength(4);
+    expect(table.find((r) => r.pair.players.some((p) => p.id === 'p0'))!.boardsPlayed).toBe(1);
   }, 120000);
 });

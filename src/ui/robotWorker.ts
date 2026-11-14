@@ -10,7 +10,12 @@ import type { AuctionState } from '../engine/bidding';
 import type { PlayState } from '../engine/play';
 import type { Seat } from '../engine/cards';
 
-export interface Ask { id: number; base: string; play: PlayState; seat: Seat; auction: AuctionState | null; system?: System }
+export interface Ask {
+  id: number; base: string; play: PlayState; seat: Seat; auction: AuctionState | null; system?: System;
+  /** How hard to think. Left out, the robot takes its usual time. */
+  budgetMs?: number;
+  maxSamples?: number;
+}
 export interface Answer { id: number; card?: number; samples?: number; ms?: number; error?: string }
 
 interface Scope {
@@ -37,7 +42,11 @@ scope.onmessage = (e) => {
     try {
       const solve = await load(q.base);
       const know = q.auction ? readAuction(q.auction, q.system ?? 'sayc').know : undefined;
-      const t = thinkCard(q.play, q.seat, { solve, know });
+      const t = thinkCard(q.play, q.seat, {
+        solve, know,
+        ...(q.budgetMs === undefined ? {} : { budgetMs: q.budgetMs }),
+        ...(q.maxSamples === undefined ? {} : { maxSamples: q.maxSamples }),
+      });
       scope.postMessage({ id: q.id, card: t.card, samples: t.samples, ms: t.ms });
     } catch (err) {
       scope.postMessage({ id: q.id, error: String(err) });

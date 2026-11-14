@@ -178,8 +178,8 @@ export interface Listing {
   nodeId?: string;
   /** Display names of players who came through the relay, by their ~tag id. */
   names?: Record<string, string>;
-  /** Cancelled because too few players had registered by the start time. */
-  tooFew?: boolean;
+  /** Cancelled because nobody had registered by the time entries closed. */
+  noPlayers?: boolean;
   /** Where the automatic start stands; null when the comments could not be read. */
   plan?: StartPlan | null;
   /** Everyone in the draw, once entries have closed. */
@@ -542,9 +542,15 @@ export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
 
 /* ------------------------------------------------------- automatic start */
 
-/** Fewest players a tournament will start with: two tables, so there are results to compare. */
+/**
+ * Players enough to fill two tables between them. A tournament short of this
+ * is not called off — robots make up the numbers — but entries stay open the
+ * full five minutes first, to give the people who are coming time to arrive.
+ */
 export const MIN_PLAYERS = 8;
-/** How long past the start time to wait for the minimum before calling it off. */
+/** Fewest tables a field is dealt into, so every board is played twice and there is something to compare. */
+export const MIN_TABLES = 2;
+/** How long past the start time to wait for a full two tables of people. */
 export const MIN_WAIT_MS = 5 * 60 * 1000;
 /** Short of a full field, entries stay open this much longer, again each time somebody joins. */
 export const EXTEND_MS = 60 * 1000;
@@ -560,7 +566,7 @@ export const SETTLE_MS = 30 * 1000;
  * Where a tournament's start stands.
  *  - wait: entries are open; nothing can be decided before `until`.
  *  - start: entries closed at `at`; whoever was registered then plays.
- *  - cancel: at `at` there were still too few to play.
+ *  - cancel: at `at` nobody had registered at all.
  */
 export type StartPlan =
   | { kind: 'wait'; until: number; extensions: number }
@@ -572,8 +578,10 @@ export type StartPlan =
  * every browser, so there is nobody who has to press a button:
  *
  *  1. Full at the start time: it starts then.
- *  2. Fewer than four: wait up to five minutes for the fourth; failing that,
- *     it is cancelled.
+ *  2. Short of two whole tables of people: wait up to five minutes for them.
+ *     If they come, carry on at 3. If they do not, it starts anyway with
+ *     whoever is there and robots in the empty seats — nobody who turned up
+ *     is sent away. Only an empty entry list is called off.
  *  3. Otherwise, short of full and with a table that would need robots to
  *     fill it: entries stay open one more minute. If anybody registers in
  *     that minute, another minute, up to five times. Whenever the players
@@ -609,8 +617,11 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
   if (count(T0) < MIN_PLAYERS) {
     const reached = firstIn(T0, T0 + MIN_WAIT_MS, (n) => n >= MIN_PLAYERS);
     if (reached === null) {
-      return now < T0 + MIN_WAIT_MS ? { kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 }
-        : settled({ kind: 'cancel', at: T0 + MIN_WAIT_MS });
+      const close = T0 + MIN_WAIT_MS;
+      /* The five minutes are up and they did not come. Whoever did is played
+         with, robots filling the seats nobody took. */
+      return now < close ? { kind: 'wait', until: close, extensions: 0 }
+        : settled(count(close) > 0 ? { kind: 'start', at: close } : { kind: 'cancel', at: close });
     }
     if (ready(count(reached))) return settled({ kind: 'start', at: reached });
     from = reached;
@@ -625,8 +636,9 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
     const before = new Set(regsAt(from).map((r) => r.login));
     const joined = regsAt(to).some((r) => !before.has(r.login));
     if (joined && ext < MAX_EXTENSIONS) { from = to; continue; }
-    /* Withdrawals in the meantime can leave it short again. */
-    return settled(count(to) >= MIN_PLAYERS ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
+    /* Withdrawals in the meantime can leave it short, which robots cover;
+       only an empty list is nothing to play. */
+    return settled(count(to) > 0 ? { kind: 'start', at: to } : { kind: 'cancel', at: to });
   }
 }
 
@@ -865,7 +877,7 @@ export class Directory {
       status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan }),
       registrations, results, partners, roomId: this.roomId(issue.number),
       pinned, names, plan, ...(field ? { field } : {}),
-      ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { tooFew: true } : {}),
+      ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }

@@ -3,6 +3,11 @@
  * a solver running in the background. If the background thread or the solver
  * cannot be had — an old browser, a blocked download — it quietly plays as
  * the simple robot does, so a table never waits on it.
+ *
+ * One worker serves every robot on the page, in the order they ask. A browser
+ * that is also running a table of robots nobody is sitting at gives those
+ * robots a shorter think, so the person's own table is never kept waiting
+ * behind a hand nobody is watching.
  */
 import { chooseCard as simpleCard } from '../engine/bot';
 import { chooseSayc } from '../engine/sayc';
@@ -16,23 +21,29 @@ const GIVE_UP_MS = 15000;
 export const robotStats = { asked: 0, solved: 0, simple: 0, totalMs: 0, maxMs: 0, samples: 0 };
 (globalThis as { robotStats?: typeof robotStats }).robotStats = robotStats;
 
-export function makeRobot(): RobotBrain {
-  let worker: Worker | null = null;
-  let broken = false;
-  let next = 1;
-  const waiting = new Map<number, (a: Answer) => void>();
+let worker: Worker | null = null;
+let broken = false;
+let next = 1;
+const waiting = new Map<number, (a: Answer) => void>();
+
+const start = (): Worker | null => {
+  if (worker || broken) return worker;
+  try {
+    worker = new Worker(new URL('./robotWorker.ts', import.meta.url));
+    worker.onmessage = (e: MessageEvent<Answer>) => { const done = waiting.get(e.data.id); waiting.delete(e.data.id); done?.(e.data); };
+    worker.onerror = () => { broken = true; worker = null; for (const done of waiting.values()) done({ id: 0, error: 'worker failed' }); waiting.clear(); };
+  } catch { broken = true; worker = null; }
+  return worker;
+};
+
+/** How hard this set of robots thinks. Left out, they take their usual time. */
+export interface RobotEffort {
+  budgetMs?: number;
+  maxSamples?: number;
+}
+
+export function makeRobot(effort: RobotEffort = {}): RobotBrain {
   const base = new URL('./dds/', document.baseURI).href;
-
-  const start = (): Worker | null => {
-    if (worker || broken) return worker;
-    try {
-      worker = new Worker(new URL('./robotWorker.ts', import.meta.url));
-      worker.onmessage = (e: MessageEvent<Answer>) => { const done = waiting.get(e.data.id); waiting.delete(e.data.id); done?.(e.data); };
-      worker.onerror = () => { broken = true; worker = null; for (const done of waiting.values()) done({ id: 0, error: 'worker failed' }); waiting.clear(); };
-    } catch { broken = true; worker = null; }
-    return worker;
-  };
-
   return {
     call(hand, auction, seat, system) {
       const c = chooseSayc(hand, auction, seat, system);
@@ -54,7 +65,11 @@ export function makeRobot(): RobotBrain {
           else robotStats.simple++;
           resolve(typeof a.card === 'number' ? a.card : simpleCard(play, seat));
         });
-        const ask: Ask = { id, base, play, seat, auction, system };
+        const ask: Ask = {
+          id, base, play, seat, auction, system,
+          ...(effort.budgetMs === undefined ? {} : { budgetMs: effort.budgetMs }),
+          ...(effort.maxSamples === undefined ? {} : { maxSamples: effort.maxSamples }),
+        };
         w.postMessage(ask);
       });
     },

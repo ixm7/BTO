@@ -30,6 +30,13 @@ export interface SessionOptions {
   botDelayMs?: number;
   /** How the robots at this player's table think, when this device hosts it. */
   robot?: RobotBrain;
+  /**
+   * Set on a session that is not a person but a browser keeping a table of
+   * robots going on the field's behalf. It plays its table and reports the
+   * boards like any other host; it just has nothing to say about where
+   * anybody is sitting.
+   */
+  unmanned?: boolean;
 }
 
 export class TournamentSession {
@@ -207,7 +214,7 @@ export class TournamentSession {
   private declareStanding(): void {
     const node = this.node;
     const state = node?.state;
-    if (!node || !state) return;
+    if (!node || !state || this.o.unmanned) return;
     const me = this.o.me.playerId;
     const mine: Seating = {};
     for (const [id, news] of Object.entries(this.seating)) {

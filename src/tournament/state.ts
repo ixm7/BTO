@@ -784,12 +784,27 @@ export function buildConfig(opts: {
   ]);
   while (full.length < 2 * Math.max(1, opts.minTables ?? 1) || full.length % 2 !== 0) full.push([makeBot(botCounter++), makeBot(botCounter++)]);
 
-  const tables = full.length / 2;
+  /*
+   * Spread the people out. North-South keeps its table all evening and
+   * East-West moves on, so laying every pair that has a person in it into a
+   * North-South place first leaves a table of four robots only when there are
+   * fewer people than tables — and a table of four robots is one nobody is
+   * sitting at to play them. It also means a person meets a robot pair rather
+   * than watching one play itself.
+   */
+  const peopled = full.filter((p) => !p[0].bot || !p[1].bot);
+  const queue = [...peopled, ...full.filter((p) => !peopled.includes(p))];
+  const laid: [PlayerRef, PlayerRef][] = new Array(full.length) as [PlayerRef, PlayerRef][];
+  let next = 0;
+  for (let i = 0; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
+  for (let i = 1; i < laid.length; i += 2) laid[i] = queue[next++] as [PlayerRef, PlayerRef];
+
+  const tables = laid.length / 2;
   const rounds = Math.max(1, opts.rounds ?? Math.min(tables, 4));
   return {
     id: opts.id, name: opts.name, seed: opts.seed, tables, rounds,
     boardsPerRound: Math.max(1, opts.boardsPerRound),
-    pairs: full.map((players, id) => ({ id, players })),
+    pairs: laid.map((players, id) => ({ id, players })),
     ...(opts.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: Math.max(0, Math.round(opts.idleTimeoutMs)) }),
     ...(opts.scoring === 'imps' ? { scoring: 'imps' as const } : {}),
     ...(opts.robots === '2/1' ? { robots: '2/1' as const } : {}),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SEATS } from '../src/engine/cards';
-import { boardsOfRound, meshCost, planConfig, resultsRoom, seatOf, seatingAt, tableRoom } from '../src/tournament/plan';
+import { boardsOfRound, meshCost, planConfig, resultsRoom, seatOf, seatingAt, tableRoom, unmannedTables } from '../src/tournament/plan';
 import { reduce, turnAt, type LobbyPlayer } from '../src/tournament/state';
 import { chooseCall, chooseCard } from '../src/engine/bot';
 
@@ -129,5 +129,42 @@ describe('working out the seating without a room', () => {
     /* For scale: one room for 100 players means 99 connections each. */
     expect(meshCost(100, 25).perPlayer).toBe(3);
     expect(meshCost(100, 25).perTableHost).toBe(27);
+  });
+});
+
+describe('a field too small to fill two tables', () => {
+  const short = (n: number) =>
+    planConfig({ id: 'few', name: 'Few', seed: 'fixed', roster: roster(n), boardsPerRound: 2, rounds: 1, minTables: 2 });
+
+  it('plays two tables anyway, with robots in the seats nobody took', () => {
+    const c = short(1);
+    expect(c.tables).toBe(2);
+    const everyone = c.pairs.flatMap((p) => p.players);
+    expect(everyone).toHaveLength(8);
+    expect(everyone.filter((p) => p.bot)).toHaveLength(7);
+    /* The person is at a table, playing robots rather than watching them. */
+    expect(seatOf(c, 0, 'p0')).not.toBeNull();
+  });
+
+  it('spreads the people out, so a table of four robots is left only when there are too few people for one each', () => {
+    /* Four people would once have sat at one table with a table of robots
+       beside them, which nobody is in the room to play. */
+    for (const n of [3, 4, 5, 6, 7]) {
+      expect(unmannedTables(short(n)), `${n} players`).toEqual([]);
+      for (let table = 0; table < short(n).tables; table++) {
+        const seats = seatingAt(short(n), table, 0);
+        expect(SEATS.some((s) => !seats[s].startsWith('bot:')), `${n} players, table ${table}`).toBe(true);
+      }
+    }
+    /* One pair's worth of people cannot be at both tables at once, so the
+       other is run on the field's behalf — and the same one all evening. */
+    for (const n of [1, 2]) {
+      const c = short(n);
+      const spare = unmannedTables(c);
+      expect(spare, `${n} players`).toHaveLength(1);
+      for (let round = 0; round < 3; round++) {
+        expect(seatOf(c, round, spare[0]!.follow)?.table).toBe(spare[0]!.table);
+      }
+    }
   });
 });
