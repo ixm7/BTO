@@ -1922,7 +1922,9 @@ function watchMyClock(): void {
 function justTimedOut(n: TournamentNode): boolean {
   const state = n.state;
   const me = n.me.playerId;
-  const out = !!state && !state.finished && state.retired.includes(me)
+  /* Not conditional on the tournament still running: the last human timing
+     out is what calls it off, and that is the moment most worth hearing. */
+  const out = !!state && state.retired.includes(me)
     && !state.substitutes[me] && !n.mySeat()
     /* Asked for already: the page is putting them back from an earlier one. */
     && !Object.entries(state.pendingSeats).some(([id, who]) => (who === null ? id === me : who?.id === me));
@@ -1937,9 +1939,14 @@ function timeoutCue(n: TournamentNode): void {
   const out = justTimedOut(n);
   const back = maybeReseat(n);
   if (!out) return;
-  say(back
-    ? 'Your time ran out, so a robot played for you. You are back in your seat for the next board.'
-    : 'Your time ran out, so a robot is playing your cards. Press the reseat me button to come back for the next board.');
+  const state = n.state;
+  say(state?.aborted
+    ? 'You got timed out and the tournament was canceled due to no real players left.'
+    : state?.finished
+      ? 'Your time ran out, so a robot played the last of your cards. The tournament is over.'
+      : back
+        ? 'Your time ran out, so a robot played for you. You are back in your seat for the next board.'
+        : 'Your time ran out, so a robot is playing your cards. Press the reseat me button to come back for the next board.');
 }
 
 /* What the table sounded like last time it was drawn, so that a sound marks
