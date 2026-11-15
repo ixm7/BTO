@@ -182,6 +182,12 @@ export interface Listing {
   names?: Record<string, string>;
   /** Cancelled because nobody had registered by the time entries closed. */
   noPlayers?: boolean;
+  /**
+   * Set when the tournament's comments were not read — too far off, or long
+   * over — so the entry list, the partner list and the result are unknown
+   * rather than absent. Nothing may be decided from their absence.
+   */
+  skimmed?: boolean;
   /** Where the automatic start stands; null when the comments could not be read. */
   plan?: StartPlan | null;
   /** Everyone in the draw, once entries have closed. */
@@ -603,16 +609,25 @@ export function playingWindowMs(meta: TournamentMeta): number {
 /** How many hundreds of tournaments a list will hold. */
 const LIST_PAGES = 4;
 
-/**
- * How far ahead of a tournament its entry list is read, on a list too long to
- * read through. Far enough that a player sees the numbers before they decide,
- * near enough that a week of hourly tournaments is not fetched in full every
- * time anybody refreshes.
- */
-export const READ_AHEAD_MS = 12 * 3600 * 1000;
+/** How many tournaments are read at a time once the list is up. */
+const READ_AT_ONCE = 6;
 
-/** Up to this many tournaments, every one of them is read in full. */
-export const READ_ALL_UP_TO = 40;
+/**
+ * How far ahead of a tournament its entry list is read. Far enough that a
+ * player sees the numbers for the games they might enter today or tomorrow,
+ * near enough that a week of hourly tournaments is not fetched in full every
+ * time anybody opens the page. Opening a tournament always reads it.
+ */
+export const READ_AHEAD_MS = 2 * 24 * 3600 * 1000;
+
+/** And how long after one, so a game being played shows who is at it. */
+export const READ_BEHIND_MS = 6 * 3600 * 1000;
+
+/** Whether a tournament's comments can still change what the list shows of it. */
+export function worthReading(meta: TournamentMeta, now: number): boolean {
+  const start = Date.parse(meta.startUtc);
+  return now >= start - READ_AHEAD_MS && now <= start + playingWindowMs(meta) + READ_BEHIND_MS;
+}
 
 /** How long a played-out tournament stays on the list before it is dropped. */
 export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
@@ -955,7 +970,7 @@ export class Directory {
     return all;
   }
 
-  private async toListing(issue: RawIssue, meta: TournamentMeta, now: number, readAll = true): Promise<Listing> {
+  private async toListing(issue: RawIssue, meta: TournamentMeta, now: number, read = true): Promise<Listing> {
     let registrations: Registration[] | null = [];
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [], notes: {} };
@@ -974,9 +989,8 @@ export class Directory {
      * the rest are shown from the issue alone, with their numbers filled in
      * as their turn comes round. Opening one always reads it.
      */
-    const start = Date.parse(meta.startUtc);
-    const near = readAll || (now >= start - READ_AHEAD_MS && now <= start + playingWindowMs(meta) + KEEP_FINISHED_MS);
-    if (issue.comments > 0 && !near) { registrations = null; partners = null; readable = false; }
+    const skimmed = issue.comments > 0 && !read;
+    if (skimmed) { registrations = null; partners = null; readable = false; }
     else if (issue.comments > 0) {
       try {
         const read = asActors(await this.comments(issue.number), this.relay?.login ?? '');
@@ -1007,12 +1021,13 @@ export class Directory {
       registrations, results, partners, roomId: this.roomId(issue.number),
       pinned, names, plan, ...(field ? { field } : {}),
       ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
+      ...(skimmed ? { skimmed: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }
 
   /** All tournaments in the repository, soonest upcoming first, then past ones newest first. */
-  async list(now: number = Date.now()): Promise<Listing[]> {
+  async list(now: number = Date.now(), onPartial?: (listings: Listing[]) => void): Promise<Listing[]> {
     /* A club that runs something every hour has hundreds of these, so the
        list is read a page at a time until it runs out or reaches the most a
        list is worth showing. */
@@ -1037,16 +1052,32 @@ export class Directory {
       return true;
     });
     this.due = seriesDue(unique, now);
-    /* A handful of tournaments are read in full, numbers and all. A list in
-       the hundreds is read where it matters — see `toListing`. */
-    const readAll = unique.length <= READ_ALL_UP_TO;
-    const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now, readAll)));
+    /*
+     * The list first, then the numbers on it. Everything here can be read
+     * from the issues alone — name, time, format, whether it is over — and
+     * that is the page a player is waiting for. Who has entered lives in the
+     * comments, a request per tournament, so those are fetched afterwards and
+     * only for the games near enough to matter, a few at a time, with the
+     * list redrawn as they come in.
+     */
+    const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now, false)));
+    const show = (): void => onPartial?.(out.filter((l) => visibleInList(l, now)).sort(byStart));
+    show();
+    const deep = unique.map((u, i) => ({ ...u, at: i })).filter((u) => u.issue.comments > 0 && worthReading(u.meta, now));
+    for (let i = 0; i < deep.length; i += READ_AT_ONCE) {
+      const batch = deep.slice(i, i + READ_AT_ONCE);
+      const done = await Promise.all(batch.map(({ issue, meta }) => this.toListing(issue, meta, now, true)));
+      batch.forEach((b, k) => { out[b.at] = done[k] as Listing; });
+      show();
+    }
     /* Remember what was left off the list so it can be swept away later; the
        caller decides whether to, and the next listing recomputes this anyway. */
     /* Whatever is over and left no result to keep — called off for want of
        players, or begun and never finished — once it has dropped off the
        list of its own accord. */
-    this.abandoned = out.filter((l) => (l.status === 'abandoned' || l.status === 'cancelled') && !visibleInList(l, now));
+    /* Never from a tournament that was only skimmed: its result may be
+       sitting in comments nobody read, and these are deleted for good. */
+    this.abandoned = out.filter((l) => !l.skimmed && (l.status === 'abandoned' || l.status === 'cancelled') && !visibleInList(l, now));
     return out.filter((l) => visibleInList(l, now)).sort(byStart);
   }
 
@@ -1100,7 +1131,11 @@ export class Directory {
    */
   async remove(l: Listing): Promise<'deleted' | 'closed'> {
     if (!this.token) throw new Error('No GitHub token set');
-    if (l.results) throw new Error('That tournament has results and will not be removed');
+    /* Read before destroying: a listing taken from a long list may never have
+       had its comments read, and the result of a tournament somebody played
+       would be in them. */
+    const full = l.skimmed ? await this.get(l.number) : l;
+    if (full.results) throw new Error('That tournament has results and will not be removed');
     if (l.nodeId) {
       try {
         const r = await this.req<{ errors?: { message: string }[] }>(

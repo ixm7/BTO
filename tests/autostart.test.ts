@@ -308,7 +308,7 @@ describe('a list of hundreds', () => {
     return { fetcher, reads: () => reads };
   };
 
-  it('reads every tournament while there are few of them', async () => {
+  it('reads every tournament near enough to matter', async () => {
     const now = Date.parse('2030-01-01T12:00:00Z');
     const { fetcher, reads } = many(12, now);
     const list = await new Directory('ixm7/BTO', null, fetcher as never).list(now);
@@ -317,18 +317,40 @@ describe('a list of hundreds', () => {
     expect(list.every((l) => l.registrations !== null)).toBe(true);
   });
 
+  it('puts the list up before it reads the entry lists', async () => {
+    const now = Date.parse('2030-01-01T12:00:00Z');
+    const { fetcher } = many(60, now);
+    const drawn: { names: number; withNumbers: number }[] = [];
+    const list = await new Directory('ixm7/BTO', null, fetcher as never)
+      .list(now, (partial) => drawn.push({ names: partial.length, withNumbers: partial.filter((l) => l.registrations !== null).length }));
+    /* Drawn first with every tournament on it and no numbers at all, then
+       again as the entry lists come in, a few at a time. */
+    expect(drawn.length).toBeGreaterThan(2);
+    expect(drawn[0]!.names).toBe(list.length);
+    expect(drawn[0]!.withNumbers).toBe(0);
+    expect(drawn[drawn.length - 1]!.withNumbers).toBeGreaterThan(0);
+    /* Never fewer tournaments than the draw before: the list does not flicker. */
+    for (let i = 1; i < drawn.length; i++) {
+      expect(drawn[i]!.names).toBe(drawn[0]!.names);
+      expect(drawn[i]!.withNumbers).toBeGreaterThanOrEqual(drawn[i - 1]!.withNumbers);
+    }
+  });
+
   it('reads the ones that matter when there are hundreds, and still lists them all', async () => {
     const now = Date.parse('2030-01-01T12:00:00Z');
     const { fetcher, reads } = many(168, now);
     const list = await new Directory('ixm7/BTO', null, fetcher as never).list(now);
     /* Every one of them is on the list — not just the first hundred. */
     expect(list).toHaveLength(168);
-    /* But only the ones near enough to matter were read. */
-    expect(reads()).toBeLessThan(20);
+    /* But only the ones near enough to matter were read: two days of hourly
+       tournaments, not the week of them. */
+    expect(reads()).toBeLessThan(60);
+    expect(reads()).toBeGreaterThan(40);
     const read = list.filter((l) => l.registrations !== null);
     expect(read.length).toBe(reads());
     for (const l of read) expect(Date.parse(l.meta.startUtc) - now).toBeLessThanOrEqual(READ_AHEAD_MS);
     /* The rest say plainly that the numbers are not known yet. */
-    expect(list.filter((l) => l.registrations === null).length).toBeGreaterThan(140);
+    expect(list.filter((l) => l.registrations === null).length).toBe(168 - read.length);
+    expect(list.every((l) => (l.registrations === null) === (l.skimmed === true))).toBe(true);
   });
 });

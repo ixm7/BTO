@@ -334,7 +334,7 @@ describe('GitHub directory', () => {
 
     const meta = makeMeta(base);
     const number = await director.create(meta);
-    const early = makeMeta({ ...base, name: 'Earlier', start: '2026-11-15T10:00' });
+    const early = makeMeta({ ...base, name: 'Earlier', start: '2026-11-19T10:00' });
     await director.create(early);
     await expect(as(null).create(meta)).rejects.toThrow(/token/);
 
@@ -343,9 +343,11 @@ describe('GitHub directory', () => {
     await as('cat').register(number, 'Cat');
     await as('cat').withdraw(number);
 
-    const now = Date.parse('2026-11-10T12:00:00Z');
+    /* Close enough to the 20th that the entry list is read; one further off
+       than that is listed without its numbers. */
+    const now = Date.parse('2026-11-19T12:00:00Z');
     const list = await as(null).list(now); // reading needs no login
-    /* Soonest first: 'Earlier' starts on the 15th, 'Friday Pairs' on the 20th. */
+    /* Soonest first: 'Earlier' starts this afternoon, 'Friday Pairs' tomorrow evening. */
     expect(list.map((l) => l.meta.name)).toEqual(['Earlier', 'Friday Pairs']);
     const t = list.find((l) => l.number === number)!;
     expect(t).toMatchObject({ number, initiatorLogin: 'ido', status: 'upcoming', roomId: `club/bridge#${number}` });

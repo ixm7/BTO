@@ -423,7 +423,13 @@ async function refresh(expect?: number): Promise<void> {
   loading = true; errorMsg = null; render();
   lastRefresh = Date.now();
   try {
-    listings = await d.list();
+    /* Drawn as soon as the tournaments themselves are known, then again as
+       the entry lists come in behind them. */
+    listings = await d.list(Date.now(), (partial) => {
+      listings = partial;
+      loading = false;
+      render();
+    });
     for (let tries = 0; expect !== undefined && tries < 8; tries++) {
       if (listings.some((l) => l.number === expect)) break;
       await sleep(900);
@@ -475,9 +481,10 @@ async function sweepAbandoned(d: Directory): Promise<void> {
   const done = await d.sweepAbandoned();
   const gone = done.filter((x) => x.outcome !== 'failed');
   if (gone.length === 0) return;
-  const deleted = gone.filter((x) => x.outcome === 'deleted').length;
-  notice = `Cleared ${gone.length} abandoned tournament${gone.length === 1 ? '' : 's'}: ${gone.map((x) => x.name).join(', ')}.`
-    + (deleted < gone.length ? ' Some were closed rather than deleted, which needs admin rights on the repository.' : '');
+  /* Tidying up after tournaments nobody played is housekeeping, and a player
+     opening the page has no use for a list of them. It is noted for whoever
+     is looking at the console and nowhere else. */
+  console.info(`Bridge Break: cleared ${gone.length} abandoned tournament(s): ${gone.map((x) => x.name).join(', ')}`);
   listings = await d.list();
 }
 
