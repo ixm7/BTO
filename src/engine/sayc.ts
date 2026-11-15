@@ -310,11 +310,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   if (overcall && isSuit(overcall.strain)) {
     const y = overcall.strain;
     /* The cue bid is the strong raise once they have come in. */
-    out.push({
-      call: B(lvl(y), y), says: `A good raise of ${NAME[x]}: 10 or more points with support`, hcp: R(10, 37), len: { [x]: [need, 13] },
-      when: (v) => lvl(y) <= 3 && (isMajor(x) || !MAJORS.some((m) => m !== y && v.len[m] >= 5)),
-      forcing: true, tag: 'cue-raise', alert: true,
-    });
+    out.push(...cueRaises(c, x, 10, need, (v) => isMajor(x) || !MAJORS.some((m) => m !== y && v.len[m] >= 5)));
     /* Four trumps are worth the three level and no more, so the weak raise
        exists only where the jump lands there. Higher, the hand simply passes. */
     const jump = jumpLevel(c, x);
@@ -384,6 +380,30 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
   /* 11–12 with nowhere to go: the least misleading thing left. */
   out.push({ call: B(2, 'N'), says: '11–12 points, balanced', hcp: R(11, 12), when: (v) => !isMajor(x) || v.len[x] < 3, tag: 'invite' });
   out.push({ call: PASS, says: 'Fewer than 6 points', hcp: R(0, 5) });
+  return out;
+}
+
+/**
+ * A bid of a suit the opponents have bid is never natural: it is the strong
+ * raise of partner's suit — limit values or better with support — and it is
+ * forcing, so partner may not pass it. Where they have bid two suits either
+ * one says the same thing, so each is offered; the suit on the right is the
+ * one usually chosen.
+ */
+function cueRaises(c: Ctx, p: Suit, min: number, need: number, when?: (v: View) => boolean): Rule[] {
+  const rhoLast = c.acts(c.rho).at(-1)?.e.call;
+  const rhoSuit = rhoLast?.type === 'bid' && isSuit(rhoLast.strain) ? rhoLast.strain : null;
+  const order = c.theirs.slice().sort((a, b) => (a === rhoSuit ? -1 : b === rhoSuit ? 1 : c.cheapest(a) - c.cheapest(b)));
+  const out: Rule[] = [];
+  for (const t of order) {
+    const l = c.cheapest(t);
+    if (!l || l > 3) continue;
+    out.push({
+      call: B(l, t), says: `A good raise of ${NAME[p]}: ${min} or more points with support`,
+      hcp: R(min, 37), len: { [p]: [need, 13] }, ...(when ? { when } : {}),
+      forcing: true, tag: 'cue-raise', alert: true,
+    });
+  }
   return out;
 }
 
@@ -508,11 +528,7 @@ function defensive(c: Ctx): Rule[] {
 
 function advanceOvercall(c: Ctx, p: Suit, level: number): Rule[] {
   const out: Rule[] = [];
-  const t = c.theirs[0];
-  if (t) {
-    const l = c.cheapest(t);
-    if (l && l <= 3) out.push({ call: B(l, t), says: `A good raise of ${NAME[p]}: 11 or more points with support`, hcp: R(11, 37), len: { [p]: [3, 13] }, forcing: true, tag: 'cue-raise', alert: true });
-  }
+  out.push(...cueRaises(c, p, 11, 3));
   const jump = jumpLevel(c, p);
   if (jump === 3) out.push({ call: B(jump, p), says: 'Weak jump raise: four or more trumps, fewer than 6 points', hcp: R(0, 5), len: { [p]: [4, 13] }, when: (v) => v.short(p) >= 1, tag: 'preempt', alert: true });
   const cheap = c.cheapest(p);
@@ -918,12 +934,16 @@ function place(c: Ctx): Rule[] {
       if (c.legal(B(g, s)) && c.cheapest(s) <= g) out.push({ call: B(g, s), says: 'To play', hcp: R(25 - pd[0] - slack, 37), when: (v) => stillOurs(v) && strainFor(v) === s && (s !== 'N' || c.theirs.every((t) => v.stop(t))) });
     }
     if (last.level >= 3) out.push({ call: DBL, says: 'Penalty: we hold the balance of the points', hcp: R(25 - pd[0], 37), when: (v) => v.hcp + pd[0] >= 25 && c.theirs.includes(last.strain as Suit) ? v.len[last.strain as Suit] >= 2 : v.hcp + pd[0] >= 26, tag: 'penalty' });
-    /* Competing for the part-score: as high as the trumps are long. */
-    for (const s of ['S', 'H', 'D', 'C'] as Suit[]) {
+    /* Competing for the part-score: as high as the trumps are long. Never in
+       a suit of theirs — that bid is the raise below, not a place to play. */
+    for (const s of (['S', 'H', 'D', 'C'] as Suit[]).filter((x) => !c.theirs.includes(x))) {
       const l = c.cheapest(s);
       if (!l || l > 3) continue;
       out.push({ call: B(l, s), says: `Competing in ${NAME[s]}`, hcp: R(0, 24 - pd[0]), when: (v) => fitOf(v) === s && v.len[s] + c.know[c.pd].len[s][0] - 6 >= l && worth(v) + mid(pd) >= 17 + l });
     }
+    /* Their suit, later in the auction, is still the good raise of ours. */
+    const ours = c.acts(c.pd).map((x) => x.e.call).filter((x) => x.type === 'bid' && isSuit(x.strain)).at(-1);
+    if (ours?.type === 'bid' && isSuit(ours.strain) && !c.theirs.includes(ours.strain)) out.push(...cueRaises(c, ours.strain, 11, 3));
     out.push({ call: PASS, says: 'Pass' });
     return out;
   }

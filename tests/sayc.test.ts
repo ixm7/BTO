@@ -15,6 +15,13 @@ function hand(text: string): Card[] {
   return out;
 }
 
+/** The calls so far, North dealing. */
+function auction(calls: string): AuctionState {
+  let a: AuctionState = newAuction('N');
+  for (const c of calls.split(' ').filter(Boolean)) a = applyCall(a, currentBidder(a), parseCall(c));
+  return a;
+}
+
 /** The auction so far, North dealing, then what the next hand calls. */
 function bid(text: string, calls: string): string {
   let a: AuctionState = newAuction('N');
@@ -386,5 +393,44 @@ describe('SAYC: after a strong two clubs', () => {
     expect(bid('KJ52.843.762.932', '2C P 2D P 2N P 3C P 3S P')).toBe('4S');
     /* Game reached, the auction may of course stop. */
     expect(bid(strong, '2C P 2D P 2N P 3C P 3S P 4S P')).toBe('Pass');
+  });
+});
+
+describe('a bid of their suit is the good raise, never a suit of its own', () => {
+  /* North deals and passes, so East opens: (1C) 1D (1S) and over to the
+     advancer, with both opponents' suits now in play. */
+  const theyBidTwo = 'P 1C 1D 1S';
+
+  it.each(['sayc', '2/1'] as const)('%s: the advancer cues the suit on their right', (sys) => {
+    expect(callToString(chooseSayc(hand('KJ3.A54.K932.432'), auction(theyBidTwo), 'N', sys).call)).toBe('2S');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: the overcaller may not pass it', (sys) => {
+    const after = auction(`${theyBidTwo} 2S P`);
+    const call = callToString(chooseSayc(hand('Q4.K5.AQJ972.863'), after, 'S', sys).call);
+    expect(call).not.toBe('Pass');
+    /* A minimum overcall signs off in its own suit; it does not leave partner
+       playing in the opponents' spades. */
+    expect(call).toBe('3D');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: and reads it as support, not spades', (sys) => {
+    const read = readAuction(auction(`${theyBidTwo} 2S`), sys);
+    expect(read.says.at(-1)).toContain('good raise of diamonds');
+    expect(read.told.at(-1)?.forcing).toBe(true);
+    /* Their suit says nothing about holding it. */
+    expect(read.know.N.len.S[0]).toBe(0);
+    expect(read.know.N.len.D[0]).toBeGreaterThanOrEqual(3);
+  });
+
+  it('is still the raise when only the opening side has bid a suit', () => {
+    /* (1S) 2C and the advancer has a good raise of clubs. */
+    const read = readAuction(auction('P 1S 2C P 2S'), 'sayc');
+    expect(read.says.at(-1)).toContain('good raise of clubs');
+    expect(read.told.at(-1)?.forcing).toBe(true);
+  });
+
+  it('answers it with game when the overcall was worth more than a minimum', () => {
+    expect(callToString(chooseSayc(hand('Q4.K5.AQJ972.AK3'), auction(`${theyBidTwo} 2S P`), 'S').call)).not.toBe('3D');
   });
 });
