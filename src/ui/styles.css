@@ -79,6 +79,10 @@ table.list tr.me td { background: #f3ecd2; }
    columns, none of which should wrap onto a line of its own. */
 table.list.card th, table.list.card td { padding: 5px 6px; white-space: nowrap; font-size: .88rem; }
 table.list.card th:nth-child(2), table.list.card td:nth-child(2) { width: 99%; }
+/* A board still to come: a line held open for it, rather than a gap. */
+table.list.card tr.to-come td { color: var(--muted); opacity: .75; }
+/* Where one round ends and the next begins. */
+table.list.card tr.round-start td { border-top: 2px solid var(--ink); }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: .75rem; border: 1px solid var(--line); white-space: nowrap; }
 .badge.upcoming { background: #eef5f0; border-color: #c5dccf; }
 .badge.in-progress { background: #fff4d6; border-color: #e5cf8a; }

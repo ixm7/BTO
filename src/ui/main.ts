@@ -1664,6 +1664,7 @@ const pairNames = (s: Standing): string => s.pair.players.map((p) => p.name).joi
  */
 function myCardPanel(state: TState, meId: string): HTMLElement {
   const byImps = state.config.scoring === 'imps';
+  const c = state.config;
   const rows = scorecard(state, pairOf(state, meId));
   const table = standings(state);
   const us = table.find((r) => r.pair.players.some((p) => p.id === meId));
@@ -1679,18 +1680,32 @@ function myCardPanel(state: TState, meId: string): HTMLElement {
       : `${rows.length} board${rows.length === 1 ? '' : 's'} scored \u00b7 ${total} so far`;
   const score = (r: typeof rows[number]): string =>
     r.weScore !== null ? `+${r.weScore}` : r.theyScore !== null ? `\u2212${r.theyScore}` : '0';
+  /*
+   * Every board of the tournament has a line of its own from the start, so the
+   * card itself says how far along this table is — the boards played, against
+   * the boards still to come — rather than a count of what other tables have
+   * sent in. A heavier rule falls between rounds.
+   */
+  const boards = c.rounds * c.boardsPerRound;
+  const played = new Map(rows.map((r) => [r.board, r]));
+  const line = (board: number): HTMLElement => {
+    const r = played.get(board);
+    const starts = board > 1 && (board - 1) % c.boardsPerRound === 0;
+    return h(`tr${starts ? '.round-start' : ''}${r ? '' : '.to-come'}`,
+      h('td.num', board),
+      r ? (r.result.contract ? h('td', r.result.text) : h('td.muted', 'Passed out')) : h('td.muted', '\u00b7'),
+      h('td.num.muted', r?.result.contract ? score(r) : ''),
+      h('td.num', r ? (byImps ? impText(r.weImps) : r.wePercent.toFixed(1)) : ''));
+  };
   return h('div.panel',
     h('h3', 'Your card'),
     h('div.muted', place),
+    h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list.card',
+      h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', 'Score'), h('th.num', byImps ? 'IMPs' : '%'))),
+      h('tbody', Array.from({ length: boards }, (_, i) => line(i + 1))))),
     rows.length === 0
       ? h('p.muted', { style: 'margin:8px 0 0' }, 'The boards you play appear here as the field scores them.')
-      : h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list.card',
-        h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', 'Score'), h('th.num', byImps ? 'IMPs' : '%'))),
-        h('tbody', [...rows].reverse().map((r) => h('tr',
-          h('td.num', r.board),
-          r.result.contract ? h('td', r.result.text) : h('td.muted', 'Passed out'),
-          h('td.num.muted', r.result.contract ? score(r) : ''),
-          h('td.num', byImps ? impText(r.weImps) : r.wePercent.toFixed(1))))))));
+      : null);
 }
 
 /** "1st", "2nd", "3rd" \u2014 a rank as it is spoken. */
@@ -2096,14 +2111,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     if (table) {
       const left = replacedPanel(state, table);
       if (left) side.append(left);
-      side.append(h('div.panel', h('h3', `Round ${state.round + 1} of ${state.config.rounds} · Table ${table.index + 1}`),
-        /* Boards of the tournament, not scores collected: every table plays
-           the same boards, so counting the results of all of them made a
-           nine-board tournament read as eighteen. */
-        h('div.muted', `${new Set(state.results.map((r) => r.board)).size} of ${state.config.rounds * state.config.boardsPerRound} boards played`),
-        /* The board just finished is on the card below, with what it was
-           worth beside it; saying it twice says nothing twice. */
-        ));
+      /* No panel of its own for the round: a count of what every table has
+         sent in said more about the robots' table than about this one, and
+         the card below shows this table's own place in the boards. */
     }
   }
   side.append(myCardPanel(state, n.me.playerId));
