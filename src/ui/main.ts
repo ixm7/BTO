@@ -986,6 +986,9 @@ function dialog(title: string, build: (close: () => void) => HTMLElement, onClos
 }
 
 const field = (label: string, input: HTMLElement, hint?: string): HTMLElement => h('label', label, input, hint ? h('small', hint) : null);
+/** The same, with the explanation on hover rather than under the box. */
+const tipped = (label: string, input: HTMLElement, tip: string): HTMLElement =>
+  h('label', { 'data-tip': tip, 'aria-label': `${label}. ${tip}` }, label, input);
 const val = (f: HTMLFormElement, name: string): string => String(new FormData(f).get(name) ?? '').trim();
 
 function tokenHelpSteps(): HTMLElement {
@@ -1134,17 +1137,26 @@ function openSettings(): void {
       close();
       void refresh();
     } },
-      field('Your name (shown at the table)', h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' })),
-      field('Player description', h('input', { name: 'note', value: settings.partnerNote, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }),
+      /* Name and level side by side: both are a word long, and the room they
+         leave is room for the rest of the form. */
+      h('div.two',
+        tipped('Your name (shown at the table)',
+          h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' }),
+          'What other players see at the table and on the entry list.'),
+        tipped('Skill level',
+          h('select', { name: 'skill' },
+            h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
+            SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
+          'How you would describe your own game. Some tournaments are open only to certain levels.')),
+      tipped('Player description',
+        h('input', { name: 'note', value: settings.partnerNote, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }),
         'Visible to other players when they click your name at the table.'),
-      field('Skill level', h('select', { name: 'skill', title: 'How you would describe your own game. Some tournaments are set aside for particular levels.' },
-        h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
-        SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
-        'Some tournaments are open only to certain levels.'),
       h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
         h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
 
-      h('details.director-section', { open: !!(settings.token || settings.githubLogin) },
+      /* Always shut to begin with: a player who has a token has long since
+         set it up, and the section is of no interest to anybody else. */
+      h('details.director-section',
         h('summary', { title: 'Click to show options required only for players who wish to add tournaments.' }, 'Tournament Creator'),
         h('div.grid',
           /* The word and its help mark share one line: the label lays out each

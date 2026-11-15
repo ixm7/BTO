@@ -9,6 +9,7 @@
  * that puts the same label back under the mouse leaves it showing.
  */
 
+
 let tip: HTMLDivElement | null = null;
 
 function place(x: number, y: number): void {
@@ -40,6 +41,11 @@ export function installHoverTips(): void {
     const el = (e.target as Element | null)?.closest?.('[data-tip]') as HTMLElement | null;
     const text = el?.dataset.tip;
     if (!text || !tip) { hide(); return; }
+    /* A dialog opened with showModal() is painted in the browser's top layer,
+       which is above everything on the page whatever its z-index. A tip for
+       something inside one has to live inside it, or it is hidden behind it. */
+    const host = el?.closest('dialog[open]') ?? document.body;
+    if (tip.parentElement !== host) host.append(tip);
     if (tip.textContent !== text) tip.textContent = text;
     tip.hidden = false;
     place(e.clientX, e.clientY);
