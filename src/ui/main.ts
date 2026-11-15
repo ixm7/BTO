@@ -12,7 +12,7 @@ import { installHoverTips } from './hoverTip';
 import { wakeIn } from './ticker';
 import { LIMIT, online, watchOnline } from './presence';
 import { makeRobot } from './robot';
-import { armSound, cardSwoosh, setSound, startFanfare, turnChime } from './sound';
+import { armSound, cardSwoosh, say, setSound, startFanfare, turnChime } from './sound';
 import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
 import { resultToString } from '../engine/scoring';
@@ -1520,7 +1520,7 @@ async function openSession(l: Listing): Promise<void> {
     config, me, connect,
     onChange: () => {
       node = session?.node ?? null;
-      if (node) { maybeReseat(node); maybeMarkAbandoned(node); maybePublish(node); }
+      if (node) { timeoutCue(node); maybeMarkAbandoned(node); maybePublish(node); }
       render();
     },
     robot, wake: wakeIn, remember: sessionMemory(config.id),
@@ -1584,7 +1584,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
       save: (events) => { try { sessionStorage.setItem(key, JSON.stringify(events)); } catch { /* quota */ } },
     },
   });
-  n.onChange(() => { maybeReseat(n); render(); });
+  n.onChange(() => { timeoutCue(n); render(); });
   return n;
 }
 
@@ -1839,18 +1839,19 @@ let autoReseats = 0;
 
 export function noteActivity(): void { lastSeenHere = Date.now(); }
 
-function maybeReseat(n: TournamentNode): void {
+function maybeReseat(n: TournamentNode): boolean {
   const state = n.state;
-  if (!state || state.finished || steppedAside || autoReseats >= AUTO_RESEATS) return;
+  if (!state || state.finished || steppedAside || autoReseats >= AUTO_RESEATS) return false;
   const me = n.me.playerId;
-  if (n.mySeat() || !state.retired.includes(me) || state.substitutes[me]) return;
-  if (document.hidden || Date.now() - lastSeenHere > BACK_WITHIN_MS) return;
+  if (n.mySeat() || !state.retired.includes(me) || state.substitutes[me]) return false;
+  if (document.hidden || Date.now() - lastSeenHere > BACK_WITHIN_MS) return false;
   /* Already asked for: it comes back when the board in progress ends. */
-  if (Object.entries(state.pendingSeats).some(([id, who]) => (who === null ? id === me : who?.id === me))) return;
+  if (Object.entries(state.pendingSeats).some(([id, who]) => (who === null ? id === me : who?.id === me))) return false;
   autoReseats++;
   notice = 'You timed out, so a robot played for you. You have been put back in your seat for the next board.';
   turnChime();
   n.takeSeat(me);
+  return true;
 }
 
 /** Sit down in place of one of the robots, from the next board. */
@@ -1874,6 +1875,56 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
   return h('div.panel', h('h3', 'Stood down'),
     h('table.list', h('tbody', rows)),
     h('p.muted', { style: 'margin:6px 0 0' }, 'A player who comes back takes their own seat again from the next board.'));
+}
+
+/**
+ * The clock speaks twice: once while there is still time to act on it, and
+ * again if it runs out, with the way back to the table. Both are for a player
+ * who has looked away, so both are spoken rather than drawn.
+ */
+const WARN_AT_MS = 10_000;
+let warnedTurn = '';
+let wasRetired = false;
+
+function watchMyClock(): void {
+  const n = node;
+  if (!n) return;
+  const at = n.mySeat();
+  if (!at) return;
+  const turn = turnAt(at.table);
+  if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return;
+  const clock = n.idleClock(at.table.index);
+  if (!clock || clock.leftMs > WARN_AT_MS || clock.leftMs <= 0) return;
+  if (warnedTurn === clock.key) return;
+  warnedTurn = clock.key;
+  say('Ten seconds to time out.');
+}
+
+/**
+ * Has the clock just taken this player's seat? Asked before the page tries to
+ * put them back, so the answer is about the timeout and not about the cure.
+ */
+function justTimedOut(n: TournamentNode): boolean {
+  const state = n.state;
+  const me = n.me.playerId;
+  const out = !!state && !state.finished && state.retired.includes(me)
+    && !state.substitutes[me] && !n.mySeat()
+    /* Asked for already: the page is putting them back from an earlier one. */
+    && !Object.entries(state.pendingSeats).some(([id, who]) => (who === null ? id === me : who?.id === me));
+  /* Standing down on purpose is not the clock running out. */
+  const fresh = out && !wasRetired && !steppedAside;
+  wasRetired = out;
+  return fresh;
+}
+
+/** The clock's own announcement, with the way back to the table. */
+function timeoutCue(n: TournamentNode): void {
+  const out = justTimedOut(n);
+  const back = maybeReseat(n);
+  if (!out) return;
+  say(back
+    ? 'Your time ran out, so a robot played for you. You are back in your seat for the next board.'
+    : 'Your time ran out, so a robot is playing your cards. Press the reseat me button to come back for the next board.');
 }
 
 /* What the table sounded like last time it was drawn, so that a sound marks
@@ -2117,7 +2168,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   /* Coming back to the tab is the moment a timed-out player is here again. */
   noteActivity();
-  if (node) { maybeReseat(node); render(); }
+  if (node) { timeoutCue(node); render(); }
 });
 installHoverTips();
 /* A countdown that never moves is worse than none, and the list is read far
@@ -2126,6 +2177,10 @@ setInterval(() => {
   const soon = (l: Listing): boolean => !!countdown(l.meta.startUtc);
   if ((listings ?? []).some(soon) || (room?.listing && soon(room.listing))) render();
 }, 30000);
+/* The turn clock is worth hearing about from a background tab above all, so
+   it ticks on the worker clock rather than on a timer the browser throttles. */
+const tickClock = (): void => { watchMyClock(); wakeIn(tickClock, 1000); };
+tickClock();
 watchOnline(() => render(), settings.transport !== 'local');
 void probeRelay().then(() => refresh()).then(route).then(startPolling);
 if (!settings.name) openSettings();

@@ -108,6 +108,23 @@ export function cardSwoosh(): void {
  * which reaches a player who has wandered off to another tab or another room.
  * Speech is the browser's own; where it is missing or refused, the notes do.
  */
+/**
+ * Say something out loud, for the few things worth hearing when you are not
+ * looking at the page: your table being ready, and your clock running out.
+ * Goes quiet with the rest of the table's sounds.
+ */
+export function say(text: string, afterMs = 0): void {
+  if (!enabled) return;
+  try {
+    const voice = window.speechSynthesis;
+    if (!voice) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1;
+    if (afterMs > 0) setTimeout(() => voice.speak(u), afterMs);
+    else voice.speak(u);
+  } catch { /* no voice here */ }
+}
+
 export function startFanfare(name: string): void {
   if (!enabled) return;
   const c = audio();
@@ -127,11 +144,6 @@ export function startFanfare(name: string): void {
       o.stop(at + 1);
     });
   }
-  try {
-    const say = window.speechSynthesis;
-    if (!say) return;
-    const u = new SpeechSynthesisUtterance(`${name} is starting. Your table is ready.`);
-    u.rate = 1;
-    setTimeout(() => say.speak(u), 900);
-  } catch { /* no voice here */ }
+  /* After the fanfare has had its moment. */
+  say(`${name} is starting. Your table is ready.`, 900);
 }

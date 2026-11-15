@@ -54,6 +54,36 @@ describe('replacing a player who stops responding', () => {
     expect(fromLog.retired).toContain(onLead.id);
   });
 
+  it('counts the waiting seat down, so the table can be warned before time is up', async () => {
+    const hub = new MemoryHub();
+    const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `w${i}`, isDirector: i === 0 }, 4000));
+    await until(() => all.every((n) => n.lobby().length === 4));
+    all[0]!.start({ id: 'tw', name: 'Clock', boardsPerRound: 1, rounds: 1, seed: 'fixed' });
+    await until(() => all.every((n) => n.state !== null));
+
+    const n = all[0]!;
+    await until(() => n.idleClock(0) !== null);
+    const first = n.idleClock(0)!;
+    expect(first.leftMs).toBeGreaterThan(0);
+    expect(first.leftMs).toBeLessThanOrEqual(4000);
+
+    await sleep(150);
+    const later = n.idleClock(0)!;
+    /* Same turn, less time: a countdown rather than a fresh start. */
+    expect(later.key).toBe(first.key);
+    expect(later.leftMs).toBeLessThan(first.leftMs);
+  });
+
+  it('has no clock to read when the tournament plays without one', async () => {
+    const hub = new MemoryHub();
+    const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `z${i}`, isDirector: i === 0 }, 0));
+    await until(() => all.every((n) => n.lobby().length === 4));
+    all[0]!.start({ id: 'tz', name: 'No clock', boardsPerRound: 1, rounds: 1, seed: 'fixed' });
+    await until(() => all.every((n) => n.state !== null));
+    await sleep(100);
+    expect(all[0]!.idleClock(0)).toBeNull();
+  });
+
   it('closes a table once its last human is gone, and calls the tournament off', async () => {
     const hub = new MemoryHub();
     const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `q${i}`, isDirector: i === 0 }));

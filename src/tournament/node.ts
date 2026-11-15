@@ -756,6 +756,19 @@ export class TournamentNode {
     return this.append({ t: 'claimOff', table: table.index, board: table.boardNo, seat: c.seat, why: 'lapsed' });
   }
 
+  /**
+   * How long the seat in turn at this table has left before the clock takes
+   * it, and a key that changes with every turn. Null when nothing is on the
+   * clock here, or when this tournament plays without one.
+   */
+  idleClock(tableIndex: number, now = Date.now()): { key: string; leftMs: number } | null {
+    const limit = this.state?.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
+    if (!this.state || !(limit > 0)) return null;
+    const prev = this.waitingSince.get(tableIndex);
+    if (!prev) return null;
+    return { key: `${tableIndex}:${prev.key}`, leftMs: limit - (now - prev.at) };
+  }
+
   /** Cards a robot is in the middle of choosing, so it is asked only once. */
   private thinking = new Set<string>();
 
