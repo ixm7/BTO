@@ -639,14 +639,16 @@ export const KEEP_CANCELLED_MS = 24 * 3600 * 1000;
 
 /**
  * Players enough to fill two tables between them. A tournament short of this
- * is not called off — robots make up the numbers — but entries stay open the
- * full five minutes first, to give the people who are coming time to arrive.
+ * is not called off — robots make up the numbers — but entries stay open a
+ * little longer first, to give the people who are coming time to arrive.
  */
 export const MIN_PLAYERS = 8;
 /** Fewest tables a field is dealt into, so every board is played twice and there is something to compare. */
 export const MIN_TABLES = 2;
 /** How long past the start time to wait for a full two tables of people. */
-export const MIN_WAIT_MS = 5 * 60 * 1000;
+export const MIN_WAIT_MS = 2 * 60 * 1000;
+/** What that wait was before it was shortened; see `rulesAt`. */
+const MIN_WAIT_WAS = 5 * 60 * 1000;
 /** Short of a full field, entries stay open this much longer, again each time somebody joins. */
 export const EXTEND_MS = 60 * 1000;
 export const MAX_EXTENSIONS = 3;
@@ -675,16 +677,20 @@ export const ROBOT_FILL_FROM = Date.parse('2026-11-14T15:45:00Z');
 /** When the extensions were cut from five to three; see `rulesAt`. */
 export const SHORTER_WAIT_FROM = Date.parse('2026-11-14T17:10:00Z');
 
+/** When the wait for a full field was cut from five minutes to two. */
+export const SHORTER_GATHER_FROM = Date.parse('2026-11-15T20:15:00Z');
+
 /**
  * The rules a tournament is judged by: those in force when it was due to
  * start. Nothing about a start is written down — every browser works it out
  * from the comments, every time it looks — so a rule changed today would
  * otherwise rewrite what happened yesterday.
  */
-function rulesAt(startUtc: number): { fewest: number; extensions: number } {
+export function rulesAt(startUtc: number): { fewest: number; extensions: number; wait: number } {
   return {
     fewest: startUtc >= ROBOT_FILL_FROM ? 1 : MIN_PLAYERS,
     extensions: startUtc >= SHORTER_WAIT_FROM ? MAX_EXTENSIONS : MAX_EXTENSIONS_WAS,
+    wait: startUtc >= SHORTER_GATHER_FROM ? MIN_WAIT_MS : MIN_WAIT_WAS,
   };
 }
 
@@ -704,7 +710,7 @@ export type StartPlan =
  * every browser, so there is nobody who has to press a button:
  *
  *  1. Full at the start time: it starts then.
- *  2. Short of two whole tables of people: wait up to five minutes for them.
+ *  2. Short of two whole tables of people: wait a couple of minutes for them.
  *     If they come, carry on at 3. If they do not, it starts anyway with
  *     whoever is there and robots in the empty seats — nobody who turned up
  *     is sent away. Only an empty entry list is called off.
@@ -735,18 +741,18 @@ export function planStart(meta: TournamentMeta, comments: readonly RawComment[],
    * and have robots make up the numbers.
    */
   const ready = (n: number): boolean => n >= cap || (n >= MIN_PLAYERS && n % 4 === 0);
-  const { fewest, extensions } = rulesAt(T0);
+  const { fewest, extensions, wait } = rulesAt(T0);
 
   if (now < T0) return { kind: 'wait', until: T0, extensions: 0 };
   if (ready(count(T0))) return settled({ kind: 'start', at: T0 });
 
   let from = T0;
   if (count(T0) < MIN_PLAYERS) {
-    const reached = firstIn(T0, T0 + MIN_WAIT_MS, (n) => n >= MIN_PLAYERS);
+    const reached = firstIn(T0, T0 + wait, (n) => n >= MIN_PLAYERS);
     if (reached === null) {
-      const close = T0 + MIN_WAIT_MS;
-      /* The five minutes are up and they did not come. Whoever did is played
-         with, robots filling the seats nobody took. */
+      const close = T0 + wait;
+      /* The wait is up and they did not come. Whoever did is played with,
+         robots filling the seats nobody took. */
       return now < close ? { kind: 'wait', until: close, extensions: 0 }
         : settled(count(close) >= fewest ? { kind: 'start', at: close } : { kind: 'cancel', at: close });
     }

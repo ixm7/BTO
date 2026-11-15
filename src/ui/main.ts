@@ -1,4 +1,4 @@
-import { NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -626,7 +626,7 @@ function startNote(l: Listing): string | null {
     return `Starts automatically at the start time if all ${l.meta.capacity} places are taken, or if the players registered `
       + 'fill whole tables of four. Otherwise entries stay open a minute longer to look for the players who would spare a table '
       + `its robots, and another minute each time somebody joins, up to ${inWords(MAX_EXTENSIONS)} more. Short of ${MIN_PLAYERS} players it waits `
-      + 'five minutes for them, then plays anyway with robots in the empty seats — however few turn up, you get your game.';
+      + `${inWords(MIN_WAIT_MS / 60000)} minutes for them, then plays anyway with robots in the empty seats \u2014 however few turn up, you get your game.`;
   }
   if (l.status === 'starting' && plan?.kind === 'wait') {
     const n = l.registrations?.length ?? 0;
@@ -803,7 +803,7 @@ function detailView(l: Listing): HTMLElement {
     h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     l.noPlayers ? h('div.note', { style: 'margin-top:10px' },
-      'Cancelled: nobody had registered five minutes after the start time.') : null,
+      'Cancelled: nobody had registered by the time entries closed.') : null,
     startNote(l) ? h('p.muted', { style: 'margin-top:10px' }, startNote(l)) : null,
     h('div.panel', { style: 'margin-top:10px' },
       h('div.row', h('h2', l.meta.name), badge(l.status)),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTEND_MS, READ_AHEAD_MS, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, ROBOT_FILL_FROM, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
+import { EXTEND_MS, READ_AHEAD_MS, rulesAt, MAX_EXTENSIONS, MIN_PLAYERS, MIN_WAIT_MS, ROBOT_FILL_FROM, SETTLE_MS, Directory, makeMeta, issueBody, pinnedRoster, planStart, type RawComment, type TournamentMeta } from '../src/directory/github';
 
 const meta: TournamentMeta = makeMeta({
   name: 'Auto', director: 'Ido', start: '2030-01-01T19:30', timeZone: 'UTC',
@@ -24,8 +24,9 @@ describe('automatic start', () => {
     expect(planStart(meta, cs, later(T0))).toEqual({ kind: 'start', at: T0 });
   });
 
-  it('2. with fewer than eight, waits five minutes, then plays with robots in the empty seats', () => {
-    expect(planStart(meta, [], T0 + 4 * M)).toEqual({ kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 });
+  it('2. with fewer than eight, waits a couple of minutes, then plays with robots in the empty seats', () => {
+    expect(MIN_WAIT_MS).toBe(2 * M);
+    expect(planStart(meta, [], T0 + M)).toEqual({ kind: 'wait', until: T0 + MIN_WAIT_MS, extensions: 0 });
     /* Nobody is sent away for being too few — one player is enough to play. */
     for (const n of [1, 2, MIN_PLAYERS - 1]) {
       expect(planStart(meta, players(n, T0 - M), later(T0 + MIN_WAIT_MS))).toEqual({ kind: 'start', at: T0 + MIN_WAIT_MS });
@@ -38,14 +39,14 @@ describe('automatic start', () => {
   });
 
   it('2→3. reaching the minimum starts it at once when the tables come out even', () => {
-    const eighth = T0 + 3 * M;
+    const eighth = T0 + 1.5 * M;
     const cs = [...players(7, T0 - M), reg('late', eighth)];
     expect(planStart(meta, cs, eighth + 10 * S).kind).toBe('wait');       // still settling
     expect(planStart(meta, cs, later(eighth))).toEqual({ kind: 'start', at: eighth });
   });
 
   it('2→3. reaching it with an odd number opens the one-minute window from then', () => {
-    const when = T0 + 3 * M;
+    const when = T0 + 1.5 * M;
     /* Two arrive together: nine players, so a table would need robots. */
     const cs = [...players(7, T0 - M), reg('x', when), reg('y', when)];
     expect(planStart(meta, cs, when + 30 * S)).toEqual({ kind: 'wait', until: when + EXTEND_MS, extensions: 0 });
@@ -260,9 +261,11 @@ describe('a rule that changed', () => {
   it('judges a tournament by the rule in force when it was due to start', () => {
     expect(O).toBeLessThan(ROBOT_FILL_FROM);
     /* Two players, five minutes gone: called off then, called off now. */
-    expect(planStart(old, players(2, O - M), later(O + MIN_WAIT_MS))).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
+    const was = rulesAt(O).wait;
+    expect(was).toBe(5 * M);
+    expect(planStart(old, players(2, O - M), later(O + was))).toEqual({ kind: 'cancel', at: O + was });
     /* Long afterwards, it is still called off and not suddenly under way. */
-    expect(planStart(old, players(2, O - M), O + 6 * 3600 * 1000)).toEqual({ kind: 'cancel', at: O + MIN_WAIT_MS });
+    expect(planStart(old, players(2, O - M), O + 6 * 3600 * 1000)).toEqual({ kind: 'cancel', at: O + was });
     /* The extensions it was cut to do not reach back either: this one was
        due when five were still on offer, so five it had. */
     const many = [...players(9, O - M)];
