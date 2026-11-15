@@ -434,3 +434,30 @@ describe('a bid of their suit is the good raise, never a suit of its own', () =>
     expect(callToString(chooseSayc(hand('Q4.K5.AQJ972.AK3'), auction(`${theyBidTwo} 2S P`), 'S').call)).not.toBe('3D');
   });
 });
+
+describe('a cue at the three level asks for a stopper', () => {
+  /* (1H) 1S (2H) and the advancer has no heart stopper but wants a game. */
+  const western = 'P 1H 1S 2H';
+
+  it.each(['sayc', '2/1'] as const)('%s: reads three of their suit as the stopper ask', (sys) => {
+    const read = readAuction(auction(`${western} 3H`), sys);
+    expect(read.says.at(-1)).toContain('stopper in hearts');
+    expect(read.told.at(-1)?.forcing).toBe(true);
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: a stopper answers three no-trump', (sys) => {
+    expect(callToString(chooseSayc(hand('AQJ952.K4.Q73.83'), auction(`${western} 3H P`), 'S', sys).call)).toBe('3N');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: without one it goes back to our suit, never a pass', (sys) => {
+    const call = callToString(chooseSayc(hand('AQJ952.43.Q73.K8'), auction(`${western} 3H P`), 'S', sys).call);
+    expect(call).not.toBe('Pass');
+    expect(call).not.toBe('3N');
+    expect(call).toBe('3S');
+  });
+
+  it('keeps the two-level cue as the raise', () => {
+    /* (1C) 1D (1S) 2S is still support for diamonds, not a stopper ask. */
+    expect(readAuction(auction('P 1C 1D 1S 2S'), 'sayc').says.at(-1)).toContain('good raise of diamonds');
+  });
+});

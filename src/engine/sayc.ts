@@ -112,6 +112,9 @@ const mid = (r: Range): number => (r[0] + r[1]) / 2;
 
 interface Told { tag: string; forcing: boolean }
 
+/** Calls in a suit that say nothing about holding it. */
+const CUES = ['cue-raise', 'western', 'cue'];
+
 /**
  * Which system is being bid. Two-over-one is Standard American with two
  * changes: a new suit at the two level over partner's opening forces to game,
@@ -161,9 +164,13 @@ function makeCtx(a: AuctionState, me: Seat, know: Record<Seat, Shape>, told: Tol
   const last = lastBid(a);
   const firstBid = a.calls.find((e) => e.call.type === 'bid');
   const theirs: Suit[] = [];
-  for (const e of a.calls) {
+  a.calls.forEach((e, i) => {
+    /* A cue of our suit is not a suit of theirs: it says nothing about
+       holding it, and treating it as theirs turned our own suit into one we
+       had to stop — and made our raise of it read as a cue. */
+    if (CUES.includes(told[i]?.tag ?? '')) return;
     if (e.call.type === 'bid' && sideOf(e.seat) !== sideOf(me) && isSuit(e.call.strain) && !theirs.includes(e.call.strain)) theirs.push(e.call.strain);
-  }
+  });
   const legal = (c: Call): boolean => illegalReason(a, me, c) === null;
   const pdLast = by(pd).at(-1);
   const prev = a.calls.at(-1);
@@ -311,6 +318,7 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
     const y = overcall.strain;
     /* The cue bid is the strong raise once they have come in. */
     out.push(...cueRaises(c, x, 10, need, (v) => isMajor(x) || !MAJORS.some((m) => m !== y && v.len[m] >= 5)));
+    out.push(...westernCues(c, 13));
     /* Four trumps are worth the three level and no more, so the weak raise
        exists only where the jump lands there. Higher, the hand simply passes. */
     const jump = jumpLevel(c, x);
@@ -391,17 +399,38 @@ function respondToOne(c: Ctx, x: Suit): Rule[] {
  * one usually chosen.
  */
 function cueRaises(c: Ctx, p: Suit, min: number, need: number, when?: (v: View) => boolean): Rule[] {
-  const rhoLast = c.acts(c.rho).at(-1)?.e.call;
-  const rhoSuit = rhoLast?.type === 'bid' && isSuit(rhoLast.strain) ? rhoLast.strain : null;
-  const order = c.theirs.slice().sort((a, b) => (a === rhoSuit ? -1 : b === rhoSuit ? 1 : c.cheapest(a) - c.cheapest(b)));
   const out: Rule[] = [];
-  for (const t of order) {
+  for (const t of theirSuits(c)) {
     const l = c.cheapest(t);
-    if (!l || l > 3) continue;
+    if (l !== 2) continue;
     out.push({
       call: B(l, t), says: `A good raise of ${NAME[p]}: ${min} or more points with support`,
       hcp: R(min, 37), len: { [p]: [need, 13] }, ...(when ? { when } : {}),
       forcing: true, tag: 'cue-raise', alert: true,
+    });
+  }
+  return out;
+}
+
+/** Their suits, the one on the right first: the usual choice where there are two. */
+function theirSuits(c: Ctx): Suit[] {
+  const rhoLast = c.acts(c.rho).at(-1)?.e.call;
+  const rhoSuit = rhoLast?.type === 'bid' && isSuit(rhoLast.strain) ? rhoLast.strain : null;
+  return c.theirs.slice().sort((a, b) => (a === rhoSuit ? -1 : b === rhoSuit ? 1 : c.cheapest(a) - c.cheapest(b)));
+}
+
+/**
+ * Higher up, a bid of their suit asks a different question. The Western cue
+ * bid at the three level says: three no-trump is where this hand belongs if
+ * you can stop their suit, because I cannot. Forcing, like every cue.
+ */
+function westernCues(c: Ctx, min: number, enough?: (v: View) => boolean): Rule[] {
+  const out: Rule[] = [];
+  for (const t of theirSuits(c)) {
+    if (c.cheapest(t) !== 3) continue;
+    out.push({
+      call: B(3, t), says: `Asks for a stopper in ${NAME[t]} for three no-trump`,
+      hcp: R(min, 37), when: (v) => !v.stop(t) && (!enough || enough(v)), forcing: true, tag: 'western', alert: true,
     });
   }
   return out;
@@ -528,7 +557,7 @@ function defensive(c: Ctx): Rule[] {
 
 function advanceOvercall(c: Ctx, p: Suit, level: number): Rule[] {
   const out: Rule[] = [];
-  out.push(...cueRaises(c, p, 11, 3));
+  out.push(...cueRaises(c, p, 11, 3), ...westernCues(c, 14));
   const jump = jumpLevel(c, p);
   if (jump === 3) out.push({ call: B(jump, p), says: 'Weak jump raise: four or more trumps, fewer than 6 points', hcp: R(0, 5), len: { [p]: [4, 13] }, when: (v) => v.short(p) >= 1, tag: 'preempt', alert: true });
   const cheap = c.cheapest(p);
@@ -658,6 +687,26 @@ function rebid(c: Ctx): Rule[] {
       else out.push({ call: B(3, 'N'), says: 'Accepts: enough for game', hcp: R(extra, 37), when: (v) => c.theirs.every((s) => v.stop(s)) });
       out.push({ call: B(c.cheapest(x), x), says: 'A minimum', hcp: R(0, extra) });
       return out;
+    }
+    if (pdTag === 'western' && pdCall.type === 'bid' && isSuit(pdCall.strain)) {
+      const t = pdCall.strain;
+      const out: Rule[] = [{ call: B(3, 'N'), says: `Three no-trump: ${NAME[t]} stopped`, when: (v) => v.stop(t), tag: 'final' }];
+      /* Without a stopper the hand belongs in a suit, so back to one of ours
+         rather than a no-trump neither of us can hold up in. */
+      const ourSuits: Suit[] = [];
+      for (const x of [...c.acts(c.me), ...c.acts(c.pd)].map((e) => e.e.call)) {
+        if (x.type === 'bid' && isSuit(x.strain) && !c.theirs.includes(x.strain) && !ourSuits.includes(x.strain)) ourSuits.push(x.strain);
+      }
+      for (const x of ourSuits) {
+        const l = c.cheapest(x);
+        if (!l || l > 4) continue;
+        out.push({ call: B(l, x), says: `No stopper in ${NAME[t]}`, len: { [x]: [4, 13] } });
+      }
+      for (const x of ourSuits) {
+        const l = c.cheapest(x);
+        if (l && l <= 4) out.push({ call: B(l, x), says: `No stopper in ${NAME[t]}`, fb: true });
+      }
+      return [...out, ...lastResort(place(c))];
     }
     if (pdTag === 'cue') {
       /* Partner asked me to pick again after my take-out double. */
@@ -944,6 +993,8 @@ function place(c: Ctx): Rule[] {
     /* Their suit, later in the auction, is still the good raise of ours. */
     const ours = c.acts(c.pd).map((x) => x.e.call).filter((x) => x.type === 'bid' && isSuit(x.strain)).at(-1);
     if (ours?.type === 'bid' && isSuit(ours.strain) && !c.theirs.includes(ours.strain)) out.push(...cueRaises(c, ours.strain, 11, 3));
+    /* Only with the values for game: the ask is not a way to compete. */
+    out.push(...westernCues(c, 0, (v) => total(v) >= 25));
     out.push({ call: PASS, says: 'Pass' });
     return out;
   }
