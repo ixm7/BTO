@@ -1125,7 +1125,11 @@ function openSettings(): void {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
       Object.assign(settings, { sound: (f.elements.namedItem('sound') as HTMLInputElement | null)?.checked !== false,
-        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '', partnerNote: val(f, 'note'), token: val(f, 'token') });
+        name: val(f, 'name'), skill: toSkill(val(f, 'skill')) ?? '',
+        /* The description travels as one line of a comment on the tournament
+           page, so the lines it was typed on become spaces. */
+        partnerNote: val(f, 'note').replace(/\s*\n\s*/g, ' '),
+        token: val(f, 'token') });
       /* The GitHub username comes from the token itself; without one there is none. */
       if (!settings.token) settings.githubLogin = '';
       if (settings.token && settings.repo) {
@@ -1149,7 +1153,7 @@ function openSettings(): void {
             SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
           'How you would describe your own game. Some tournaments are open only to certain levels.')),
       tipped('Player description',
-        h('input', { name: 'note', value: settings.partnerNote, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }),
+        h('textarea', { name: 'note', rows: 2, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }, settings.partnerNote),
         'Visible to other players when they click your name at the table.'),
       h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
         h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
