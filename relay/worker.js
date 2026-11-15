@@ -383,6 +383,9 @@ async function forget(origin, owner, repo, issue) {
   const cache = caches.default;
   const base = `${origin}/repos/${owner}/${repo}/issues`;
   const urls = [`${base}${LIST_QUERY}`, `${base}/${issue}`];
+  /* A repository with hundreds of tournaments is read a page at a time, and
+     every page of it is now out of date. */
+  for (let page = 2; page <= 5; page++) urls.push(`${base}${LIST_QUERY}&page=${page}`);
   for (let page = 1; page <= 5; page++) urls.push(`${base}/${issue}/comments?per_page=100&page=${page}`);
   await Promise.all(urls.map((u) => cache.delete(new Request(u, { method: 'GET' }))));
 }

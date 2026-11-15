@@ -1667,21 +1667,29 @@ function myCardPanel(state: TState, meId: string): HTMLElement {
   const rows = scorecard(state, pairOf(state, meId));
   const table = standings(state);
   const us = table.find((r) => r.pair.players.some((p) => p.id === meId));
-  const place = us && us.boardsPlayed
-    ? `${ordinal(us.rank)} of ${table.length} \u00b7 ${byImps ? `${impText(cardImps(rows))} IMPs` : `${cardTotal(rows).we.toFixed(1)}%`}`
-    : 'Nothing scored yet';
+  /*
+   * A place in the field only when there is a field to have a place in. Said
+   * after one board of nine, "4th of 4" is not a standing but an accident of
+   * which board came back first, and it reads as a verdict.
+   */
+  const total = byImps ? `${impText(cardImps(rows))} IMPs` : `${cardTotal(rows).we.toFixed(1)}%`;
+  const place = state.finished && us && us.boardsPlayed
+    ? `${ordinal(us.rank)} of ${table.length} \u00b7 ${total}`
+    : rows.length === 0 ? 'Nothing scored yet'
+      : `${rows.length} board${rows.length === 1 ? '' : 's'} scored \u00b7 ${total} so far`;
+  const score = (r: typeof rows[number]): string =>
+    r.weScore !== null ? `+${r.weScore}` : r.theyScore !== null ? `\u2212${r.theyScore}` : '0';
   return h('div.panel',
     h('h3', 'Your card'),
     h('div.muted', place),
     rows.length === 0
       ? h('p.muted', { style: 'margin:8px 0 0' }, 'The boards you play appear here as the field scores them.')
-      : h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list',
-        h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', byImps ? 'IMPs' : '%'))),
+      : h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list.card',
+        h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', 'Score'), h('th.num', byImps ? 'IMPs' : '%'))),
         h('tbody', [...rows].reverse().map((r) => h('tr',
           h('td.num', r.board),
-          r.result.contract
-            ? h('td', r.result.text, h('div.muted', r.weScore !== null ? `+${r.weScore}` : r.theyScore !== null ? `\u2212${r.theyScore}` : '0'))
-            : h('td.muted', 'Passed out'),
+          r.result.contract ? h('td', r.result.text) : h('td.muted', 'Passed out'),
+          h('td.num.muted', r.result.contract ? score(r) : ''),
           h('td.num', byImps ? impText(r.weImps) : r.wePercent.toFixed(1))))))));
 }
 
@@ -2042,9 +2050,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
            the same boards, so counting the results of all of them made a
            nine-board tournament read as eighteen. */
         h('div.muted', `${new Set(state.results.map((r) => r.board)).size} of ${state.config.rounds * state.config.boardsPerRound} boards played`),
-        table.lastResult ? h('p', { style: 'margin:8px 0 0' }, `Last board (${table.lastResult.board}): `, h('b', table.lastResult.text),
-          table.lastResult.claimed ? ' (claimed)' : '',
-          `, N-S ${table.lastResult.nsScore > 0 ? '+' : ''}${table.lastResult.nsScore}`) : null));
+        /* The board just finished is on the card below, with what it was
+           worth beside it; saying it twice says nothing twice. */
+        ));
     }
   }
   side.append(myCardPanel(state, n.me.playerId));

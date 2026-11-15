@@ -75,6 +75,10 @@ table.list td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertica
 table.list tr:last-child td { border-bottom: 0; }
 table.list td.num, table.list th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.list tr.me td { background: #f3ecd2; }
+/* The player's own card, in the narrow panel beside the table: four short
+   columns, none of which should wrap onto a line of its own. */
+table.list.card th, table.list.card td { padding: 5px 6px; white-space: nowrap; font-size: .88rem; }
+table.list.card th:nth-child(2), table.list.card td:nth-child(2) { width: 99%; }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: .75rem; border: 1px solid var(--line); white-space: nowrap; }
 .badge.upcoming { background: #eef5f0; border-color: #c5dccf; }
 .badge.in-progress { background: #fff4d6; border-color: #e5cf8a; }

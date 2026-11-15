@@ -1033,7 +1033,12 @@ export class Directory {
        list is worth showing. */
     const issues: RawIssue[] = [];
     for (let page = 1; page <= LIST_PAGES; page++) {
-      const batch = await this.req<RawIssue[]>(this.api(`/issues?state=all&per_page=100&sort=created&direction=desc&page=${page}`));
+      /* The first page is asked for without a page number, which is the
+         address the relay empties from its cache when somebody registers.
+         Asking for the same page by another name would be served the list as
+         it stood before they did. */
+      const q = `/issues?state=all&per_page=100&sort=created&direction=desc${page === 1 ? '' : `&page=${page}`}`;
+      const batch = await this.req<RawIssue[]>(this.api(q));
       issues.push(...batch);
       if (batch.length < 100) break;
     }
