@@ -321,6 +321,9 @@ function invitesForMe(): { l: Listing; i: Invitation }[] {
   return out;
 }
 
+/** The action this page is waiting on, so its button keeps saying so. */
+let working: { key: string; label?: string } | null = null;
+
 /** Invitations this player has already been told about, so each is announced once. */
 const toldOf = new Set<string>();
 
@@ -739,10 +742,28 @@ function detailView(l: Listing): HTMLElement {
   const full = !!regs && regs.length >= l.meta.capacity;
   countdownCue(l, amRegistered);
   const open = l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress';
-  const act = (fn: () => Promise<unknown>, done: string, label?: string) => async (e?: Event): Promise<void> => {
-    const btn = e?.currentTarget;
-    if (btn instanceof HTMLButtonElement) markBusy(btn, label);
-    try { await fn(); notice = done; await refresh(); } catch (err) { fail(err); }
+  /*
+   * An action holds its button until the page has the answer. Marking the
+   * button on the click alone is not enough: the page is redrawn from what
+   * it already knows while the write is still in the air, and the button
+   * would come back as it was for a moment before changing for good. So the
+   * action is remembered by name and the look is put on again each time it
+   * is drawn, until the news arrives.
+   */
+  const act = (fn: () => Promise<unknown>, done: string, busy?: { key: string; label?: string }) =>
+    async (e?: Event): Promise<void> => {
+      if (busy) working = busy;
+      const btn = e?.currentTarget;
+      if (btn instanceof HTMLButtonElement) markBusy(btn, busy?.label);
+      try { await fn(); notice = done; await refresh(); } catch (err) { fail(err); } finally {
+        if (busy && working?.key === busy.key) { working = null; render(); }
+      }
+    };
+
+  /** The same look, put back on a button that is still waiting for its answer. */
+  const waiting = (key: string, btn: HTMLElement): HTMLElement => {
+    if (working?.key === key && btn instanceof HTMLButtonElement) markBusy(btn, working.label);
+    return btn;
   };
 
   // The partner of a registered player, by whoever else is registered under the same code.
@@ -804,17 +825,17 @@ function detailView(l: Listing): HTMLElement {
     if (invites.some(theirs)) {
       return h('div.row',
         h('span', 'Invited you:'),
-        h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`) }, 'Accept'),
-        h('button', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.') }, 'Decline'));
+        waiting(`accept:${them}`, h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`, { key: `accept:${them}` }) }, 'Accept')),
+        waiting(`decline:${them}`, h('button', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.', { key: `decline:${them}` }) }, 'Decline')));
     }
     if (invites.some(mine)) {
       return h('div.row', h('span.muted', 'Invitation sent'),
-        h('button.link', { onclick: act(() => d.cancelInvite(l.number, r.login), 'Invitation cancelled.') }, 'Cancel'));
+        waiting(`cancel:${them}`, h('button.link', { onclick: act(() => d.cancelInvite(l.number, r.login), 'Invitation cancelled.', { key: `cancel:${them}` }) }, 'Cancel')));
     }
-    return h('button', {
+    return waiting(`invite:${them}`, h('button', {
       title: `Ask ${r.name} to be your partner for this tournament.`,
-      onclick: act(() => d.invitePartner(l.number, r.login), `Invitation sent to ${r.name}.`),
-    }, 'Invite to Partner');
+      onclick: act(() => d.invitePartner(l.number, r.login), `Invitation sent to ${r.name}.`, { key: `invite:${them}` }),
+    }, 'Invite to Partner'));
   };
 
   const myAcceptedInvite = l.partners?.invitations.find((i) =>
@@ -845,19 +866,20 @@ function detailView(l: Listing): HTMLElement {
   if (open && welcome) {
     if (d.canAct) {
       actions.append(amRegistered
-        ? h('button', { onclick: act(async () => {
+        ? waiting('withdraw', h('button', { onclick: act(async () => {
             await d.withdraw(l.number);
             // Unregistering breaks the partnership too, so the ex-partner's own browser
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
-          }, 'You have unregistered.', 'Unregistering…') }, 'Unregister')
-        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: (e: Event) => {
+          }, 'You have unregistered.', { key: 'withdraw', label: 'Unregistering…' }) }, 'Unregister'))
+        : waiting('register', h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: (e: Event) => {
           const btn = e.currentTarget;
           askAboutClash(l, () => {
             if (btn instanceof HTMLButtonElement) markBusy(btn, 'Registering…');
-            void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.')();
+            void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems),
+              'You are registered.', { key: 'register', label: 'Registering…' })();
           });
-        } }, full ? 'Full' : 'Register'));
+        } }, full ? 'Full' : 'Register')));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
