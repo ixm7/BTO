@@ -598,7 +598,10 @@ function listTable(rows: Listing[]): HTMLElement {
   return h('div.table-scroll', h('table.list',
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
-      h('td', h('button.link', { onclick: () => { location.hash = `t=${l.number}`; } }, l.meta.name)),
+      h('td', h('button.open', {
+        title: `Open ${l.meta.name}: who has entered, the partner list, and the way in.`,
+        onclick: () => { location.hash = `t=${l.number}`; },
+      }, l.meta.name)),
       h('td', scoringName(l.meta.scoring)),
       h('td.num', { 'data-tip': boardsText(l.meta), 'aria-label': `${boardCount(l.meta)} boards: ${boardsText(l.meta)}` },
         String(boardCount(l.meta))),
@@ -812,7 +815,17 @@ function detailView(l: Listing): HTMLElement {
 
   const partnerCell = (r: { login: string; name: string; pairCode?: string }): Node | string => {
     const partner = pairedWith(r);
-    if (partner) return `Partner: ${partner}`;
+    if (partner) {
+      /* On your own row, the way into your partnership: the pair's chat and
+         the card they show the table. There is no reason to go looking for it
+         in a list of players who are all paired up already. */
+      const mine = r.login.toLowerCase() === myLogin && myPartnerLogin;
+      return mine
+        ? h('div.row', h('span', `Partner: ${partner}`),
+          h('button.link', { title: 'Talk to your partner, and agree the system and description your table will see.',
+            onclick: () => openPartnership(l, myPartnerLogin) }, 'Chat [Partnership]'))
+        : `Partner: ${partner}`;
+    }
     const them = r.login.toLowerCase();
     /* Nothing to say in your own partner column while you have no partner:
        the name is already marked as yours in the row beside it. */
@@ -1305,51 +1318,114 @@ function openPartnership(l: Listing, partner: string): void {
   let transport: Transport | null = null;
   let err: string | null = null;
   let busy = false;
+  let closed = false;
   let draw: () => void = () => {};
 
-  const card = pairAgreement(
+  /* The card as it stands, and whether this side has it in hand unsaved: a
+     card read from the page must not overwrite what somebody is writing. */
+  let card = pairAgreement(
     { id: me, systems: settings.systems },
     { id: partner, systems: l.registrations?.find((r) => r.login.toLowerCase() === partner.toLowerCase())?.systems },
   );
-  let system = card.system;
+  let unsaved = false;
+  let sysEl: HTMLSelectElement | null = null;
+  let noteEl: HTMLTextAreaElement | null = null;
+  let sending: ReturnType<typeof setTimeout> | null = null;
+  /* Whether the partner has this open too, which is what decides whether
+     their side of the card arrives as it is written or only once saved. */
+  let together = false;
+
+  const show = (c: PairCard): void => {
+    card = c;
+    /* Never under the cursor: whoever is typing in a field keeps it. */
+    if (sysEl && document.activeElement !== sysEl) sysEl.value = c.system;
+    if (noteEl && document.activeElement !== noteEl) noteEl.value = c.note;
+  };
+
+  /** What the two of them have saved, when nothing is being written here. */
+  const readSaved = async (): Promise<void> => {
+    await loadPairCards(true);
+    const saved = pairCards.get(key);
+    if (saved && !unsaved && !closed) show(saved);
+  };
+
+  /** What this side is writing, as it is written: the pad is shared. */
+  const sendDraft = (): void => {
+    if (sending) clearTimeout(sending);
+    sending = setTimeout(() => {
+      sending = null;
+      transport?.send({ k: 'draft', system: sysEl?.value ?? card.system, note: noteEl?.value ?? card.note });
+    }, 500);
+  };
+
+  const typing = (): void => { unsaved = true; sendDraft(); };
 
   void (async () => {
     try {
       transport = settings.transport === 'local'
         ? localTransport(`pair:${key}`)
         : (await import('../net/trystero')).trysteroTransport(`pair:${key}`);
+      transport.onPeerJoin(() => { together = true; draw(); sendDraft(); });
+      transport.onPeerLeave(() => { together = (transport?.peers().length ?? 0) > 0; draw(); });
+      together = transport.peers().length > 0;
       transport.onMessage((msg) => {
-        const m = msg as { k?: string; text?: string; name?: string };
-        if (m.k !== 'say' || typeof m.text !== 'string') return;
-        said.push({ name: String(m.name ?? theirName).slice(0, 40), text: m.text.slice(0, CHAT_MAX) });
-        said = said.slice(-50);
-        draw();
+        const m = msg as { k?: string; text?: string; name?: string; system?: string; note?: string };
+        if (m.k === 'say' && typeof m.text === 'string') {
+          said.push({ name: String(m.name ?? theirName).slice(0, 40), text: m.text.slice(0, CHAT_MAX) });
+          said = said.slice(-50);
+          draw();
+          return;
+        }
+        /* Their side of the card: what they are writing, or what they saved. */
+        if (m.k === 'draft' || m.k === 'card') {
+          if (m.k === 'draft') unsaved = true;
+          show({ system: m.system === '2/1' ? '2/1' : 'SAYC', note: String(m.note ?? '').slice(0, PAIR_NOTE_MAX) });
+          if (m.k === 'card') { unsaved = false; void loadPairCards(true); }
+          return;
+        }
+        /* Somebody has just opened their side: show them where this one is. */
+        if (m.k === 'here') { together = true; draw(); if (unsaved) sendDraft(); }
       });
+      transport.send({ k: 'here' });
     } catch { err = 'Could not open the chat.'; draw(); }
   })();
+
+  void readSaved();
+  /* And a look at the page now and then, for a partner who saved while this
+     side was closed, or whose message did not reach it. */
+  const poll = setInterval(() => { if (!closed) void readSaved(); }, 20_000);
 
   dialog(`Chat — you and ${theirName}`, (close) => {
     const body = h('div');
     const box = h('input', { maxLength: CHAT_MAX, placeholder: `Say something to ${theirName}…`, autocomplete: 'off' }) as HTMLInputElement;
-    const note = h('textarea', { name: 'note', rows: 2, maxLength: PAIR_NOTE_MAX,
+    noteEl = h('textarea', { name: 'note', rows: 2, maxLength: PAIR_NOTE_MAX, oninput: typing,
       placeholder: 'e.g. Natural discards, weak 1NT, 1C can be short, Bergen raises' }, card.note) as HTMLTextAreaElement;
+    sysEl = h('select', { onchange: typing },
+      ['SAYC', '2/1'].map((x) => h('option', { value: x, selected: card.system === x }, x))) as HTMLSelectElement;
 
     const save = async (): Promise<void> => {
       if (busy) return;
       busy = true; err = null; draw();
+      const system = sysEl?.value === '2/1' ? '2/1' : 'SAYC';
+      const note = noteEl?.value ?? '';
       try {
         if (d.canWrite) await d.openPairs();
-        await d.savePairCard(key, system, note.value);
+        await d.savePairCard(key, system, note);
         await loadPairCards(true);
-        /* So the other side sees it without waiting for the page to be read. */
-        transport?.send({ k: 'card' });
+        unsaved = false;
+        /* So the other side has it without waiting for the page to be read. */
+        transport?.send({ k: 'card', system, note });
         notice = 'Your pair card is saved.';
       } catch (e) { err = (e as Error).message; }
       busy = false; draw();
       render();
     };
 
+    const where = h('p.muted');
     draw = (): void => {
+      where.textContent = together
+        ? `${theirName} has this open: what either of you types appears on the other's screen within a second.`
+        : `${theirName} does not have this open. Anything you save is waiting for them when they do, and the page is looked at every 20 seconds for their side of it.`;
       body.replaceChildren(...[
         err ? h('div.error', err) : null,
         said.length
@@ -1372,17 +1448,21 @@ function openPartnership(l: Listing, partner: string): void {
       } }, box, h('button.primary', { type: 'submit' }, 'Send')),
       h('div.panel', { style: 'margin-top:14px' },
         h('h3', 'Your pair card'),
-        h('p.muted', { style: 'margin-top:0' }, 'Shown at the table to everybody, and waiting for you both the next time you play together.'),
+        h('p.muted', { style: 'margin-top:0' }, 'Both of you write this one, and it is shown at the table to everybody. Save it and it will be waiting the next time you play together.'),
+        where,
         h('form.grid', { onsubmit: (e: Event) => { e.preventDefault(); void save(); } },
-          tipped('Bidding system',
-            h('select', { onchange: (e: Event) => { system = (e.target as HTMLSelectElement).value; } },
-              ['SAYC', '2/1'].map((x) => h('option', { value: x, selected: system === x }, x))),
-            'The system the two of you have agreed to play.'),
-          tipped('Pair description', note, 'Carding, notrump range, and anything else the table should know.'),
+          tipped('Bidding system', sysEl, 'The system the two of you have agreed to play.'),
+          tipped('Pair description', noteEl, 'Carding, notrump range, and anything else the table should know.'),
           h('div.row', h('span.spacer'),
             h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Save pair card')))),
       h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
-  }, () => { transport?.leave(); transport = null; });
+  }, () => {
+    closed = true;
+    clearInterval(poll);
+    if (sending) clearTimeout(sending);
+    transport?.leave();
+    transport = null;
+  });
 }
 
 /* --------------------------------------------------------------- lobby */
