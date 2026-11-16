@@ -611,3 +611,8 @@ h2 .until { font-size: .6em; vertical-align: middle; }
 .chat-meta { font-size: .8rem; margin-top: 2px; }
 .chat-meta .link { font-size: .8rem; }
 form.row input { flex: 1 1 auto; }
+textarea.chat-box {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; color: var(--ink); font: inherit; line-height: 1.4; resize: vertical;
+  min-height: calc(2 * 1.4em + 16px); max-height: calc(3 * 1.4em + 16px);
+}

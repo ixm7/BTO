@@ -358,13 +358,31 @@ function inviteBanner(): HTMLElement | null {
       h('button.link', { onclick: () => openPartners(l) }, 'Partners list')))));
 }
 
-/** A chime, and a flag in the tab's title for a player who is looking elsewhere. */
+/*
+ * An invitation is worth hearing about, but several arriving together are
+ * not worth hearing about several times over: one is spoken, and nothing
+ * else is for the next ten seconds. The moment is kept in this browser, so
+ * the quiet holds across tabs and across a reload.
+ */
+const INVITE_VOICE_GAP_MS = 10_000;
+const INVITE_VOICE_KEY = 'bridge-p2p:invite-said';
+
+function sayInvite(from: string, tournament: string): void {
+  let last = 0;
+  try { last = Number(localStorage.getItem(INVITE_VOICE_KEY)) || 0; } catch { /* no storage */ }
+  const now = Date.now();
+  if (now - last < INVITE_VOICE_GAP_MS) return;
+  try { localStorage.setItem(INVITE_VOICE_KEY, String(now)); } catch { /* no storage */ }
+  say(`${from} has invited you to play as partners in ${tournament}.`);
+}
+
+/** A chime, a word, and a flag in the tab's title for a player looking elsewhere. */
 function announceInvite(from: string, tournament: string): void {
   turnChime();
+  sayInvite(from, tournament);
   if (!document.hidden) return;
   const plain = document.title;
   document.title = `\u{1F91D} ${from} invited you`;
-  void tournament;
   const back = (): void => {
     if (document.hidden) return;
     document.title = plain;
@@ -1368,7 +1386,7 @@ function openLobby(): void {
 
   dialog('Lobby', (close) => {
     const body = h('div');
-    const box = h('input', { maxLength: CHAT_MAX, placeholder: 'Say something to the room…', autocomplete: 'off' }) as HTMLInputElement;
+    const box = h('textarea.chat-box', { maxLength: CHAT_MAX, rows: 2, placeholder: 'Say something to the room…' }) as HTMLTextAreaElement;
 
     const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
       if (busy) return;
@@ -1400,18 +1418,20 @@ function openLobby(): void {
     void load();
     lobbySync = () => { if (!closed) void load(); };
 
-    return h('div',
+    /* The box has the width to itself, and Send sits with Close: a message
+       is a line or two, and it is easier to read them written wide. */
+    return h('form', { onsubmit: (e: Event) => {
+      e.preventDefault();
+      const text = box.value.replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      box.value = '';
+      void act(() => d.say(text))();
+    } },
       body,
-      h('form.row', { style: 'margin-top:10px', onsubmit: (e: Event) => {
-        e.preventDefault();
-        const text = box.value.trim();
-        if (!text) return;
-        box.value = '';
-        void act(() => d.say(text))();
-      } },
-        box,
-        h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Send')),
-      h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
+      h('div', { style: 'margin-top:10px' }, box),
+      h('div.row', { style: 'margin-top:10px' }, h('span.spacer'),
+        h('button', { type: 'button', onclick: close }, 'Close'),
+        h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Send')));
   }, () => { closed = true; lobbySync = null; });
 }
 
