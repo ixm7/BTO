@@ -599,7 +599,7 @@ function listTable(rows: Listing[]): HTMLElement {
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
       h('td', h('button.open', {
-        title: `Open ${l.meta.name}: who has entered, the partner list, and the way in.`,
+        title: 'Open this tournament',
         onclick: () => { location.hash = `t=${l.number}`; },
       }, l.meta.name)),
       h('td', scoringName(l.meta.scoring)),
