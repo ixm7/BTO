@@ -640,6 +640,21 @@ function startNote(l: Listing): string | null {
   return null;
 }
 
+/**
+ * The countdown, said aloud as it moves. A player waiting for a tournament to
+ * fill has no reason to watch the page, so the number still wanted, each
+ * extension of the deadline and the close of entries are spoken — once each,
+ * and only for a tournament this player has entered.
+ */
+let saidNote = '';
+function countdownCue(l: Listing | null | undefined, mine: boolean): void {
+  if (!l || !mine || l.status !== 'starting') return;
+  const note = startNote(l);
+  if (!note || note === saidNote) return;
+  saidNote = note;
+  say(note);
+}
+
 const weekdayOf = (l: Listing): string =>
   new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: l.meta.timeZone }).format(new Date(l.meta.startUtc));
 
@@ -672,6 +687,7 @@ function detailView(l: Listing): HTMLElement {
   const regs = l.registrations;
   const amRegistered = !!myLogin && !!regs?.some((r) => r.login.toLowerCase() === myLogin);
   const full = !!regs && regs.length >= l.meta.capacity;
+  countdownCue(l, amRegistered);
   const open = l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress';
   const act = (fn: () => Promise<unknown>, done: string) => async (): Promise<void> => {
     try { await fn(); notice = done; await refresh(); } catch (e) { fail(e); }
@@ -1752,6 +1768,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
 
   const entries = l?.registrations ?? [];
   const tables = Math.ceil(entries.length / 4);
+  countdownCue(l, true);
 
   return h('div', head, h('div.panel',
     h('h3', 'Waiting room'),
