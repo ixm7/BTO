@@ -603,3 +603,11 @@ h2 .until { font-size: .6em; vertical-align: middle; }
   font-variant-numeric: tabular-nums; font-size: .85em; font-weight: 600;
 }
 h2 .until { font-size: .6em; vertical-align: middle; }
+
+/* ---- the lobby ---- */
+.chat { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.chat-line { padding: 6px 8px; border-radius: 6px; background: var(--panel-2, rgba(0, 0, 0, .03)); }
+.chat-line.pinned { border-left: 3px solid var(--ink); }
+.chat-meta { font-size: .8rem; margin-top: 2px; }
+.chat-meta .link { font-size: .8rem; }
+form.row input { flex: 1 1 auto; }

@@ -427,7 +427,7 @@ export function parseAbandoned(comments: readonly RawComment[], trusted: Iterabl
   return comments.some((c) => may.has((c.user?.login ?? '').toLowerCase()) && ABANDONED_RE.test(c.body ?? ''));
 }
 
-export interface RawComment { user: { login: string } | null; body: string | null; created_at: string }
+export interface RawComment { user: { login: string } | null; body: string | null; created_at: string; id?: number }
 
 /* ------------------------------------------------------------ the relay */
 
@@ -437,6 +437,74 @@ export interface RawComment { user: { login: string } | null; body: string | nul
  * a trailer naming the player by a tag that only their browser can produce,
  * and the relay's own account is what makes that trailer worth believing.
  */
+
+
+/* ---------------------------------------------------------- pair cards */
+
+/**
+ * What a pair has agreed: the system they play and whatever they want the
+ * table to know. Kept on an issue of its own, one comment per saving, so a
+ * pair who play together again find their card waiting. Named by the two
+ * players' ids — never their names, which may be shared — sorted, so both
+ * partners write and read the same line.
+ */
+export const PAIRS_LABEL = 'bb-pairs';
+export const PAIRS_MARK = '<!-- bridge-pairs -->';
+export const PAIR_NOTE_MAX = 240;
+
+export interface PairCard {
+  /** 'SAYC' or '2/1'. */
+  system: string;
+  note: string;
+}
+
+export function pairKey(a: string, b: string): string {
+  return [a.trim().toLowerCase(), b.trim().toLowerCase()].sort().join('+');
+}
+
+/**
+ * The system to show beside a pair who have not agreed one: the first of the
+ * alphabetically-first player's choices that the other plays too, and SAYC
+ * when they have nothing in common — so that every browser arrives at the
+ * same answer without the two of them having to say anything.
+ */
+export function systemBetween(
+  a: { id: string; systems?: SystemPref },
+  b: { id: string; systems?: SystemPref },
+): string {
+  const [first, second] = a.id.trim().toLowerCase() <= b.id.trim().toLowerCase() ? [a, b] : [b, a];
+  const mine = (first.systems ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const theirs = (second.systems ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  return mine.find((x) => theirs.includes(x)) ?? 'SAYC';
+}
+
+/* ----------------------------------------------------------------- chat */
+
+/**
+ * The lobby is one issue in the same repository, and each message is a
+ * comment on it: the same machinery as a tournament page, so a player
+ * without a token writes through the relay and everybody reads from the
+ * cache. A marker in the issue body is what the relay checks before it will
+ * write there, and a label is how a browser finds it.
+ */
+export const LOBBY_LABEL = 'bb-lobby';
+export const LOBBY_MARK = '<!-- bridge-lobby -->';
+/** Messages are short, and only the last few matter. */
+export const CHAT_MAX = 150;
+export const CHAT_KEEP = 50;
+const PIN_MARK = '<!-- pinned -->';
+
+export interface ChatMessage {
+  /** The comment's own id, which is what deleting and pinning name. */
+  id: number;
+  /** Who said it: a GitHub login, or `~tag` for a player writing through the relay. */
+  who: string;
+  name: string;
+  text: string;
+  at: string;
+  pinned: boolean;
+}
+
 export interface Relay { url: string; login: string; key: string; name: string }
 
 const TRAILER_RE = /\n?<!--\s*player\s+(\{[^\n]*?\})\s*-->\s*$/;
@@ -1233,6 +1301,158 @@ export class Directory {
   }
 
   /** Without a token: a github.com page with the tournament pre-filled; the user just presses "Submit". */
+  /* ----------------------------------------------------------- pair cards */
+
+  private pairsNumber: number | null = null;
+
+  /** The issue pair cards are kept on, found by its label. */
+  async pairsPage(): Promise<number | null> {
+    if (this.pairsNumber !== null) return this.pairsNumber;
+    const found = await this.req<{ number: number; body?: string | null }[]>(
+      this.api(`/issues?state=open&labels=${PAIRS_LABEL}&per_page=5`));
+    const one = found.find((x) => (x.body ?? '').includes(PAIRS_MARK)) ?? found[0];
+    if (one) this.pairsNumber = one.number;
+    return this.pairsNumber;
+  }
+
+  /** Start the page pair cards are kept on. Only a token can make the issue. */
+  async openPairs(): Promise<number> {
+    const had = await this.pairsPage();
+    if (had !== null) return had;
+    if (!this.token) throw new Error('Pair cards have not been set up yet.');
+    const made = await this.req<{ number: number }>(this.api('/issues'), 'POST', {
+      title: 'Pair cards',
+      labels: [PAIRS_LABEL],
+      body: [PAIRS_MARK, '', 'What each pair has agreed: the system they play and what they want the table to know.',
+        'Written by the app when a pair save their card. The last line for a pair is the one that counts.'].join('\n'),
+    });
+    this.pairsNumber = made.number;
+    return made.number;
+  }
+
+  /**
+   * Every pair card, by the two ids that name it. A pair who save again write
+   * a new line, and the last one is the card — the same rule as a player's
+   * registration, and the reason neither partner has to wait for the other.
+   */
+  async pairCards(): Promise<Map<string, PairCard>> {
+    const number = await this.pairsPage();
+    if (number === null) return new Map();
+    const { comments } = asActors(await this.comments(number), this.relay?.login ?? '');
+    const out = new Map<string, PairCard>();
+    for (const c of comments) {
+      const body = (c.body ?? '').replace(TRAILER_RE, '').trim();
+      const m = /^\/pair\s+(\S+)\s+sys:(\S+)(?:\s+note:([\s\S]*))?$/i.exec(body);
+      if (!m) continue;
+      const key = (m[1] as string).toLowerCase();
+      /* Only the two it names may write it: a line from anybody else is
+         somebody speaking for a pair they are not in. */
+      const who = (c.user?.login ?? '').toLowerCase();
+      if (!key.split('+').includes(who)) continue;
+      const system = (m[2] as string).toLowerCase() === '21' ? '2/1' : 'SAYC';
+      out.set(key, { system, note: ((m[3] ?? '') as string).replace(/\s+/g, ' ').trim().slice(0, PAIR_NOTE_MAX) });
+    }
+    return out;
+  }
+
+  /** Save what a pair have agreed. */
+  async savePairCard(key: string, system: string, note: string): Promise<unknown> {
+    const number = await this.pairsPage();
+    if (number === null) throw new Error('Pair cards have not been set up yet.');
+    const sys = system === '2/1' ? '21' : 'sayc';
+    const said = note.replace(/\s+/g, ' ').trim().slice(0, PAIR_NOTE_MAX);
+    return this.playerAct(number, `/pair ${key} sys:${sys}${said ? ` note:${said}` : ''}`, 'pair',
+      { pairKey: key, sys, note: said });
+  }
+
+  /* --------------------------------------------------------------- lobby */
+
+  private lobbyNumber: number | null = null;
+
+  /**
+   * The issue the lobby lives on, found by its label. Remembered for the life
+   * of this directory: it does not move, and every reader needs it.
+   */
+  async lobby(): Promise<number | null> {
+    if (this.lobbyNumber !== null) return this.lobbyNumber;
+    const found = await this.req<{ number: number; body?: string | null }[]>(
+      this.api(`/issues?state=open&labels=${LOBBY_LABEL}&per_page=5`));
+    const one = found.find((x) => (x.body ?? '').includes(LOBBY_MARK)) ?? found[0];
+    if (one) this.lobbyNumber = one.number;
+    return this.lobbyNumber;
+  }
+
+  /** Open the lobby for the first time. Only a token can make the issue. */
+  async openLobby(): Promise<number> {
+    const had = await this.lobby();
+    if (had !== null) return had;
+    if (!this.token) throw new Error('The lobby has not been set up yet.');
+    const made = await this.req<{ number: number }>(this.api('/issues'), 'POST', {
+      title: 'Lobby',
+      labels: [LOBBY_LABEL],
+      body: [LOBBY_MARK, '', 'Messages players leave for each other between tournaments.',
+        'Each comment below is one message. Post from the Lobby in the app rather than here,',
+        'so that your message comes from you.'].join('\n'),
+    });
+    this.lobbyNumber = made.number;
+    return made.number;
+  }
+
+  /**
+   * The last few messages, newest last, with anything pinned ahead of them.
+   * Only the final pages of comments are read: a lobby is a passing thing,
+   * and reading all of it would cost more every day it is used.
+   */
+  async messages(): Promise<ChatMessage[]> {
+    const number = await this.lobby();
+    if (number === null) return [];
+    const issue = await this.req<{ comments?: number }>(this.api(`/issues/${number}`));
+    const last = Math.max(1, Math.ceil((issue.comments ?? 0) / 100));
+    const raw: RawComment[] = [];
+    for (const page of last > 1 ? [last - 1, last] : [1]) {
+      raw.push(...await this.req<RawComment[]>(this.api(`/issues/${number}/comments?per_page=100&page=${page}`)));
+    }
+    const { comments, names } = asActors(raw, this.relay?.login ?? '');
+    const all = comments.map((c) => {
+      const body = (c.body ?? '').replace(TRAILER_RE, '').trim();
+      const who = c.user?.login ?? '';
+      return {
+        id: c.id ?? 0,
+        who,
+        name: names[who] ?? who,
+        text: body.replace(PIN_MARK, '').trim().slice(0, CHAT_MAX),
+        at: c.created_at,
+        pinned: body.includes(PIN_MARK),
+      };
+    }).filter((m) => m.id > 0 && m.text);
+    const pinned = all.filter((m) => m.pinned);
+    const rest = all.filter((m) => !m.pinned).slice(-CHAT_KEEP);
+    return [...pinned, ...rest];
+  }
+
+  /** Say something in the lobby. */
+  async say(text: string): Promise<unknown> {
+    const number = await this.lobby();
+    if (number === null) throw new Error('The lobby has not been set up yet.');
+    const line = text.replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+    if (!line) throw new Error('Nothing to say.');
+    return this.playerAct(number, line, 'chat', { text: line });
+  }
+
+  /** Take a message down. Only a token can, and the pinned ones are kept. */
+  async removeMessage(id: number): Promise<unknown> {
+    if (!this.token) throw new Error('A GitHub token is needed for this');
+    return this.req(this.api(`/issues/comments/${id}`), 'DELETE');
+  }
+
+  /** Hold a message at the top of the lobby, or let it go again. */
+  async pinMessage(id: number, pinned: boolean): Promise<unknown> {
+    if (!this.token) throw new Error('A GitHub token is needed for this');
+    const was = await this.req<{ body?: string | null }>(this.api(`/issues/comments/${id}`));
+    const body = (was.body ?? '').replace(PIN_MARK, '').trimEnd();
+    return this.req(this.api(`/issues/comments/${id}`), 'PATCH', { body: pinned ? `${body}\n${PIN_MARK}` : body });
+  }
+
   issueUrl(number: number): string { return `https://github.com/${this.slug}/issues/${number}`; }
 
   // `async` here matters beyond style: it guarantees that throwing (e.g. "no

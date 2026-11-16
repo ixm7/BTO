@@ -1,5 +1,5 @@
-import { BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
-import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
+import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { ago, allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
@@ -940,6 +940,9 @@ function openPartners(initial: Listing): void {
 
     draw = (): void => {
       const p = current.partners;
+      /* What each player said in Settings, as it came in with their entry. */
+      const systemsOf = (login: string): string =>
+        current.registrations?.find((r) => r.login.toLowerCase() === login.toLowerCase())?.systems ?? '';
       const amSeeking = !!myLogin && !!p?.seekers.some((s) => s.login.toLowerCase() === myLogin);
       const rows: (HTMLElement | null)[] = [
         h('p.muted', { style: 'margin-top:0' }, 'Players here are looking for a partner for this tournament. Add yourself, then invite someone — or wait to be invited.'),
@@ -964,10 +967,6 @@ function openPartners(initial: Listing): void {
           rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
 
-        /* What each player said in Settings, as it came in with their entry. */
-        const systemsOf = (login: string): string =>
-          current.registrations?.find((r) => r.login.toLowerCase() === login.toLowerCase())?.systems ?? '';
-
         const myAccepted = p.invitations.filter((i) => i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
         for (const i of myAccepted) {
           const partner = i.from.toLowerCase() === myLogin ? i.to : i.from;
@@ -979,12 +978,16 @@ function openPartners(initial: Listing): void {
             registered ? ' You are both registered for the tournament together.'
               : d.canAct ? ' Registering you both automatically…'
               : ` Comment “/register ${settings.name.trim() || 'Your Name'} pair:${code}” on the issue to register.`,
-            d.canAct ? h('div.row', { style: 'margin-top:8px' },
-              h('button', {
+            h('div.row', { style: 'margin-top:8px' },
+              h('button.primary', {
+                title: 'Talk to your partner, and agree the system and description your table will see.',
+                onclick: () => openPartnership(current, partner),
+              }, 'Chat [Partnership]'),
+              d.canAct ? h('button', {
                 disabled: busy,
                 title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.',
                 onclick: act(() => endPartnership(current, partner)),
-              }, 'Cancel partnership')) : null));
+              }, 'Cancel partnership') : null)));
         }
 
         rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
@@ -1101,19 +1104,42 @@ function testSwitcher(): HTMLElement {
  * Level and description for everyone at the table: what each player's own
  * browser says, filled in from their registration where they have not said.
  */
-function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?: string; systems?: string }> {
-  const out = n.playerInfo();
+function tablePlayerInfo(n: TournamentNode): Map<string, TableInfo> {
+  const out: Map<string, TableInfo> = n.playerInfo();
   for (const r of room?.listing?.registrations ?? []) {
     const had = out.get(r.login);
     if (r.skill && !had?.skill) out.set(r.login, { ...had, skill: r.skill });
     if (r.systems && !out.get(r.login)?.systems) out.set(r.login, { ...out.get(r.login), systems: r.systems });
   }
+  /*
+   * What each pair at each table plays, so that nobody has to guess: their
+   * own card where they have saved one, the system they both own to where
+   * they have not, and the robots' own system wherever a robot sits.
+   */
+  const robots = n.state?.config.robots === '2/1' ? '2/1' : 'SAYC';
+  for (const t of n.state?.tables ?? []) {
+    for (const [a, b] of [['N', 'S'], ['E', 'W']] as const) {
+      const pa = t.seats[a];
+      const pb = t.seats[b];
+      if (!pa || !pb) continue;
+      const card = pa.bot || pb.bot
+        ? { system: robots, note: '' }
+        : pairAgreement({ id: pa.id, systems: out.get(pa.id)?.systems as SystemPref },
+          { id: pb.id, systems: out.get(pb.id)?.systems as SystemPref });
+      for (const id of [pa.id, pb.id]) {
+        out.set(id, { ...out.get(id), pairSystem: card.system, ...(card.note ? { pairNote: card.note } : {}) });
+      }
+    }
+  }
   return out;
 }
 
+/** What the table knows about one player: their own words, and their pair's. */
+export interface TableInfo { note?: string; skill?: string; systems?: string; pairSystem?: string; pairNote?: string }
+
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
-  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; note?: string; partner?: string },
+  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairNote?: string; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
@@ -1136,6 +1162,8 @@ function openPlayerInfo(
   dialog(p.name, (close) => h('div',
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
+      p.pairSystem ? [h('dt', 'This pair plays'), h('dd', p.pairSystem)] : null,
+      p.pairNote ? [h('dt', 'Pair description'), h('dd', p.pairNote)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
       h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given')),
       h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description')),
@@ -1174,6 +1202,212 @@ function openAbout(): void {
     h('p', 'Please email feedback and suggestions to ',
       h('a', { href: `mailto:${MAIL}` }, MAIL), '.'),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+}
+
+/* ---------------------------------------------------------- partnership */
+
+/** Pair cards, read once and kept for the page: they change rarely. */
+let pairCards: Map<string, PairCard> = new Map();
+let pairCardsAt = 0;
+
+async function loadPairCards(force = false): Promise<void> {
+  const d = directory();
+  if (!d) return;
+  if (!force && Date.now() - pairCardsAt < 60_000) return;
+  try { pairCards = await d.pairCards(); pairCardsAt = Date.now(); } catch { /* next time */ }
+}
+
+/**
+ * What a pair play, and what they want the table to know: their own card
+ * where they have saved one, otherwise the system they both own to.
+ */
+function pairAgreement(a: { id: string; systems?: SystemPref }, b: { id: string; systems?: SystemPref }): PairCard {
+  const card = pairCards.get(pairKey(a.id, b.id));
+  return card ?? { system: systemBetween(a, b), note: '' };
+}
+
+/**
+ * The room where two partners talk. Live only: what is said here is said
+ * between them and kept by neither, unlike the card below it.
+ */
+function openPartnership(l: Listing, partner: string): void {
+  const d = directory();
+  const me = myId();
+  if (!d || !me) return;
+  const key = pairKey(me, partner);
+  const theirName = who(l, partner);
+  let said: { name: string; text: string }[] = [];
+  let transport: Transport | null = null;
+  let err: string | null = null;
+  let busy = false;
+  let draw: () => void = () => {};
+
+  const card = pairAgreement(
+    { id: me, systems: settings.systems },
+    { id: partner, systems: l.registrations?.find((r) => r.login.toLowerCase() === partner.toLowerCase())?.systems },
+  );
+  let system = card.system;
+
+  void (async () => {
+    try {
+      transport = settings.transport === 'local'
+        ? localTransport(`pair:${key}`)
+        : (await import('../net/trystero')).trysteroTransport(`pair:${key}`);
+      transport.onMessage((msg) => {
+        const m = msg as { k?: string; text?: string; name?: string };
+        if (m.k !== 'say' || typeof m.text !== 'string') return;
+        said.push({ name: String(m.name ?? theirName).slice(0, 40), text: m.text.slice(0, CHAT_MAX) });
+        said = said.slice(-50);
+        draw();
+      });
+    } catch { err = 'Could not open the chat.'; draw(); }
+  })();
+
+  dialog(`Chat — you and ${theirName}`, (close) => {
+    const body = h('div');
+    const box = h('input', { maxLength: CHAT_MAX, placeholder: `Say something to ${theirName}…`, autocomplete: 'off' }) as HTMLInputElement;
+    const note = h('textarea', { name: 'note', rows: 2, maxLength: PAIR_NOTE_MAX,
+      placeholder: 'e.g. Natural discards, weak 1NT, 1C can be short, Bergen raises' }, card.note) as HTMLTextAreaElement;
+
+    const save = async (): Promise<void> => {
+      if (busy) return;
+      busy = true; err = null; draw();
+      try {
+        if (d.canWrite) await d.openPairs();
+        await d.savePairCard(key, system, note.value);
+        await loadPairCards(true);
+        /* So the other side sees it without waiting for the page to be read. */
+        transport?.send({ k: 'card' });
+        notice = 'Your pair card is saved.';
+      } catch (e) { err = (e as Error).message; }
+      busy = false; draw();
+      render();
+    };
+
+    draw = (): void => {
+      body.replaceChildren(...[
+        err ? h('div.error', err) : null,
+        said.length
+          ? h('div.chat', said.map((m) => h('div.chat-line', h('b', `[${m.name}]: `), m.text)))
+          : h('p.muted', 'Nothing said yet. What is said here is live between the two of you and is not kept.'),
+      ].filter((x): x is HTMLElement => x !== null));
+    };
+    draw();
+
+    return h('div',
+      body,
+      h('form.row', { style: 'margin-top:10px', onsubmit: (e: Event) => {
+        e.preventDefault();
+        const text = box.value.trim().slice(0, CHAT_MAX);
+        if (!text) return;
+        box.value = '';
+        said = [...said, { name: settings.name || 'You', text }].slice(-50);
+        transport?.send({ k: 'say', text, name: settings.name || 'A partner' });
+        draw();
+      } }, box, h('button.primary', { type: 'submit' }, 'Send')),
+      h('div.panel', { style: 'margin-top:14px' },
+        h('h3', 'Your pair card'),
+        h('p.muted', { style: 'margin-top:0' }, 'Shown at the table to everybody, and waiting for you both the next time you play together.'),
+        h('form.grid', { onsubmit: (e: Event) => { e.preventDefault(); void save(); } },
+          tipped('Bidding system',
+            h('select', { onchange: (e: Event) => { system = (e.target as HTMLSelectElement).value; } },
+              ['SAYC', '2/1'].map((x) => h('option', { value: x, selected: system === x }, x))),
+            'The system the two of you have agreed to play.'),
+          tipped('Pair description', note, 'Carding, notrump range, and anything else the table should know.'),
+          h('div.row', h('span.spacer'),
+            h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Save pair card')))),
+      h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
+  }, () => { transport?.leave(); transport = null; });
+}
+
+/* --------------------------------------------------------------- lobby */
+
+/**
+ * Is this player in the middle of a tournament? The lobby is put away while
+ * they are: a table is no place to be reading the room.
+ */
+function inLiveTournament(): boolean {
+  if (room) return true;
+  const me = myId();
+  if (!me) return false;
+  return (listings ?? []).some((l) => l.status === 'in progress' && !l.results
+    && !!l.registrations?.some((r) => r.login.toLowerCase() === me));
+}
+
+let lobbySync: (() => void) | null = null;
+
+/** Messages players leave each other between tournaments. */
+function openLobby(): void {
+  const d = directory();
+  if (!d) return;
+  let msgs: ChatMessage[] = [];
+  let err: string | null = null;
+  let busy = false;
+  let loaded = false;
+  let closed = false;
+  let draw: () => void = () => {};
+
+  const load = async (): Promise<void> => {
+    try {
+      if (d.canWrite) {
+        /* The two pages this all lives on, made once by whoever can. */
+        await d.openLobby();
+        await d.openPairs().catch(() => { /* the lobby is the one in hand */ });
+      }
+      msgs = await d.messages();
+      err = null;
+    } catch (e) { err = (e as Error).message; }
+    loaded = true;
+    if (!closed) draw();
+  };
+
+  dialog('Lobby', (close) => {
+    const body = h('div');
+    const box = h('input', { maxLength: CHAT_MAX, placeholder: 'Say something to the room…', autocomplete: 'off' }) as HTMLInputElement;
+
+    const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
+      if (busy) return;
+      busy = true; err = null; draw();
+      try { await fn(); await load(); } catch (e) { err = (e as Error).message; }
+      busy = false; draw();
+    };
+
+    const line = (m: ChatMessage): HTMLElement => h(`div.chat-line${m.pinned ? '.pinned' : ''}`,
+      h('div', h('b', `[${m.name}]: `), m.text),
+      h('div.chat-meta', h('span.muted', ago(m.at)),
+        d.canWrite ? [' ',
+          h('button.link', { disabled: busy, onclick: act(() => d.pinMessage(m.id, !m.pinned)) }, m.pinned ? 'Unpin' : 'Pin'),
+          m.pinned ? null : [' ', h('button.link', { disabled: busy, onclick: act(() => d.removeMessage(m.id)) }, 'Delete')],
+        ] : null));
+
+    draw = (): void => {
+      body.replaceChildren(...[
+        err ? h('div.error', err) : null,
+        !d.canAct ? h('div.note', 'Set your name in Settings to post here.') : null,
+        !loaded ? h('p.muted', 'Reading the lobby…')
+          : msgs.length ? h('div.chat', msgs.map(line))
+          : h('p.muted', d.canWrite || msgs.length ? 'Nothing has been said yet.'
+            : 'The lobby has not been set up yet.'),
+      ].filter((x): x is HTMLElement => x !== null));
+    };
+
+    draw();
+    void load();
+    lobbySync = () => { if (!closed) void load(); };
+
+    return h('div',
+      body,
+      h('form.row', { style: 'margin-top:10px', onsubmit: (e: Event) => {
+        e.preventDefault();
+        const text = box.value.trim();
+        if (!text) return;
+        box.value = '';
+        void act(() => d.say(text))();
+      } },
+        box,
+        h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Send')),
+      h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
+  }, () => { closed = true; lobbySync = null; });
 }
 
 function openSettings(): void {
@@ -1566,6 +1800,9 @@ function pinnedPlan(l: Listing): TournamentConfig | null {
 async function openSession(l: Listing): Promise<void> {
   const config = pinnedPlan(l);
   if (!config || session) return;
+  /* What the pairs at this tournament have agreed, so that the table can say
+     what each of them plays from the first board. */
+  void loadPairCards(true).then(render);
   stopStartPoll();
   awaitingStart = false;
   node?.close();
@@ -2246,6 +2483,8 @@ function render(): void {
       h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),
       testMode() ? testSwitcher() : h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
       onlineTag(),
+      inLiveTournament() ? null
+        : h('button', { onclick: openLobby, title: 'Messages players leave each other between tournaments' }, 'Lobby'),
       h('button', { onclick: openAbout, title: 'What this is, what it does, and how to start' }, 'About'),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,

@@ -73,3 +73,18 @@ export function countdown(startUtc: string, now: number = Date.now()): string | 
   const minutes = Math.floor(left / 60_000);
   return `[${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}]`;
 }
+
+/**
+ * How long ago something was said, in the few words a chat wants: "just now",
+ * "6 min", "3 h", then the date.
+ */
+export function ago(at: string, now: number = Date.now()): string {
+  const then = Date.parse(at);
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.floor((now - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}

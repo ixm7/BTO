@@ -24,6 +24,10 @@ const API = 'https://api.github.com';
 /** Long enough to shield the token from a room full of refreshes, short enough not to be noticed. */
 const CACHE_SECONDS = 15;
 const SYSTEMS = ['sayc', '21', 'sayc+21', '21+sayc'];
+/* Which page each kind of write belongs on; anything else is a tournament. */
+const PAGE_FOR = { chat: 'bridge-lobby', pair: 'bridge-pairs' };
+const CHAT_MAX = 150;
+const PAIR_NOTE_MAX = 240;
 const SKILLS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'];
 const TAG_LENGTH = 20;
 /** Best effort, per instance: a speed bump for a script, not a wall. */
@@ -129,17 +133,20 @@ async function act(request, url, env, ctx) {
   const name = clean(input.name, 40);
   if (!name) throw new Refusal('Set your name in Settings first.');
 
-  const line = command(String(input.act || ''), input, name);
   const tag = await playerTag(key);
+  const line = command(String(input.act || ''), input, name, tag);
 
-  /* Only an open tournament's page: the token can reach every issue in the
-     repository, and this should not be how any of the others are written to. */
+  /* Only the page this kind of write belongs on: the token can reach every
+     issue in the repository, and this should not be how any of the others
+     are written to. A tournament's page carries one marker, the lobby
+     another, and a write meant for one is refused on the other. */
   const { owner, repo } = repoPath(env);
+  const wants = PAGE_FOR[String(input.act || '')] || 'bridge-tournament';
   const issueRes = await github(`/repos/${owner}/${repo}/issues/${issue}`, env);
-  if (!issueRes.ok) throw new Refusal('No such tournament.', 404);
+  if (!issueRes.ok) throw new Refusal('No such page.', 404);
   const found = await issueRes.json();
-  if (found.pull_request || !/<!--\s*bridge-tournament/.test(found.body || '')) throw new Refusal('No such tournament.', 404);
-  if (found.state !== 'open') throw new Refusal('That tournament is over.', 409);
+  if (found.pull_request || !new RegExp(`<!--\\s*${wants}`).test(found.body || '')) throw new Refusal('No such page.', 404);
+  if (found.state !== 'open') throw new Refusal('That page is closed.', 409);
 
   /* A tournament has one result, and every browser that saw the last board
      scored offers one. The first is kept and the rest are told it is done,
@@ -264,7 +271,7 @@ function zonedToUtc(wall, timeZone) {
 }
 
 /** The one line a player's action becomes. Built from checked fields only. */
-function command(action, input, name) {
+function command(action, input, name, tag) {
   const note = clean(input.note, 140);
   const target = String(input.target || '');
   const who = () => {
@@ -294,6 +301,21 @@ function command(action, input, name) {
     case 'accept': return `/accept @${who()}`;
     case 'decline': return `/decline @${who()}`;
     case 'unpair': return `/unpair @${who()}`;
+    case 'pair': {
+      /* A pair card is named by the two players in it, and only they may
+         write it: the tag is what this browser has proved it is. */
+      const key = String(input.pairKey || '').trim().toLowerCase();
+      if (!/^[a-z0-9~_+-]{3,110}$/.test(key) || key.split('+').length !== 2) throw new Refusal('That is not a pair.');
+      if (!key.split('+').includes(`~${tag}`)) throw new Refusal('A pair card can only be written by one of its two players.');
+      const sys = String(input.sys || '').toLowerCase() === '21' ? '21' : 'sayc';
+      const note = clean(input.note, PAIR_NOTE_MAX);
+      return `/pair ${key} sys:${sys}${note ? ` note:${note}` : ''}`;
+    }
+    case 'chat': {
+      const said = clean(input.text, CHAT_MAX);
+      if (!said) throw new Refusal('There was nothing to say.');
+      return said;
+    }
     case 'abandoned': return ABANDONED_BODY;
     case 'results': return resultsBody(input.results);
     default: throw new Refusal('That is not something the relay does.');
@@ -375,7 +397,7 @@ function resultsBody(input) {
 function clean(text, max) {
   return String(text ?? '')
     .replace(/[\u0000-\u001f\u007f<>@`|]/g, ' ')
-    .replace(/\b(pair|level|player):\S*/gi, ' ')
+    .replace(/\b(pair|level|sys|player):\S*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max)
