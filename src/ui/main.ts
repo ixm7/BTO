@@ -1915,7 +1915,10 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
  * who has looked away, so both are spoken rather than drawn.
  */
 const WARN_AT_MS = 10_000;
+const SETTLE_WARN_MS = 3_000;
 let warnedTurn = '';
+let seenTurn = '';
+let seenAt = 0;
 let wasRetired = false;
 
 function watchMyClock(): void {
@@ -1926,8 +1929,15 @@ function watchMyClock(): void {
   const turn = turnAt(at.table);
   if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return;
   const clock = n.idleClock(at.table.index);
-  if (!clock || clock.leftMs > WARN_AT_MS || clock.leftMs <= 0) return;
+  if (!clock) return;
+  /* When this turn first became ours, as this page saw it. */
+  if (seenTurn !== clock.key) { seenTurn = clock.key; seenAt = Date.now(); }
+  if (clock.leftMs > WARN_AT_MS || clock.leftMs <= 0) return;
   if (warnedTurn === clock.key) return;
+  /* A guard of our own on top of the clock: a warning in the first seconds
+     of a turn is wrong whatever the clock says. Kept short, so that a page
+     busy enough to miss a few ticks still gets its warning. */
+  if (Date.now() - seenAt < SETTLE_WARN_MS) return;
   warnedTurn = clock.key;
   say('Ten seconds to time out.');
 }

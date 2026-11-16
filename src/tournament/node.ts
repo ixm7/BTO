@@ -673,7 +673,7 @@ export class TournamentNode {
            director's setting wins, so every peer applies the same limit. */
         const limit = this.state.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
         if (limit > 0) {
-          const key = `${table.boardNo}:${turn.phase}:${turn.phase === 'auction' ? table.auction?.calls.length : table.play?.cardsPlayed}:${turn.seat}`;
+          const key = turnKey(table);
           const prev = this.waitingSince.get(table.index);
           if (!prev || prev.key !== key) {
             this.waitingSince.set(table.index, { key, at: now });
@@ -764,8 +764,16 @@ export class TournamentNode {
   idleClock(tableIndex: number, now = Date.now()): { key: string; leftMs: number } | null {
     const limit = this.state?.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
     if (!this.state || !(limit > 0)) return null;
+    const table = this.state.tables[tableIndex];
     const prev = this.waitingSince.get(tableIndex);
-    if (!prev) return null;
+    if (!table || !prev) return null;
+    /* The clock is kept one table at a time and started when this device
+       first sees a seat keeping the table waiting, so between a turn
+       beginning and that moment the entry still belongs to the turn before
+       it. Counting down from that one would take ten seconds off the clock
+       the player can actually see, so an entry that is not this turn's says
+       nothing yet. */
+    if (prev.key !== turnKey(table)) return null;
     return { key: `${tableIndex}:${prev.key}`, leftMs: limit - (now - prev.at) };
   }
 
@@ -775,6 +783,13 @@ export class TournamentNode {
   private emit(): void {
     for (const cb of this.listeners) cb();
   }
+}
+
+/** What the table is waiting for: changes with every call and every card. */
+function turnKey(table: TableState): string {
+  const turn = turnAt(table);
+  if (!turn) return '';
+  return `${table.boardNo}:${turn.phase}:${turn.phase === 'auction' ? table.auction?.calls.length : table.play?.cardsPlayed}:${turn.seat}`;
 }
 
 function sameEvent(a: TEvent, b: TEvent): boolean {

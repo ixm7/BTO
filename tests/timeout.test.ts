@@ -74,6 +74,42 @@ describe('replacing a player who stops responding', () => {
     expect(later.leftMs).toBeLessThan(first.leftMs);
   });
 
+  it('starts each turn on a full clock, never the clock of the turn before', async () => {
+    const hub = new MemoryHub();
+    /* A slow coordinator, so that the gap between a turn starting and the
+       clock being started for it is wide enough to look at — the gap a
+       countdown used to fill with the previous turn's clock. */
+    const all = [0, 1, 2, 3].map((i) => {
+      const n = new TournamentNode(hub.connect(), { name: `f${i}`, deviceScore: 50, isDirector: i === 0, playerId: `f${i}` },
+        { botDelayMs: 400, tickMs: 400, absentGraceMs: 1_000_000, peerTimeoutMs: 100000, idleTimeoutMs: 4000 });
+      nodes.push(n);
+      return n;
+    });
+    await until(() => all.every((n) => n.lobby().length === 4));
+    all[0]!.start({ id: 'tf', name: 'Fresh', boardsPerRound: 1, rounds: 1, seed: 'fixed' });
+    await until(() => all.every((n) => n.state !== null));
+
+    const host = all[0]!;
+    await until(() => host.idleClock(0) !== null);
+    /* Let the seat on turn keep the table waiting for a while. */
+    await sleep(1500);
+    expect(host.idleClock(0)!.leftMs).toBeLessThan(3000);
+
+    const table = host.state!.tables[0]!;
+    const turn = turnAt(table)!;
+    const actor = all.find((n) => n.me.playerId === table.seats[turn.controller].id) as TournamentNode;
+    actor.call({ type: 'pass' });
+    /* Wait for the call to reach the host rather than for its own clock. */
+    await until(() => turnAt(host.state!.tables[0]!)!.seat !== turn.seat);
+
+    /* The next seat has only just been put on the clock, so either there is
+       no clock to read yet or it is a full one. What it must never be is the
+       last seat's clock, most of which has already gone. */
+    const seen = host.idleClock(0);
+    expect(seen === null || seen.leftMs > 3500).toBe(true);
+    await until(() => (host.idleClock(0)?.leftMs ?? 0) > 3500);
+  });
+
   it('has no clock to read when the tournament plays without one', async () => {
     const hub = new MemoryHub();
     const all = [0, 1, 2, 3].map((i) => join(hub, { playerId: `z${i}`, isDirector: i === 0 }, 0));
