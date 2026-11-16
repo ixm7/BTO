@@ -1,4 +1,4 @@
-import { SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -540,6 +540,36 @@ const LIST_COLUMNS = ['Tournament', 'Type', 'Boards', 'Start', 'Level', 'Players
 
 /** How many boards a tournament plays in all, and how they are divided up. */
 const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
+
+/** Tournaments this player has entered that this one would run into. */
+function clashesWith(l: Listing): Listing[] {
+  const me = myId();
+  if (!me) return [];
+  return (listings ?? []).filter((o) => o.number !== l.number && o.status !== 'finished' && o.status !== 'cancelled'
+    && !!o.registrations?.some((r) => r.login.toLowerCase() === me) && overlap(l.meta, o.meta));
+}
+
+/** How late a tournament is expected to run, in the reader's own time. */
+const endsAt = (l: Listing): string =>
+  formatInZone(new Date(Date.parse(l.meta.startUtc) + expectedLength(l.meta)), localTimeZone());
+
+/**
+ * Ask before entering a tournament that runs into one already entered. The
+ * length is an estimate, so this is a warning and not a refusal: a player who
+ * knows better than the estimate may go ahead.
+ */
+function askAboutClash(l: Listing, go: () => void): void {
+  const clash = clashesWith(l);
+  if (!clash.length) { go(); return; }
+  dialog('These overlap', (close) => h('div',
+    h('p', `${l.meta.name} is expected to run until about ${endsAt(l)}.`),
+    h('p', clash.length === 1 ? 'You are already entered for:' : 'You are already entered for:'),
+    h('ul', clash.map((o) => h('li', `${o.meta.name} — starts ${formatInZone(new Date(o.meta.startUtc), localTimeZone())}, expected to run until about ${endsAt(o)}`))),
+    h('p.muted', `Reckoned at ${BOARD_MINUTES} minutes a board and ${BETWEEN_ROUNDS_MINUTES} between rounds, so it is an estimate rather than a promise.`),
+    h('div.row', h('span.spacer'),
+      h('button', { onclick: close }, 'Cancel'),
+      h('button.primary', { onclick: () => { close(); go(); } }, 'Enter anyway'))));
+}
 const boardsText = (meta: { rounds: number; boardsPerRound: number }): string =>
   `${meta.rounds} round${meta.rounds === 1 ? '' : 's'} of ${meta.boardsPerRound} board${meta.boardsPerRound === 1 ? '' : 's'}`;
 
@@ -799,7 +829,7 @@ function detailView(l: Listing): HTMLElement {
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
           }, 'You have unregistered.') }, 'Unregister')
-        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.') }, full ? 'Full' : 'Register'));
+        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: () => askAboutClash(l, () => void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.')()) }, full ? 'Full' : 'Register'));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
@@ -864,6 +894,10 @@ function resultsTable(r: TournamentResults): HTMLElement {
       h('td.num', `${Math.round(x.percent)}%`), h('td.num', `${x.matchpoints}/${x.maxMatchpoints}`))))));
 }
 
+/** The system a player prefers, said in the few words they chose. */
+const biddingLine = (systems: string): HTMLElement | null =>
+  (systems ? h('div.muted', `Bidding: ${systems}`) : null);
+
 /** The "looking for a partner" list for one tournament, with invite/accept/decline. */
 function openPartners(initial: Listing): void {
   const d = directory();
@@ -923,12 +957,16 @@ function openPartners(initial: Listing): void {
         const toMe = p.invitations.filter((i) => i.status === 'pending' && !!myLogin && i.to.toLowerCase() === myLogin);
         if (toMe.length) {
           const inviteRow = (i: Invitation): HTMLElement => h('tr',
-            h('td', h('b', who(current, i.from)), i.note ? h('div.muted', i.note) : null),
+            h('td', h('b', who(current, i.from)), biddingLine(systemsOf(i.from)), i.note ? h('div.muted', i.note) : null),
             h('td', h('div.row',
               h('button.primary', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, true)) }, 'Accept'),
               h('button', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
           rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
+
+        /* What each player said in Settings, as it came in with their entry. */
+        const systemsOf = (login: string): string =>
+          current.registrations?.find((r) => r.login.toLowerCase() === login.toLowerCase())?.systems ?? '';
 
         const myAccepted = p.invitations.filter((i) => i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
         for (const i of myAccepted) {
@@ -960,7 +998,8 @@ function openPartners(initial: Listing): void {
                 const partnered = p.invitations.find((i) => i.status === 'accepted' && withThem(i));
                 const sentPending = p.invitations.find((i) => i.status === 'pending' && i.from.toLowerCase() === myLogin && i.to.toLowerCase() === s.login.toLowerCase());
                 return h('tr',
-                  h('td', h('b', who(current, s.login)), isMe ? ' (you)' : '', s.note ? h('div.muted', s.note) : null),
+                  h('td', h('b', who(current, s.login)), isMe ? ' (you)' : '',
+                    biddingLine(systemsOf(s.login)), s.note ? h('div.muted', s.note) : null),
                   h('td', isMe ? null
                     : partnered ? h('span.badge.upcoming', 'Partnered')
                     : sentPending

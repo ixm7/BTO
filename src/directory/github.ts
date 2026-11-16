@@ -18,6 +18,26 @@ import { zonedToUtc } from './time';
 export const SKILLS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'] as const;
 export type Skill = (typeof SKILLS)[number];
 
+/*
+ * Roughly how long a tournament takes: five minutes a board, and three more
+ * between rounds while the field moves. Near enough to tell whether two of
+ * them would land on top of each other.
+ */
+export const BOARD_MINUTES = 5;
+export const BETWEEN_ROUNDS_MINUTES = 3;
+
+export function expectedLength(meta: { rounds: number; boardsPerRound: number }): number {
+  const boards = meta.rounds * meta.boardsPerRound;
+  return (boards * BOARD_MINUTES + Math.max(0, meta.rounds - 1) * BETWEEN_ROUNDS_MINUTES) * 60_000;
+}
+
+/** Would these two run into each other? */
+export function overlap(a: TournamentMeta, b: TournamentMeta): boolean {
+  const from = Date.parse(a.startUtc);
+  const to = Date.parse(b.startUtc);
+  return from < to + expectedLength(b) && to < from + expectedLength(a);
+}
+
 /** The skill a player has set, if any: an empty string means they have not said. */
 export type MaybeSkill = Skill | '';
 

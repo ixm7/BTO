@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts } from '../src/directory/github';
+import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts, expectedLength, overlap } from '../src/directory/github';
 import { countdown, formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -70,6 +70,27 @@ describe('levels of player', () => {
     /* Not a system we know, so it stays part of the name rather than vanishing. */
     expect(regs.find((r) => r.login === 'cat')).toMatchObject({ name: 'Cat sys:precision' });
     expect(regs.find((r) => r.login === 'cat')?.systems).toBeUndefined();
+  });
+});
+
+describe('how long a tournament runs', () => {
+  const meta = (rounds: number, boardsPerRound: number, start: string) =>
+    ({ rounds, boardsPerRound, startUtc: start }) as unknown as Parameters<typeof overlap>[0];
+
+  it('counts five minutes a board and three between rounds', () => {
+    /* Three rounds of three: nine boards and two moves. */
+    expect(expectedLength({ rounds: 3, boardsPerRound: 3 })).toBe((9 * 5 + 2 * 3) * 60_000);
+    expect(expectedLength({ rounds: 1, boardsPerRound: 2 })).toBe(10 * 60_000);
+  });
+
+  it('knows which two would land on top of each other', () => {
+    const noon = meta(3, 3, '2026-11-20T12:00:00Z');
+    /* Noon runs to about 12:51. */
+    expect(overlap(noon, meta(3, 3, '2026-11-20T12:50:00Z'))).toBe(true);
+    expect(overlap(noon, meta(3, 3, '2026-11-20T13:00:00Z'))).toBe(false);
+    expect(overlap(noon, meta(3, 3, '2026-11-20T11:30:00Z'))).toBe(true);
+    /* And the one before it has finished in time. */
+    expect(overlap(noon, meta(1, 2, '2026-11-20T11:45:00Z'))).toBe(false);
   });
 });
 
