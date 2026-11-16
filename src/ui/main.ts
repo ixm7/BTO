@@ -773,7 +773,9 @@ function detailView(l: Listing): HTMLElement {
     const partner = pairedWith(r);
     if (partner) return `Partner: ${partner}`;
     const them = r.login.toLowerCase();
-    if (them === myLogin) return h('span.muted', 'you');
+    /* Nothing to say in your own partner column while you have no partner:
+       the name is already marked as yours in the row beside it. */
+    if (them === myLogin) return '—';
     /* Only a registered player with no partner of their own can ask. */
     if (!open || !amRegistered || !myLogin || myPartnerLogin || !d.canAct) return '';
     const invites = l.partners?.invitations ?? [];
