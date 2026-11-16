@@ -17,7 +17,11 @@ function fakeGitHub(comments: { id: number; login: string; body: string; at?: st
     }
     if (u.pathname.endsWith('/issues/9')) return json({ number: 9, comments: raw.length });
     if (u.pathname.endsWith('/issues/9/comments')) return json(raw);
-    if (/\/issues\/comments\/\d+$/.test(u.pathname)) return json({ body: raw.find((c) => String(c.id) === u.pathname.split('/').pop())?.body ?? '' });
+    if (/\/issues\/comments\/\d+$/.test(u.pathname)) {
+      /* GitHub answers a delete with 204 and no body at all. */
+      if (method === 'DELETE') return new Response(null, { status: 204 });
+      return json({ body: raw.find((c) => String(c.id) === u.pathname.split('/').pop())?.body ?? '' });
+    }
     return json({});
   };
   return { fetcher: fetcher as never, sent };
@@ -61,7 +65,8 @@ describe('the lobby', () => {
 
   it('takes a message down only with a token', async () => {
     const { fetcher, sent } = fakeGitHub([{ id: 5, login: 'ann', body: 'back at eight' }]);
-    await new Directory('ixm7/BTO', 'tok', fetcher).removeMessage(5);
+    /* Deleting answers 204 and no body, which is not an error. */
+    await expect(new Directory('ixm7/BTO', 'tok', fetcher).removeMessage(5)).resolves.toBeUndefined();
     expect(sent.at(-1)).toMatchObject({ method: 'DELETE' });
     await expect(new Directory('ixm7/BTO', null, fetcher, relay).removeMessage(5)).rejects.toThrow(/token/i);
   });

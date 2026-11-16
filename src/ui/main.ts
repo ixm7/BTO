@@ -1327,11 +1327,14 @@ function openPartnership(l: Listing, partner: string): void {
  * they are: a table is no place to be reading the room.
  */
 function inLiveTournament(): boolean {
-  if (room) return true;
-  const me = myId();
-  if (!me) return false;
-  return (listings ?? []).some((l) => l.status === 'in progress' && !l.results
-    && !!l.registrations?.some((r) => r.login.toLowerCase() === me));
+  /*
+   * Only a table still being played counts. Waiting for one to start is not
+   * being in it, and neither is sitting on a tournament that has finished or
+   * been called off — which is what being timed out of a table of robots
+   * amounts to, and the lobby is exactly where such a player wants to be.
+   */
+  const state = node?.state;
+  return !!state && !state.finished;
 }
 
 let lobbySync: (() => void) | null = null;

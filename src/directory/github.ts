@@ -990,7 +990,7 @@ export function deriveStatus(
 /* -------------------------------------------------------------------- API */
 
 type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; cache?: RequestCache }) => Promise<{
-  ok: boolean; status: number; json(): Promise<unknown>; headers: { get(name: string): string | null };
+  ok: boolean; status: number; json(): Promise<unknown>; text?(): Promise<string>; headers: { get(name: string): string | null };
 }>;
 
 interface RawIssue {
@@ -1068,7 +1068,12 @@ export class Directory {
         res.status, resetAt,
       );
     }
-    return (await res.json()) as T;
+    /* Not everything answers with something: deleting a comment replies 204
+       and no body at all, and asking that for JSON is an error of our own. */
+    if (res.status === 204) return undefined as T;
+    if (!res.text) return (await res.json()) as T;
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   /** GitHub login of the token owner. */
