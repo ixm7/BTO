@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryHub } from '../src/net/transport';
-import { TournamentNode, type Me } from '../src/tournament/node';
+import { TournamentNode, idleMoments, type Me } from '../src/tournament/node';
 import { SEATS } from '../src/engine/cards';
 import { replay, turnAt, type TEvent, type TState } from '../src/tournament/state';
 
@@ -108,6 +108,19 @@ describe('replacing a player who stops responding', () => {
     const seen = host.idleClock(0);
     expect(seen === null || seen.leftMs > 3500).toBe(true);
     await until(() => (host.idleClock(0)?.leftMs ?? 0) > 3500);
+  });
+
+  it.each([
+    [20_000, 10_000, 22_000],
+    [30_000, 18_000, 30_000],
+    [60_000, 48_000, 60_000],
+    [900_000, 888_000, 900_000],
+  ])('on a %ims clock warns at %ims and gives the seat up at %ims', (limit, warnAt, retireAt) => {
+    expect(idleMoments(limit)).toEqual({ warnAt, retireAt });
+    /* The two promises: ten seconds of turn before the warning, and twelve
+       more after it — ten to act on, once the warning has been spoken. */
+    expect(warnAt).toBeGreaterThanOrEqual(10_000);
+    expect(retireAt - warnAt).toBeGreaterThanOrEqual(12_000);
   });
 
   it('has no clock to read when the tournament plays without one', async () => {

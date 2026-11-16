@@ -1915,23 +1915,22 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
  * who has looked away, so both are spoken rather than drawn.
  */
 /*
- * Ten seconds of warning should leave ten seconds to act once the words have
- * finished. Three things eat into that: a tick loop notices the moment up to
- * a second after it passes, the sentence takes over a second to say, and the
- * clock has been running since before the player looked up. So the warning is
- * booked for the moment it falls due rather than polled for, and it is booked
- * five seconds early, which is the grace the words promise and then some.
+ * When the warning is spoken is the node's business, not the page's: every
+ * peer works it out from the same clock, so the moment the player hears
+ * about is the moment the seat is really at risk. The page only guards
+ * against speaking to somebody who has just arrived at a turn already
+ * running — on a reseat, say.
  */
-const WARN_AT_MS = 15_000;
 const SETTLE_WARN_MS = 3_000;
 let warnedTurn = '';
 let seenTurn = '';
 let seenAt = 0;
 let warnTimer: (() => void) | null = null;
+let warnKey = '';
 let wasRetired = false;
 
 /** This seat's clock at my table, when it is my turn and the clock is running. */
-function myClock(): { key: string; leftMs: number } | null {
+function myClock(): { key: string; leftMs: number; warnInMs: number } | null {
   const n = node;
   if (!n) return null;
   const at = n.mySeat();
@@ -1943,9 +1942,6 @@ function myClock(): { key: string; leftMs: number } | null {
 
 function sayWarning(key: string): void {
   if (warnedTurn === key) return;
-  /* A guard of our own on top of the clock: a warning in the first seconds of
-     a turn is wrong whatever the clock says. Kept short, so that a page busy
-     enough to miss a few ticks still gets its warning. */
   if (seenTurn === key && Date.now() - seenAt < SETTLE_WARN_MS) return;
   warnedTurn = key;
   say('Ten seconds to time out.');
@@ -1953,17 +1949,24 @@ function sayWarning(key: string): void {
 
 function watchMyClock(): void {
   const clock = myClock();
-  if (!clock) { if (warnTimer) { warnTimer(); warnTimer = null; } return; }
-  if (seenTurn !== clock.key) {
-    seenTurn = clock.key;
-    seenAt = Date.now();
+  /* No clock to read: the turn has moved on, or this device has not started
+     one for it yet. Either way there is nothing to book and nothing to say. */
+  if (!clock) return;
+  if (seenTurn !== clock.key) { seenTurn = clock.key; seenAt = Date.now(); }
+  if (warnedTurn === clock.key || clock.leftMs <= 0) return;
+  if (clock.warnInMs <= 0) { sayWarning(clock.key); return; }
+  /* Book the warning for the moment it falls due rather than leaving it to a
+     tick to notice the moment has passed. Re-booked whenever the turn changes
+     or the booking has been used up, so a missed tick cannot lose it. */
+  if (!warnTimer || warnKey !== clock.key) {
     if (warnTimer) warnTimer();
-    const key = clock.key;
-    warnTimer = wakeIn(() => { warnTimer = null; if (myClock()?.key === key) sayWarning(key); },
-      Math.max(0, clock.leftMs - WARN_AT_MS));
+    warnKey = clock.key;
+    warnTimer = wakeIn(() => {
+      warnTimer = null;
+      const c = myClock();
+      if (c && c.key === warnKey && c.leftMs > 0) sayWarning(c.key);
+    }, clock.warnInMs);
   }
-  /* The tick itself is the fallback, for a page too busy to keep time. */
-  if (clock.leftMs <= WARN_AT_MS && clock.leftMs > 0) sayWarning(clock.key);
 }
 
 /**

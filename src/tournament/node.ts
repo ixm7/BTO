@@ -677,7 +677,7 @@ export class TournamentNode {
           const prev = this.waitingSince.get(table.index);
           if (!prev || prev.key !== key) {
             this.waitingSince.set(table.index, { key, at: now });
-          } else if (now - prev.at >= limit) {
+          } else if (now - prev.at >= idleMoments(limit).retireAt) {
             /* Retiring reseats this table and may close it, or end the whole
                tournament. The tables we are looping over are now stale, so
                start again from the new state rather than acting on them. */
@@ -757,11 +757,12 @@ export class TournamentNode {
   }
 
   /**
-   * How long the seat in turn at this table has left before the clock takes
-   * it, and a key that changes with every turn. Null when nothing is on the
-   * clock here, or when this tournament plays without one.
+   * How long the seat in turn at this table has before the clock takes it,
+   * how long until the player should be warned, and a key that changes with
+   * every turn. Null when nothing is on the clock here, or when this
+   * tournament plays without one.
    */
-  idleClock(tableIndex: number, now = Date.now()): { key: string; leftMs: number } | null {
+  idleClock(tableIndex: number, now = Date.now()): { key: string; leftMs: number; warnInMs: number } | null {
     const limit = this.state?.config.idleTimeoutMs ?? this.o.idleTimeoutMs;
     if (!this.state || !(limit > 0)) return null;
     const table = this.state.tables[tableIndex];
@@ -774,7 +775,9 @@ export class TournamentNode {
        the player can actually see, so an entry that is not this turn's says
        nothing yet. */
     if (prev.key !== turnKey(table)) return null;
-    return { key: `${tableIndex}:${prev.key}`, leftMs: limit - (now - prev.at) };
+    const { warnAt, retireAt } = idleMoments(limit);
+    const elapsed = now - prev.at;
+    return { key: `${tableIndex}:${prev.key}`, leftMs: retireAt - elapsed, warnInMs: warnAt - elapsed };
   }
 
   /** Cards a robot is in the middle of choosing, so it is asked only once. */
@@ -783,6 +786,24 @@ export class TournamentNode {
   private emit(): void {
     for (const cb of this.listeners) cb();
   }
+}
+
+/**
+ * The two moments on a seat's clock: when the player is warned, and when the
+ * seat is actually given to a robot. The warning is never sooner than ten
+ * seconds into the turn, and the clock never runs out less than twelve
+ * seconds after it — ten to act on, plus the second or two the spoken
+ * warning itself takes — so a short limit is stretched rather than letting
+ * the two land on top of each other. Limits far below that are test clocks
+ * and are left alone.
+ */
+export const WARN_LEAD_MS = 12_000;
+export const WARN_FLOOR_MS = 10_000;
+
+export function idleMoments(limit: number): { warnAt: number; retireAt: number } {
+  if (limit < 15_000) return { warnAt: Math.max(0, limit - WARN_LEAD_MS), retireAt: limit };
+  const warnAt = Math.max(WARN_FLOOR_MS, limit - WARN_LEAD_MS);
+  return { warnAt, retireAt: Math.max(limit, warnAt + WARN_LEAD_MS) };
 }
 
 /** What the table is waiting for: changes with every call and every card. */
