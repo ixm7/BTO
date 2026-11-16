@@ -557,7 +557,9 @@ const panelOpen: Record<string, boolean> = {};
    own page, which is where somebody who wants them is going anyway. A column
    that is a dash on every tournament still to be played is a column of
    dashes, and who created one says nothing about whether to enter it. */
-const LIST_COLUMNS = ['Tournament', 'Type', 'Boards', 'Start', 'Level', 'Players', 'Status'];
+/* No status of its own: the list is grouped by it, and the one that changes
+   while somebody is looking — a tournament going off — is shown on its name. */
+const LIST_COLUMNS = ['Tournament', 'Type', 'Boards', 'Start', 'Level', 'Players'];
 
 /** How many boards a tournament plays in all, and how they are divided up. */
 const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
@@ -598,8 +600,8 @@ function listTable(rows: Listing[]): HTMLElement {
   return h('div.table-scroll', h('table.list',
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
-      h('td', h('button.open', {
-        title: 'Open this tournament',
+      h('td', h(`button.open${l.status === 'starting' ? '.starting' : ''}`, {
+        title: l.status === 'starting' ? 'Starting now — open this tournament' : 'Open this tournament',
         onclick: () => { location.hash = `t=${l.number}`; },
       }, l.meta.name)),
       h('td', scoringName(l.meta.scoring)),
@@ -608,7 +610,6 @@ function listTable(rows: Listing[]): HTMLElement {
       h('td', when(l)),
       h('td', levelText(l.meta)),
       h('td.num', l.registrations ? {} : { 'data-tip': PLAYERS_LATER, 'aria-label': PLAYERS_LATER }, playersCell(l)),
-      h('td', badge(l.status)),
     )))));
 }
 
