@@ -1914,32 +1914,56 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
  * again if it runs out, with the way back to the table. Both are for a player
  * who has looked away, so both are spoken rather than drawn.
  */
-const WARN_AT_MS = 10_000;
+/*
+ * Ten seconds of warning should leave ten seconds to act once the words have
+ * finished. Three things eat into that: a tick loop notices the moment up to
+ * a second after it passes, the sentence takes over a second to say, and the
+ * clock has been running since before the player looked up. So the warning is
+ * booked for the moment it falls due rather than polled for, and it is booked
+ * five seconds early, which is the grace the words promise and then some.
+ */
+const WARN_AT_MS = 15_000;
 const SETTLE_WARN_MS = 3_000;
 let warnedTurn = '';
 let seenTurn = '';
 let seenAt = 0;
+let warnTimer: (() => void) | null = null;
 let wasRetired = false;
 
-function watchMyClock(): void {
+/** This seat's clock at my table, when it is my turn and the clock is running. */
+function myClock(): { key: string; leftMs: number } | null {
   const n = node;
-  if (!n) return;
+  if (!n) return null;
   const at = n.mySeat();
-  if (!at) return;
+  if (!at) return null;
   const turn = turnAt(at.table);
-  if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return;
-  const clock = n.idleClock(at.table.index);
-  if (!clock) return;
-  /* When this turn first became ours, as this page saw it. */
-  if (seenTurn !== clock.key) { seenTurn = clock.key; seenAt = Date.now(); }
-  if (clock.leftMs > WARN_AT_MS || clock.leftMs <= 0) return;
-  if (warnedTurn === clock.key) return;
-  /* A guard of our own on top of the clock: a warning in the first seconds
-     of a turn is wrong whatever the clock says. Kept short, so that a page
-     busy enough to miss a few ticks still gets its warning. */
-  if (Date.now() - seenAt < SETTLE_WARN_MS) return;
-  warnedTurn = clock.key;
+  if (!turn || at.table.seats[turn.controller].id !== n.me.playerId) return null;
+  return n.idleClock(at.table.index);
+}
+
+function sayWarning(key: string): void {
+  if (warnedTurn === key) return;
+  /* A guard of our own on top of the clock: a warning in the first seconds of
+     a turn is wrong whatever the clock says. Kept short, so that a page busy
+     enough to miss a few ticks still gets its warning. */
+  if (seenTurn === key && Date.now() - seenAt < SETTLE_WARN_MS) return;
+  warnedTurn = key;
   say('Ten seconds to time out.');
+}
+
+function watchMyClock(): void {
+  const clock = myClock();
+  if (!clock) { if (warnTimer) { warnTimer(); warnTimer = null; } return; }
+  if (seenTurn !== clock.key) {
+    seenTurn = clock.key;
+    seenAt = Date.now();
+    if (warnTimer) warnTimer();
+    const key = clock.key;
+    warnTimer = wakeIn(() => { warnTimer = null; if (myClock()?.key === key) sayWarning(key); },
+      Math.max(0, clock.leftMs - WARN_AT_MS));
+  }
+  /* The tick itself is the fallback, for a page too busy to keep time. */
+  if (clock.leftMs <= WARN_AT_MS && clock.leftMs > 0) sayWarning(clock.key);
 }
 
 /**
