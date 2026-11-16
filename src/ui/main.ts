@@ -559,7 +559,7 @@ const panelOpen: Record<string, boolean> = {};
    dashes, and who created one says nothing about whether to enter it. */
 /* No status of its own: the list is grouped by it, and the one that changes
    while somebody is looking — a tournament going off — is shown on its name. */
-const LIST_COLUMNS = ['Tournament', 'Type', 'Boards', 'Start', 'Level', 'Players'];
+const LIST_COLUMNS = ['Tournament', 'Start / Type', 'Boards', 'Level', 'Players'];
 
 /** How many boards a tournament plays in all, and how they are divided up. */
 const boardCount = (meta: { rounds: number; boardsPerRound: number }): number => meta.rounds * meta.boardsPerRound;
@@ -604,10 +604,12 @@ function listTable(rows: Listing[]): HTMLElement {
         title: l.status === 'starting' ? 'Starting now — open this tournament' : 'Open this tournament',
         onclick: () => { location.hash = `t=${l.number}`; },
       }, l.meta.name)),
-      h('td', scoringName(l.meta.scoring)),
+      /* Two lines in the width of one: the name button has made the row tall
+         enough to hold them, and what a tournament is matters less than when
+         it starts. */
+      h('td', h('div', when(l)), h('div.muted', scoringName(l.meta.scoring))),
       h('td.num', { 'data-tip': boardsText(l.meta), 'aria-label': `${boardCount(l.meta)} boards: ${boardsText(l.meta)}` },
         String(boardCount(l.meta))),
-      h('td', when(l)),
       h('td', levelText(l.meta)),
       h('td.num', l.registrations ? {} : { 'data-tip': PLAYERS_LATER, 'aria-label': PLAYERS_LATER }, playersCell(l)),
     )))));
