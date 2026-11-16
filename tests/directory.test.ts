@@ -73,6 +73,30 @@ describe('levels of player', () => {
   });
 });
 
+describe('leaving the partner list', () => {
+  const c = (login: string, body: string, at = '2026-11-01T00:00:01Z') => ({ user: { login }, body, created_at: at });
+
+  it('takes a player off it when they unregister', () => {
+    const p = parsePartners([
+      c('ann', '/register Ann'),
+      c('ann', '/seek-partner happy to play anywhere'),
+      c('bob', '/seek-partner'),
+      c('ann', '/withdraw'),
+    ]);
+    expect(p.seekers.map((s) => s.login)).toEqual(['bob']);
+  });
+
+  it('puts them back if they ask again', () => {
+    const p = parsePartners([
+      c('ann', '/seek-partner'),
+      c('ann', '/withdraw'),
+      c('ann', '/seek-partner back again'),
+    ]);
+    expect(p.seekers.map((s) => s.login)).toEqual(['ann']);
+    expect(p.seekers[0]?.note).toBe('back again');
+  });
+});
+
 describe('how long a tournament runs', () => {
   const meta = (rounds: number, boardsPerRound: number, start: string) =>
     ({ rounds, boardsPerRound, startUtc: start }) as unknown as Parameters<typeof overlap>[0];

@@ -619,6 +619,10 @@ export function parsePartners(comments: readonly RawComment[]): PartnersData {
       // A login never contains '.', ',', ':', ';' or '!', so excluding them from the
       // captured username (rather than trimming afterwards) keeps a trailing mark
       // like "@bob." from either breaking the match or leaking into the note.
+      /* Leaving the tournament is leaving its partner list: a player who has
+         withdrawn is not there to be asked, and an entry that outlived them
+         only wastes somebody's invitation. */
+      if (/^\/withdraw\b/i.test(t)) { seekers.delete(login.toLowerCase()); continue; }
       if ((m = /^\/invite\s+@?([^\s.,:;!]+)[.,:;!]*(?:\s+(.*))?$/i.exec(t))) {
         const to = m[1] as string;
         if (to.toLowerCase() === login.toLowerCase()) continue; // can't invite yourself
