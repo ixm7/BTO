@@ -222,9 +222,9 @@ export interface TableViewOptions {
   onWithdrawClaim?(): void;
   isPresent(playerId: string): boolean;
   /** Level and description of each player, by id. */
-  playerInfo?: Map<string, { note?: string; skill?: string }>;
+  playerInfo?: Map<string, { note?: string; skill?: string; systems?: string }>;
   /** Show a player's details in full. */
-  onPlayerInfo?(p: { name: string; seat: string; robot: boolean; skill?: string; note?: string }): void;
+  onPlayerInfo?(p: { name: string; seat: string; robot: boolean; skill?: string; systems?: string; note?: string }): void;
   /** The system this tournament's robots bid. */
   robots?: 'sayc' | '2/1';
 }
@@ -283,8 +283,10 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const seatName = `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}`;
     /* The tooltip says it all in brief; a click opens it with room to read. */
     const tip = player.bot ? `${player.name}\nBids ${o.robots === '2/1' ? 'Two-over-One (2/1)' : 'Standard American (SAYC)'} and explains each bid.\nClick for details.`
-      : [player.name, `Level: ${info?.skill || 'not given'}`, `Description: ${info?.note || 'none'}`].join('\n');
-    const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}), ...(info?.note ? { note: info.note } : {}) };
+      : [player.name, `Level: ${info?.skill || 'not given'}`, `Bidding: ${info?.systems || 'not given'}`,
+        `Description: ${info?.note || 'none'}`].join('\n');
+    const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}),
+      ...(info?.systems ? { systems: info.systems } : {}), ...(info?.note ? { note: info.note } : {}) };
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
       { 'data-tip': tip, 'aria-label': tip },
       h('b.seat-letter', seat),

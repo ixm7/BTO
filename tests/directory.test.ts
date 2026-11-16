@@ -57,6 +57,20 @@ describe('levels of player', () => {
     expect(regs.find((r) => r.login === 'cat')).toMatchObject({ name: 'Cat level:Grandmaster' });
     expect(regs.find((r) => r.login === 'cat')?.skill).toBeUndefined();
   });
+
+  it('carries the bidding system a player prefers', () => {
+    const c = (login: string, body: string) => ({ user: { login }, body, created_at: '2026-11-01T00:00:01Z' });
+    const regs = parseRegistrations([
+      c('ann', '/register Ann A level:Expert sys:21+sayc'),
+      c('bob', '/register Bob sys:sayc pair:red'),
+      c('cat', '/register Cat sys:precision'),
+    ]);
+    expect(regs.find((r) => r.login === 'ann')).toMatchObject({ name: 'Ann A', skill: 'Expert', systems: '2/1, SAYC' });
+    expect(regs.find((r) => r.login === 'bob')).toMatchObject({ name: 'Bob', pairCode: 'red', systems: 'SAYC' });
+    /* Not a system we know, so it stays part of the name rather than vanishing. */
+    expect(regs.find((r) => r.login === 'cat')).toMatchObject({ name: 'Cat sys:precision' });
+    expect(regs.find((r) => r.login === 'cat')?.systems).toBeUndefined();
+  });
 });
 
 describe('time zones', () => {

@@ -23,6 +23,7 @@
 const API = 'https://api.github.com';
 /** Long enough to shield the token from a room full of refreshes, short enough not to be noticed. */
 const CACHE_SECONDS = 15;
+const SYSTEMS = ['sayc', '21', 'sayc+21', '21+sayc'];
 const SKILLS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'];
 const TAG_LENGTH = 20;
 /** Best effort, per instance: a speed bump for a script, not a wall. */
@@ -278,7 +279,10 @@ function command(action, input, name) {
       if (pair && !/^[A-Za-z0-9_-]{1,100}$/.test(pair)) throw new Refusal('That partner code is not one the relay can use.');
       const level = input.level ? SKILLS.find((x) => x.toLowerCase() === String(input.level).toLowerCase()) : '';
       if (input.level && !level) throw new Refusal('Unknown skill level.');
-      return `/register ${name}${pair ? ` pair:${pair}` : ''}${level ? ` level:${level}` : ''}`;
+      /* The bidding system or systems they prefer, as one of five words. */
+      const sys = input.sys ? SYSTEMS.find((x) => x === String(input.sys).toLowerCase()) : '';
+      if (input.sys && !sys) throw new Refusal('Unknown bidding system.');
+      return `/register ${name}${pair ? ` pair:${pair}` : ''}${level ? ` level:${level}` : ''}${sys ? ` sys:${sys}` : ''}`;
     }
     case 'withdraw': return '/withdraw';
     case 'seek':

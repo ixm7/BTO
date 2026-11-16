@@ -1,4 +1,4 @@
-import { NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -20,6 +20,9 @@ import { resultToString } from '../engine/scoring';
 const DEFAULT_REPO = (import.meta.env.VITE_DIRECTORY_REPO as string | undefined) ?? '';
 const root = document.getElementById('app') as HTMLElement;
 const settings: Settings = loadSettings(DEFAULT_REPO);
+
+/** The preference as the form gives it back, or none if it is not one of ours. */
+const systemsOf = (v: string): SystemPref => (SYSTEM_PREFS.includes(v as SystemPref) ? (v as SystemPref) : '');
 
 /* Players without a token of their own act through the relay, when one is
    set up for this site's tournament list. Its comments are believed only
@@ -300,7 +303,7 @@ function notePartnershipChanges(): void {
   const d = directory();
   const mine = l.registrations?.find((r) => r.login.toLowerCase() === me);
   if (d?.canAct && mine?.pairCode && settings.name.trim()) {
-    void d.register(l.number, settings.name, '', settings.skill).then(() => refresh()).catch(() => { /* next refresh */ });
+    void d.register(l.number, settings.name, '', settings.skill, settings.systems).then(() => refresh()).catch(() => { /* next refresh */ });
   }
 }
 
@@ -597,7 +600,6 @@ function directoryView(): HTMLElement {
       d ? h('label.check', { title: 'Show only tournaments that have not started and still have room' },
         h('input', { type: 'checkbox', checked: onlyOpen, onchange: (e: Event) => { onlyOpen = (e.target as HTMLInputElement).checked; render(); } }),
         ' Open for registration') : null,
-      d ? h('button', { onclick: () => void refresh(), disabled: loading }, loading ? 'Refreshing…' : 'Refresh') : null,
       h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join private room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
       !d ? null : d.canWrite
@@ -721,14 +723,15 @@ function detailView(l: Listing): HTMLElement {
    * sit down. The description is the one they gave on the partner list, which
    * is the only place a player writes one for a tournament.
    */
-  const nameCell = (r: { login: string; name: string; skill?: Skill; pairCode?: string }): Node => {
+  const nameCell = (r: { login: string; name: string; skill?: Skill; systems?: SystemPref; pairCode?: string }): Node => {
     const partner = pairedWith(r);
     const note = l.partners?.notes[r.login.toLowerCase()];
-    const tip = [r.name, `Level: ${r.skill || 'not given'}`, `Description: ${note || 'none'}`,
-      ...(partner ? [`Partner: ${partner}`] : [])].join('\n');
+    const tip = [r.name, `Level: ${r.skill || 'not given'}`, `Bidding: ${r.systems || 'not given'}`,
+      `Description: ${note || 'none'}`, ...(partner ? [`Partner: ${partner}`] : [])].join('\n');
     const show = (): void => openPlayerInfo({
       name: r.name, robot: false,
-      ...(r.skill ? { skill: r.skill } : {}), ...(note ? { note } : {}), ...(partner ? { partner } : {}),
+      ...(r.skill ? { skill: r.skill } : {}), ...(r.systems ? { systems: r.systems } : {}),
+      ...(note ? { note } : {}), ...(partner ? { partner } : {}),
     });
     return h('span.pname', {
       role: 'button', tabindex: 0, 'data-tip': tip, 'aria-label': tip, onclick: show,
@@ -796,7 +799,7 @@ function detailView(l: Listing): HTMLElement {
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
           }, 'You have unregistered.') }, 'Unregister')
-        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill), 'You are registered.') }, full ? 'Full' : 'Register'));
+        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.') }, full ? 'Full' : 'Register'));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
@@ -838,11 +841,14 @@ function detailView(l: Listing): HTMLElement {
       actions),
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
-      regs && regs.length ? h('div.table-scroll', h('table.list', h('tbody', regs.map((r, i) => h('tr',
-        h('td.num', i + 1), h('td', nameCell(r)),
-        h('td.muted', r.skill ?? ''),
-        h('td.muted', partnerCell(r)),
-        h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
+      regs && regs.length ? h('div.table-scroll', h('table.list',
+        h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
+        h('tbody', regs.map((r, i) => h('tr',
+          h('td.num', i + 1), h('td', nameCell(r)),
+          h('td.muted', r.skill ?? ''),
+          h('td.muted', r.systems ?? ''),
+          h('td.muted', partnerCell(r)),
+          h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
         : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
 }
 
@@ -855,7 +861,7 @@ function resultsTable(r: TournamentResults): HTMLElement {
   return h('div.table-scroll', h('table.list',
     h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'Score'), h('th.num', 'MP'))),
     h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction),
-      h('td.num', `${x.percent.toFixed(2)}%`), h('td.num', `${x.matchpoints}/${x.maxMatchpoints}`))))));
+      h('td.num', `${Math.round(x.percent)}%`), h('td.num', `${x.matchpoints}/${x.maxMatchpoints}`))))));
 }
 
 /** The "looking for a partner" list for one tournament, with invite/accept/decline. */
@@ -1056,18 +1062,19 @@ function testSwitcher(): HTMLElement {
  * Level and description for everyone at the table: what each player's own
  * browser says, filled in from their registration where they have not said.
  */
-function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?: string }> {
+function tablePlayerInfo(n: TournamentNode): Map<string, { note?: string; skill?: string; systems?: string }> {
   const out = n.playerInfo();
   for (const r of room?.listing?.registrations ?? []) {
     const had = out.get(r.login);
     if (r.skill && !had?.skill) out.set(r.login, { ...had, skill: r.skill });
+    if (r.systems && !out.get(r.login)?.systems) out.set(r.login, { ...out.get(r.login), systems: r.systems });
   }
   return out;
 }
 
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
-  p: { name: string; seat?: string; robot: boolean; skill?: string; note?: string; partner?: string },
+  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
@@ -1091,6 +1098,7 @@ function openPlayerInfo(
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
+      h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given')),
       h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description')),
       p.partner ? [h('dt', 'Partner'), h('dd', p.partner)] : null),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
@@ -1145,6 +1153,7 @@ function openSettings(): void {
         /* The description travels as one line of a comment on the tournament
            page, so the lines it was typed on become spaces. */
         partnerNote: val(f, 'note').replace(/\s*\n\s*/g, ' '),
+        systems: systemsOf(val(f, 'systems')),
         token: val(f, 'token') });
       /* The GitHub username comes from the token itself; without one there is none. */
       if (!settings.token) settings.githubLogin = '';
@@ -1168,6 +1177,10 @@ function openSettings(): void {
             h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
             SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
           'How you would describe your own game. Some tournaments are open only to certain levels.')),
+      tipped('Bidding system',
+        h('select', { name: 'systems' },
+          SYSTEM_PREFS.map((x) => h('option', { value: x, selected: settings.systems === x }, x || ' '))),
+        'Select the bidding system(s) you prefer.'),
       tipped('Player description',
         h('textarea', { name: 'note', rows: 2, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }, settings.partnerNote),
         'Visible to other players when they click your name at the table.'),
@@ -1527,6 +1540,7 @@ async function openSession(l: Listing): Promise<void> {
     pairCode: settings.pairCode || undefined,
     note: settings.partnerNote || undefined,
     skill: settings.skill || undefined,
+    systems: settings.systems || undefined,
   };
   const connect = async (roomName: string): Promise<Transport> => settings.transport === 'local'
     ? localTransport(roomName)
@@ -1589,6 +1603,7 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
     pairCode: settings.pairCode || undefined,
     note: settings.partnerNote || undefined,
     skill: settings.skill || undefined,
+    systems: settings.systems || undefined,
   }, {
     botDelayMs,
     robot,
@@ -1689,7 +1704,7 @@ function myCardPanel(state: TState, meId: string): HTMLElement {
    * after one board of nine, "4th of 4" is not a standing but an accident of
    * which board came back first, and it reads as a verdict.
    */
-  const total = byImps ? `${impText(cardImps(rows))} IMPs` : `${cardTotal(rows).we.toFixed(1)}%`;
+  const total = byImps ? `${impText(cardImps(rows))} IMPs` : `${Math.round(cardTotal(rows).we)}%`;
   const place = state.finished && us && us.boardsPlayed
     ? `${ordinal(us.rank)} of ${table.length} \u00b7 ${total}`
     : rows.length === 0 ? 'Nothing scored yet'
@@ -1711,7 +1726,7 @@ function myCardPanel(state: TState, meId: string): HTMLElement {
       h('td.num', board),
       r ? (r.result.contract ? h('td', r.result.text) : h('td.muted', 'Passed out')) : h('td.muted', '\u00b7'),
       h('td.num.muted', r?.result.contract ? score(r) : ''),
-      h('td.num', r ? (byImps ? impText(r.weImps) : r.wePercent.toFixed(1)) : ''));
+      h('td.num', r ? (byImps ? impText(r.weImps) : Math.round(r.wePercent)) : ''));
   };
   return h('div.panel',
     h('h3', 'Your card'),

@@ -1,4 +1,4 @@
-import { toSkill, type MaybeSkill } from '../directory/github';
+import { SYSTEM_PREFS, toSkill, type MaybeSkill, type SystemPref } from '../directory/github';
 
 type Child = Node | string | number | null | undefined | false | Child[];
 type Attrs = Record<string, unknown>;
@@ -49,6 +49,11 @@ export interface Settings {
   /** Remembered from the last time you added yourself to a "looking for a partner"
    * list, so it's offered again as the default next time rather than starting blank. */
   partnerNote: string;
+  /**
+   * The bidding system or systems this player would rather play, in the order
+   * they would rather play them. '' until they have said.
+   */
+  systems: SystemPref;
   /** 'p2p' = WebRTC over the internet; 'local' = other tabs of this browser. */
   transport: 'p2p' | 'local';
 }
@@ -88,6 +93,7 @@ export function loadSettings(defaultRepo: string): Settings {
     repo: saved.repo ?? defaultRepo,
     githubLogin: test ? '' : saved.githubLogin ?? '', token: test ? '' : saved.token ?? '',
     pairCode: saved.pairCode ?? '', playerId: saved.playerId ?? '', partnerNote: saved.partnerNote ?? '',
+    systems: SYSTEM_PREFS.includes(saved.systems as SystemPref) ? (saved.systems as SystemPref) : '',
     playerKey: /^[A-Za-z0-9_-]{32,128}$/.test(saved.playerKey ?? '') ? (saved.playerKey as string) : '',
     /* Players always connect over the Internet. A choice saved from when this
        was a setting is ignored, so nobody is left on a mode they can no

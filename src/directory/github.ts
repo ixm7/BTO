@@ -22,6 +22,22 @@ export type Skill = (typeof SKILLS)[number];
 export type MaybeSkill = Skill | '';
 
 /** Read a level written by hand, whatever its capitals or spacing. */
+/** The bidding systems a player will own to, best-liked first. */
+export const SYSTEM_PREFS = ['', 'SAYC', '2/1', 'SAYC, 2/1', '2/1, SAYC'] as const;
+export type SystemPref = typeof SYSTEM_PREFS[number];
+
+/** The short word for one, as it travels in a comment and comes back. */
+const SYSTEM_TOKENS: Record<SystemPref, string> = {
+  '': '', 'SAYC': 'sayc', '2/1': '21', 'SAYC, 2/1': 'sayc+21', '2/1, SAYC': '21+sayc',
+};
+
+export function systemToken(p: SystemPref): string { return SYSTEM_TOKENS[p] ?? ''; }
+
+export function systemPref(token: string | undefined): SystemPref {
+  const want = (token ?? '').trim().toLowerCase();
+  return (SYSTEM_PREFS.find((p) => SYSTEM_TOKENS[p] === want && p !== '') ?? '') as SystemPref;
+}
+
 export function toSkill(text: unknown): Skill | null {
   const want = String(text ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   return SKILLS.find((x) => x.toLowerCase() === want) ?? null;
@@ -96,6 +112,8 @@ export interface Registration {
   pairCode?: string;
   /** How they describe their own game, when they have said. */
   skill?: Skill;
+  /** The bidding system or systems they prefer, when they have said. */
+  systems?: SystemPref;
   at: string;
 }
 
@@ -454,18 +472,23 @@ export function parseRegistrations(comments: readonly RawComment[]): Registratio
       let rest = (m[1] as string).trim();
       let pairCode: string | undefined;
       let skill: Skill | undefined;
-      /* `pair:` and `level:` may come in either order after the name. */
+      let systems: SystemPref = '';
+      /* `pair:`, `level:` and `sys:` may come in any order after the name. */
       for (;;) {
         const pm = /\bpair:\s*(\S+)\s*$/i.exec(rest);
         if (pm) { pairCode = pm[1]; rest = rest.slice(0, pm.index).trim(); continue; }
         const sm = /\blevel:\s*([A-Za-z][A-Za-z ]*?)\s*$/i.exec(rest);
         const named = sm ? toSkill(sm[1]) : null;
         if (sm && named) { skill = named; rest = rest.slice(0, sm.index).trim(); continue; }
+        const ym = /\bsys:\s*(\S+)\s*$/i.exec(rest);
+        const pref = ym ? systemPref(ym[1]) : '';
+        if (ym && pref) { systems = pref; rest = rest.slice(0, ym.index).trim(); continue; }
         break;
       }
       const prev = reg.get(login);
       reg.set(login, {
         login, name: rest || login, ...(pairCode ? { pairCode } : {}), ...(skill ? { skill } : {}),
+        ...(systems ? { systems } : {}),
         at: prev?.at ?? c.created_at,
       });
     }
@@ -1222,12 +1245,13 @@ export class Directory {
     return res.json();
   }
 
-  register(number: number, name: string, pairCode?: string, skill?: MaybeSkill): Promise<unknown> {
+  register(number: number, name: string, pairCode?: string, skill?: MaybeSkill, systems?: SystemPref): Promise<unknown> {
     const clean = name.replace(/[\r\n]/g, ' ').trim();
     const code = pairCode?.trim().replace(/\s+/g, '-');
     const level = skill ? ` level:${skill}` : '';
-    return this.playerAct(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}`, 'register',
-      { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}) });
+    const sys = systemToken(systems ?? '');
+    return this.playerAct(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}${sys ? ` sys:${sys}` : ''}`, 'register',
+      { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}), ...(sys ? { sys } : {}) });
   }
 
   withdraw(number: number): Promise<unknown> { return this.playerAct(number, '/withdraw', 'withdraw'); }
