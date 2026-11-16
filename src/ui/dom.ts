@@ -29,6 +29,22 @@ export function h(spec: string, attrs?: Attrs | Child, ...children: Child[]): HT
   return el;
 }
 
+/**
+ * Show that a click has landed. A write goes to the relay and back before the
+ * page is redrawn, and in that second or so a button that has not moved reads
+ * as a button that was not pressed — so it goes quiet, spins, and says what it
+ * is doing until the answer comes.
+ */
+export function markBusy(btn: HTMLButtonElement, label?: string): void {
+  if (btn.dataset.busy) return;
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  btn.classList.add('busy');
+  const spinner = h('span.spin');
+  if (label) btn.replaceChildren(spinner, document.createTextNode(label));
+  else btn.prepend(spinner);
+}
+
 export interface Settings {
   name: string;
   /** How the player describes their own game; '' until they have said. */

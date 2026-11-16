@@ -13,7 +13,7 @@ import { wakeIn } from './ticker';
 import { LIMIT, online, watchOnline } from './presence';
 import { makeRobot } from './robot';
 import { armSound, cardSwoosh, say, setSound, startFanfare, turnChime } from './sound';
-import { TEST_USERS, h, loadSettings, saveSettings, testMode, testUser, type Settings } from './dom';
+import { TEST_USERS, h, loadSettings, markBusy, saveSettings, testMode, testUser, type Settings } from './dom';
 import { renderTable } from './tableView';
 import { resultToString } from '../engine/scoring';
 
@@ -739,8 +739,10 @@ function detailView(l: Listing): HTMLElement {
   const full = !!regs && regs.length >= l.meta.capacity;
   countdownCue(l, amRegistered);
   const open = l.status === 'upcoming' || l.status === 'starting' || l.status === 'in progress';
-  const act = (fn: () => Promise<unknown>, done: string) => async (): Promise<void> => {
-    try { await fn(); notice = done; await refresh(); } catch (e) { fail(e); }
+  const act = (fn: () => Promise<unknown>, done: string, label?: string) => async (e?: Event): Promise<void> => {
+    const btn = e?.currentTarget;
+    if (btn instanceof HTMLButtonElement) markBusy(btn, label);
+    try { await fn(); notice = done; await refresh(); } catch (err) { fail(err); }
   };
 
   // The partner of a registered player, by whoever else is registered under the same code.
@@ -848,8 +850,14 @@ function detailView(l: Listing): HTMLElement {
             // Unregistering breaks the partnership too, so the ex-partner's own browser
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
-          }, 'You have unregistered.') }, 'Unregister')
-        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: () => askAboutClash(l, () => void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.')()) }, full ? 'Full' : 'Register'));
+          }, 'You have unregistered.', 'Unregistering…') }, 'Unregister')
+        : h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: (e: Event) => {
+          const btn = e.currentTarget;
+          askAboutClash(l, () => {
+            if (btn instanceof HTMLButtonElement) markBusy(btn, 'Registering…');
+            void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems), 'You are registered.')();
+          });
+        } }, full ? 'Full' : 'Register'));
     } else {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));

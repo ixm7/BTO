@@ -616,3 +616,13 @@ textarea.chat-box {
   background: #fff; color: var(--ink); font: inherit; line-height: 1.4; resize: vertical;
   min-height: calc(2 * 1.4em + 16px); max-height: calc(3 * 1.4em + 16px);
 }
+
+/* ---- a click that is still being answered ---- */
+button.busy { cursor: progress; opacity: .8; }
+.spin {
+  display: inline-block; width: .8em; height: .8em; margin-right: 6px; vertical-align: -1px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
