@@ -289,18 +289,42 @@ function ntResponses(c: Ctx, level: number, lo: number, hi: number): Rule[] {
 /** Partner opened or overcalled 1NT and the next hand came in: bid naturally. */
 function ntInterfered(c: Ctx): Rule[] {
   const out: Rule[] = [];
+  /*
+   * The transfers survive the overcall: two diamonds is still hearts and two
+   * hearts still spades. Where their bid has taken the transfer away, a
+   * double says it instead — the stolen bid — so the same three messages are
+   * always available: two clubs stolen is Stayman, two diamonds the heart
+   * transfer, two hearts the spade transfer.
+   */
+  const theirBid = c.last && sideOf(c.last.seat) !== sideOf(c.me) && c.last.level === 2 ? c.last.strain : null;
+  const fiveMajor = (v: View): Suit | null => (v.len.S >= 5 && v.len.S >= v.len.H ? 'S' : v.len.H >= 5 ? 'H' : null);
+  const transfer = (call: Call, to: Suit, stolen: boolean): Rule => ({
+    call, says: `Transfer: five or more ${NAME[to]}${stolen ? ', made by doubling their bid' : ''}`,
+    len: { [to]: [5, 13] }, when: (v) => fiveMajor(v) === to, forcing: true, tag: `transfer:${to}`, alert: true,
+  });
+  const stayman = (call: Call, stolen: boolean): Rule => ({
+    call, says: `Stayman: asks for a four-card major${stolen ? ', made by doubling their bid' : ''}`,
+    hcp: R(8, 37), when: (v) => v.len.H === 4 || v.len.S === 4, forcing: true, tag: 'stayman', alert: true,
+  });
+  if (theirBid === 'D') out.push(transfer(DBL, 'H', true));
+  if (theirBid === 'H') out.push(transfer(DBL, 'S', true));
+  if (theirBid === 'C') out.push(stayman(DBL, true));
+  if (c.cheapest('D') === 2) out.push(transfer(B(2, 'D'), 'H', false));
+  if (c.cheapest('H') === 2) out.push(transfer(B(2, 'H'), 'S', false));
+
   for (const s of ['S', 'H', 'D', 'C'] as Suit[]) {
     if (c.theirs.includes(s)) continue;
     const l = c.cheapest(s);
-    if (l === 2) out.push({ call: B(2, s), says: `To play: five or more ${NAME[s]}`, hcp: R(0, 9), len: { [s]: [5, 13] } });
+    /* Two diamonds and two hearts are spoken for above, so the only natural
+       rescue left at this level is two spades. */
+    if (l === 2 && s === 'S') out.push({ call: B(2, s), says: `To play: five or more ${NAME[s]}`, hcp: R(0, 9), len: { [s]: [5, 13] } });
+    if (l === 3 && !isMajor(s)) out.push({ call: B(3, s), says: `To play: six or more ${NAME[s]}`, hcp: R(0, 9), len: { [s]: [6, 13] } });
     if (isMajor(s) && c.legal(B(4, s))) out.push({ call: B(4, s), says: 'To play', hcp: R(10, 37), len: { [s]: [6, 13] } });
   }
   out.push({ call: B(3, 'N'), says: 'To play', hcp: R(10, 37), when: (v) => c.theirs.every((t) => v.stop(t)) });
   out.push({ call: PASS, says: 'Nothing to say', hcp: R(0, 9) });
   return out;
 }
-
-/* ============================================ RESPONSES TO ONE OF A SUIT */
 
 function respondToOne(c: Ctx, x: Suit): Rule[] {
   const out: Rule[] = [];
@@ -637,9 +661,11 @@ function rebid(c: Ctx): Rule[] {
   if (pdCall?.type === 'double' && pdTag === 'penalty') return [{ call: PASS, says: 'Leaves the double in' }];
 
   /* ---- answers to partner's conventional calls ---- */
-  if (pdCall?.type === 'bid' && quiet) {
+  if (pdCall && pdCall.type !== 'pass' && quiet) {
     if (pdTag === 'stayman') {
-      const L = pdCall.level;
+      /* A stolen-bid double has no level of its own: answer as cheaply as
+         the overcall allows. */
+      const L = pdCall.type === 'bid' ? pdCall.level : Math.max(c.cheapest('D'), c.cheapest('H'), c.cheapest('S'));
       return [
         { call: B(L, 'H'), says: 'Four hearts', len: { H: [4, 5] }, tag: 'stayans' },
         { call: B(L, 'S'), says: 'Four spades, fewer than four hearts', len: { S: [4, 5], H: [0, 3] }, tag: 'stayans' },
@@ -667,7 +693,7 @@ function rebid(c: Ctx): Rule[] {
        but name, so it is answered like one: three clubs asks for a major,
        three of a red suit transfers. Without this, opener heard three clubs
        as a suit of responder's own and passed it. */
-    if (pdTag === 'nt22' && pdCall.strain === 'N') return ntResponses(c, pdCall.level, 22, 24);
+    if (pdTag === 'nt22' && pdCall.type === 'bid' && pdCall.strain === 'N') return ntResponses(c, pdCall.level, 22, 24);
     if (pdTag === 'waiting') {
       const out: Rule[] = [
         { call: B(3, 'N'), says: '25–27 points, balanced', hcp: R(25, 27), when: (v) => v.balanced },

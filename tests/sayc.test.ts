@@ -461,3 +461,45 @@ describe('a cue at the three level asks for a stopper', () => {
     expect(readAuction(auction('P 1C 1D 1S 2S'), 'sayc').says.at(-1)).toContain('good raise of diamonds');
   });
 });
+
+describe('transfers and stolen bids after they overcall our one no-trump', () => {
+  /* North deals and passes; East passes; South opens 1NT; West comes in. */
+  const nt = 'P P 1N';
+  const opener = 'AQ5.KJ4.QJ62.K93';
+
+  it.each(['sayc', '2/1'] as const)('%s: two hearts over their two diamonds is still spades', (sys) => {
+    expect(callToString(chooseSayc(hand('KJ932.43.T54.976'), auction(`${nt} 2D`), 'N', sys).call)).toBe('2H');
+    /* And the opener completes it rather than passing partner into hearts. */
+    expect(callToString(chooseSayc(hand(opener), auction(`${nt} 2D 2H P`), 'S', sys).call)).toBe('2S');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: two diamonds over their two clubs is still hearts', (sys) => {
+    expect(callToString(chooseSayc(hand('43.KJ932.T54.976'), auction(`${nt} 2C`), 'N', sys).call)).toBe('2D');
+    expect(callToString(chooseSayc(hand(opener), auction(`${nt} 2C 2D P`), 'S', sys).call)).toBe('2H');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: doubling their two clubs is Stayman', (sys) => {
+    expect(callToString(chooseSayc(hand('KJ92.Q843.K54.97'), auction(`${nt} 2C`), 'N', sys).call)).toBe('X');
+    /* Opener answers the stolen bid as if it had been two clubs. */
+    expect(callToString(chooseSayc(hand('A54.KJ43.QJ6.K93'), auction(`${nt} 2C X P`), 'S', sys).call)).toBe('2H');
+    expect(callToString(chooseSayc(hand('AQ54.K43.QJ6.K93'), auction(`${nt} 2C X P`), 'S', sys).call)).toBe('2S');
+    /* No four-card major: the same answer two diamonds would have drawn. */
+    expect(callToString(chooseSayc(hand(opener), auction(`${nt} 2C X P`), 'S', sys).call)).toBe('2D');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: doubling their two diamonds transfers to hearts', (sys) => {
+    expect(callToString(chooseSayc(hand('43.KJ932.T54.976'), auction(`${nt} 2D`), 'N', sys).call)).toBe('X');
+    expect(callToString(chooseSayc(hand(opener), auction(`${nt} 2D X P`), 'S', sys).call)).toBe('2H');
+  });
+
+  it.each(['sayc', '2/1'] as const)('%s: doubling their two hearts transfers to spades', (sys) => {
+    expect(callToString(chooseSayc(hand('KJ932.43.T54.976'), auction(`${nt} 2H`), 'N', sys).call)).toBe('X');
+    expect(callToString(chooseSayc(hand(opener), auction(`${nt} 2H X P`), 'S', sys).call)).toBe('2S');
+  });
+
+  it('says what the stolen bid meant', () => {
+    const read = readAuction(auction(`${nt} 2H X`), 'sayc');
+    expect(read.says.at(-1)).toContain('five or more spades');
+    expect(read.told.at(-1)?.forcing).toBe(true);
+  });
+});
