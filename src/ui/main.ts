@@ -884,7 +884,22 @@ function detailView(l: Listing): HTMLElement {
       actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
-    actions.append(h('button.primary', { disabled: !settings.name.trim(), onclick: () => { leftAt.delete(l.number); void enterRoom(roomInfoOf(l)); } }, 'Enter playing room'));
+    /*
+     * Only while there is a table to go to. Before the start this said
+     * "enter" for a room the app takes everybody into by itself; once play is
+     * under way it is the only way back for somebody who left, or who came
+     * back after the half hour the automatic seating gives up at — and the
+     * way a latecomer joins, by taking over a seat a robot is playing.
+     */
+    if (l.status === 'in progress' && l.pinned) {
+      const seated = !!myLogin && pinnedRoster(l).some((r) => r.login.toLowerCase() === myLogin);
+      actions.append(h('button.primary', {
+        disabled: !settings.name.trim(),
+        title: seated ? 'Go back to your table.'
+          : 'Join by taking over a seat where a robot is playing for somebody who dropped out.',
+        onclick: () => { leftAt.delete(l.number); void enterRoom(roomInfoOf(l)); },
+      }, seated ? 'Return to your table' : 'Take over a robot\u2019s seat'));
+    }
   }
   if (open && welcome) {
     const seeking = l.partners?.seekers.length;
