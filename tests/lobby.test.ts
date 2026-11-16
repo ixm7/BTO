@@ -63,12 +63,20 @@ describe('the lobby', () => {
     expect(sent.at(-1)).toMatchObject({ method: 'PATCH', body: { body: 'back at eight' } });
   });
 
-  it('takes a message down only with a token', async () => {
+  it('deletes with a token, and asks the relay without one', async () => {
     const { fetcher, sent } = fakeGitHub([{ id: 5, login: 'ann', body: 'back at eight' }]);
     /* Deleting answers 204 and no body, which is not an error. */
     await expect(new Directory('ixm7/BTO', 'tok', fetcher).removeMessage(5)).resolves.toBeUndefined();
     expect(sent.at(-1)).toMatchObject({ method: 'DELETE' });
-    await expect(new Directory('ixm7/BTO', null, fetcher, relay).removeMessage(5)).rejects.toThrow(/token/i);
+
+    /* A player without a token cannot delete anything themselves, so they
+       name the message and the relay checks it was theirs. */
+    await new Directory('ixm7/BTO', null, fetcher, relay).removeMessage(5);
+    expect(sent.at(-1)?.url).toContain('/act');
+    expect(sent.at(-1)?.body).toMatchObject({ act: 'unsay', comment: 5, issue: 9 });
+
+    /* And with neither, there is nobody to ask. */
+    await expect(new Directory('ixm7/BTO', null, fetcher).removeMessage(5)).rejects.toThrow(/token/i);
   });
 
   it('will not open a lobby without a token, and finds the one that exists', async () => {

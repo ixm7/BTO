@@ -1395,13 +1395,16 @@ function openLobby(): void {
       busy = false; draw();
     };
 
+    /* Anybody may take back what they said themselves; a token may take back
+       anything. A pinned message is held until it is unpinned. */
+    const me = myId();
     const line = (m: ChatMessage): HTMLElement => h(`div.chat-line${m.pinned ? '.pinned' : ''}`,
       h('div', h('b', `[${m.name}]: `), m.text),
       h('div.chat-meta', h('span.muted', ago(m.at)),
-        d.canWrite ? [' ',
-          h('button.link', { disabled: busy, onclick: act(() => d.pinMessage(m.id, !m.pinned)) }, m.pinned ? 'Unpin' : 'Pin'),
-          m.pinned ? null : [' ', h('button.link', { disabled: busy, onclick: act(() => d.removeMessage(m.id)) }, 'Delete')],
-        ] : null));
+        d.canWrite ? [' ', h('button.link', { disabled: busy, onclick: act(() => d.pinMessage(m.id, !m.pinned)) }, m.pinned ? 'Unpin' : 'Pin')] : null,
+        !m.pinned && (d.canWrite || (!!me && m.who.toLowerCase() === me))
+          ? [' ', h('button.link', { disabled: busy, onclick: act(() => d.removeMessage(m.id)) }, 'Delete')]
+          : null));
 
     draw = (): void => {
       body.replaceChildren(...[

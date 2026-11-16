@@ -25,7 +25,7 @@ const API = 'https://api.github.com';
 const CACHE_SECONDS = 15;
 const SYSTEMS = ['sayc', '21', 'sayc+21', '21+sayc'];
 /* Which page each kind of write belongs on; anything else is a tournament. */
-const PAGE_FOR = { chat: 'bridge-lobby', pair: 'bridge-pairs' };
+const PAGE_FOR = { chat: 'bridge-lobby', unsay: 'bridge-lobby', pair: 'bridge-pairs' };
 const CHAT_MAX = 150;
 const PAIR_NOTE_MAX = 240;
 const SKILLS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'World Class'];
@@ -147,6 +147,28 @@ async function act(request, url, env, ctx) {
   const found = await issueRes.json();
   if (found.pull_request || !new RegExp(`<!--\\s*${wants}`).test(found.body || '')) throw new Refusal('No such page.', 404);
   if (found.state !== 'open') throw new Refusal('That page is closed.', 409);
+
+  /*
+   * Taking back something said in the lobby. A player without a token cannot
+   * delete anything themselves, so the relay does it for them — but only
+   * their own message, which it tells by the mark their browser leaves on
+   * everything it says, and only on the page they named.
+   */
+  if (input.act === 'unsay') {
+    const id = Number(input.comment);
+    if (!Number.isInteger(id) || id < 1 || id > 1e12) throw new Refusal('No such message.');
+    const was = await github(`/repos/${owner}/${repo}/issues/comments/${id}`, env);
+    if (!was.ok) throw new Refusal('No such message.', 404);
+    const comment = await was.json();
+    if (Number(String(comment.issue_url || '').split('/').pop()) !== issue) throw new Refusal('No such message.', 404);
+    const mine = new RegExp(`<!--\\s*player\\s*\\{[^}]*"t"\\s*:\\s*"${tag}"`).test(comment.body || '');
+    if (!mine) throw new Refusal('That message is not yours to delete.', 403);
+    if (/<!--\s*pinned/.test(comment.body || '')) throw new Refusal('That message has been pinned.', 409);
+    const gone = await github(`/repos/${owner}/${repo}/issues/comments/${id}`, env, { method: 'DELETE' });
+    if (!gone.ok) throw new Refusal(`That message would not go (error ${gone.status}).`, 502);
+    ctx.waitUntil(forget(url.origin, owner, repo, issue));
+    return json({ ok: true, deleted: id });
+  }
 
   /* A tournament has one result, and every browser that saw the last board
      scored offers one. The first is kept and the rest are told it is done,
@@ -311,6 +333,7 @@ function command(action, input, name, tag) {
       const note = clean(input.note, PAIR_NOTE_MAX);
       return `/pair ${key} sys:${sys}${note ? ` note:${note}` : ''}`;
     }
+    case 'unsay': return '';
     case 'chat': {
       const said = clean(input.text, CHAT_MAX);
       if (!said) throw new Refusal('There was nothing to say.');

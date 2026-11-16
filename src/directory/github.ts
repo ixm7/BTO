@@ -1444,10 +1444,16 @@ export class Directory {
     return this.playerAct(number, line, 'chat', { text: line });
   }
 
-  /** Take a message down. Only a token can, and the pinned ones are kept. */
+  /**
+   * Take a message down. A token may take down anybody's; a player without
+   * one may take down their own, which the relay checks for itself by the
+   * mark their browser leaves on everything it says.
+   */
   async removeMessage(id: number): Promise<unknown> {
-    if (!this.token) throw new Error('A GitHub token is needed for this');
-    return this.req(this.api(`/issues/comments/${id}`), 'DELETE');
+    if (this.token) return this.req(this.api(`/issues/comments/${id}`), 'DELETE');
+    const number = await this.lobby();
+    if (number === null) throw new Error('The lobby has not been set up yet.');
+    return this.playerAct(number, '', 'unsay', { comment: id });
   }
 
   /** Hold a message at the top of the lobby, or let it go again. */
