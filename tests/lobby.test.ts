@@ -118,13 +118,28 @@ describe('pair cards', () => {
       { login: 'cat', body: '/pair ann+bob sys:sayc note:not theirs to write' },
     ]);
     const cards = await new Directory('ixm7/BTO', null, fetcher, relay).pairCards();
-    expect(cards.get('ann+bob')).toEqual({ system: '2/1', note: 'Bergen raises, weak 1NT' });
+    expect(cards.get('ann+bob')).toEqual({ system: '2/1', vsNt: '', note: 'Bergen raises, weak 1NT' });
+  });
+
+  it('keeps what they play over a no-trump, and a card written before there was one', async () => {
+    const { fetcher } = pairsGitHub([
+      { login: 'ann', body: '/pair ann+bob sys:sayc vs:Cappelletti note:Natural discards' },
+      { login: 'ann', body: '/pair ann+cat sys:21 note:older card, no answer to their no-trump' },
+    ]);
+    const cards = await new Directory('ixm7/BTO', null, fetcher, relay).pairCards();
+    expect(cards.get('ann+bob')).toEqual({ system: 'SAYC', vsNt: 'Cappelletti', note: 'Natural discards' });
+    expect(cards.get('ann+cat')).toEqual({ system: '2/1', vsNt: '', note: 'older card, no answer to their no-trump' });
   });
 
   it('writes the card as a line the page can be read for', async () => {
     const { fetcher, sent } = pairsGitHub([]);
-    await new Directory('ixm7/BTO', 'tok', fetcher).savePairCard('ann+bob', '2/1', '  Weak  1NT  ');
-    expect(sent.at(-1)).toMatchObject({ method: 'POST', body: { body: '/pair ann+bob sys:21 note:Weak 1NT' } });
+    await new Directory('ixm7/BTO', 'tok', fetcher).savePairCard('ann+bob', '2/1', 'Cappelletti', '  Weak  1NT  ');
+    expect(sent.at(-1)).toMatchObject({ method: 'POST', body: { body: '/pair ann+bob sys:21 vs:Cappelletti note:Weak 1NT' } });
+
+    /* Nothing said about their no-trump: the word is left out rather than
+       left empty, so an older card and a new one read the same way. */
+    await new Directory('ixm7/BTO', 'tok', fetcher).savePairCard('ann+bob', 'SAYC', '', 'Weak 1NT');
+    expect(sent.at(-1)).toMatchObject({ body: { body: '/pair ann+bob sys:sayc note:Weak 1NT' } });
   });
 
   it('falls back to the system both players own to', () => {

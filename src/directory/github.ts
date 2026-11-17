@@ -455,6 +455,8 @@ export const PAIR_NOTE_MAX = 240;
 export interface PairCard {
   /** 'SAYC' or '2/1'. */
   system: string;
+  /** What they play over an opponent's one no-trump, in their own words. */
+  vsNt: string;
   note: string;
 }
 
@@ -1351,7 +1353,7 @@ export class Directory {
     const out = new Map<string, PairCard>();
     for (const c of comments) {
       const body = (c.body ?? '').replace(TRAILER_RE, '').trim();
-      const m = /^\/pair\s+(\S+)\s+sys:(\S+)(?:\s+note:([\s\S]*))?$/i.exec(body);
+      const m = /^\/pair\s+(\S+)\s+sys:(\S+)\s*([\s\S]*)$/i.exec(body);
       if (!m) continue;
       const key = (m[1] as string).toLowerCase();
       /* Only the two it names may write it: a line from anybody else is
@@ -1359,19 +1361,29 @@ export class Directory {
       const who = (c.user?.login ?? '').toLowerCase();
       if (!key.split('+').includes(who)) continue;
       const system = (m[2] as string).toLowerCase() === '21' ? '2/1' : 'SAYC';
-      out.set(key, { system, note: ((m[3] ?? '') as string).replace(/\s+/g, ' ').trim().slice(0, PAIR_NOTE_MAX) });
+      /* The rest is two pieces of their own prose, each under its own word.
+         A card written before there was a second piece has only the note. */
+      const rest = (m[3] ?? '') as string;
+      const tidy = (x: string | undefined): string => (x ?? '').replace(/\s+/g, ' ').trim().slice(0, PAIR_NOTE_MAX);
+      out.set(key, {
+        system,
+        vsNt: tidy(/(?:^|\s)vs:([\s\S]*?)(?=\s+note:|$)/i.exec(rest)?.[1]),
+        note: tidy(/(?:^|\s)note:([\s\S]*)$/i.exec(rest)?.[1]),
+      });
     }
     return out;
   }
 
   /** Save what a pair have agreed. */
-  async savePairCard(key: string, system: string, note: string): Promise<unknown> {
+  async savePairCard(key: string, system: string, vsNt: string, note: string): Promise<unknown> {
     const number = await this.pairsPage();
     if (number === null) throw new Error('Pair cards have not been set up yet.');
     const sys = system === '2/1' ? '21' : 'sayc';
-    const said = note.replace(/\s+/g, ' ').trim().slice(0, PAIR_NOTE_MAX);
-    return this.playerAct(number, `/pair ${key} sys:${sys}${said ? ` note:${said}` : ''}`, 'pair',
-      { pairKey: key, sys, note: said });
+    const tidy = (x: string): string => x.replace(/\s+/g, ' ').replace(/\b(vs|note):/gi, ' ').trim().slice(0, PAIR_NOTE_MAX);
+    const over = tidy(vsNt);
+    const said = tidy(note);
+    return this.playerAct(number, `/pair ${key} sys:${sys}${over ? ` vs:${over}` : ''}${said ? ` note:${said}` : ''}`, 'pair',
+      { pairKey: key, sys, vs: over, note: said });
   }
 
   /* --------------------------------------------------------------- lobby */

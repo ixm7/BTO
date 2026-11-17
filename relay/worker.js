@@ -330,8 +330,11 @@ function command(action, input, name, tag) {
       if (!/^[a-z0-9~_+-]{3,110}$/.test(key) || key.split('+').length !== 2) throw new Refusal('That is not a pair.');
       if (!key.split('+').includes(`~${tag}`)) throw new Refusal('A pair card can only be written by one of its two players.');
       const sys = String(input.sys || '').toLowerCase() === '21' ? '21' : 'sayc';
+      /* Two pieces of their own prose, each under its own word, so that
+         neither can be read as the other. */
+      const over = clean(input.vs, PAIR_NOTE_MAX);
       const note = clean(input.note, PAIR_NOTE_MAX);
-      return `/pair ${key} sys:${sys}${note ? ` note:${note}` : ''}`;
+      return `/pair ${key} sys:${sys}${over ? ` vs:${over}` : ''}${note ? ` note:${note}` : ''}`;
     }
     case 'unsay': return '';
     case 'chat': {
@@ -420,7 +423,7 @@ function resultsBody(input) {
 function clean(text, max) {
   return String(text ?? '')
     .replace(/[\u0000-\u001f\u007f<>@`|]/g, ' ')
-    .replace(/\b(pair|level|sys|player):\S*/gi, ' ')
+    .replace(/\b(pair|level|sys|vs|note|player):\S*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max)

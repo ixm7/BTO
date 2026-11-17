@@ -1203,12 +1203,13 @@ function tablePlayerInfo(n: TournamentNode): Map<string, TableInfo> {
       const pa = t.seats[a];
       const pb = t.seats[b];
       if (!pa || !pb) continue;
-      const card = pa.bot || pb.bot
-        ? { system: robots, note: '' }
+      const card: PairCard = pa.bot || pb.bot
+        ? { system: robots, vsNt: '', note: '' }
         : pairAgreement({ id: pa.id, systems: out.get(pa.id)?.systems as SystemPref },
           { id: pb.id, systems: out.get(pb.id)?.systems as SystemPref });
       for (const id of [pa.id, pb.id]) {
-        out.set(id, { ...out.get(id), pairSystem: card.system, ...(card.note ? { pairNote: card.note } : {}) });
+        out.set(id, { ...out.get(id), pairSystem: card.system,
+          ...(card.vsNt ? { pairVsNt: card.vsNt } : {}), ...(card.note ? { pairNote: card.note } : {}) });
       }
     }
   }
@@ -1216,11 +1217,14 @@ function tablePlayerInfo(n: TournamentNode): Map<string, TableInfo> {
 }
 
 /** What the table knows about one player: their own words, and their pair's. */
-export interface TableInfo { note?: string; skill?: string; systems?: string; pairSystem?: string; pairNote?: string }
+export interface TableInfo {
+  note?: string; skill?: string; systems?: string;
+  pairSystem?: string; pairVsNt?: string; pairNote?: string;
+}
 
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
-  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairNote?: string; note?: string; partner?: string },
+  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
@@ -1244,6 +1248,7 @@ function openPlayerInfo(
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
       p.pairSystem ? [h('dt', 'This pair plays'), h('dd', p.pairSystem)] : null,
+      p.pairVsNt ? [h('dt', 'Over their 1NT'), h('dd', p.pairVsNt)] : null,
       p.pairNote ? [h('dt', 'Pair description'), h('dd', p.pairNote)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
       h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given')),
@@ -1304,7 +1309,7 @@ async function loadPairCards(force = false): Promise<void> {
  */
 function pairAgreement(a: { id: string; systems?: SystemPref }, b: { id: string; systems?: SystemPref }): PairCard {
   const card = pairCards.get(pairKey(a.id, b.id));
-  return card ?? { system: systemBetween(a, b), note: '' };
+  return card ?? { system: systemBetween(a, b), vsNt: '', note: '' };
 }
 
 /**
@@ -1332,6 +1337,7 @@ function openPartnership(l: Listing, partner: string): void {
   );
   let unsaved = false;
   let sysEl: HTMLSelectElement | null = null;
+  let vsEl: HTMLInputElement | null = null;
   let noteEl: HTMLTextAreaElement | null = null;
   let sending: ReturnType<typeof setTimeout> | null = null;
   /* Whether the partner has this open too, which is what decides whether
@@ -1342,6 +1348,7 @@ function openPartnership(l: Listing, partner: string): void {
     card = c;
     /* Never under the cursor: whoever is typing in a field keeps it. */
     if (sysEl && document.activeElement !== sysEl) sysEl.value = c.system;
+    if (vsEl && document.activeElement !== vsEl) vsEl.value = c.vsNt;
     if (noteEl && document.activeElement !== noteEl) noteEl.value = c.note;
   };
 
@@ -1357,7 +1364,7 @@ function openPartnership(l: Listing, partner: string): void {
     if (sending) clearTimeout(sending);
     sending = setTimeout(() => {
       sending = null;
-      transport?.send({ k: 'draft', system: sysEl?.value ?? card.system, note: noteEl?.value ?? card.note });
+      transport?.send({ k: 'draft', system: sysEl?.value ?? card.system, vsNt: vsEl?.value ?? card.vsNt, note: noteEl?.value ?? card.note });
     }, 500);
   };
 
@@ -1372,7 +1379,7 @@ function openPartnership(l: Listing, partner: string): void {
       transport.onPeerLeave(() => { together = (transport?.peers().length ?? 0) > 0; draw(); });
       together = transport.peers().length > 0;
       transport.onMessage((msg) => {
-        const m = msg as { k?: string; text?: string; name?: string; system?: string; note?: string };
+        const m = msg as { k?: string; text?: string; name?: string; system?: string; vsNt?: string; note?: string };
         if (m.k === 'say' && typeof m.text === 'string') {
           said.push({ name: String(m.name ?? theirName).slice(0, 40), text: m.text.slice(0, CHAT_MAX) });
           said = said.slice(-50);
@@ -1382,7 +1389,11 @@ function openPartnership(l: Listing, partner: string): void {
         /* Their side of the card: what they are writing, or what they saved. */
         if (m.k === 'draft' || m.k === 'card') {
           if (m.k === 'draft') unsaved = true;
-          show({ system: m.system === '2/1' ? '2/1' : 'SAYC', note: String(m.note ?? '').slice(0, PAIR_NOTE_MAX) });
+          show({
+            system: m.system === '2/1' ? '2/1' : 'SAYC',
+            vsNt: String(m.vsNt ?? '').slice(0, PAIR_NOTE_MAX),
+            note: String(m.note ?? '').slice(0, PAIR_NOTE_MAX),
+          });
           if (m.k === 'card') { unsaved = false; void loadPairCards(true); }
           return;
         }
@@ -1403,6 +1414,8 @@ function openPartnership(l: Listing, partner: string): void {
     const box = h('input', { maxLength: CHAT_MAX, placeholder: `Say something to ${theirName}…`, autocomplete: 'off' }) as HTMLInputElement;
     noteEl = h('textarea', { name: 'note', rows: 2, maxLength: PAIR_NOTE_MAX, oninput: typing,
       placeholder: 'e.g. Natural discards, weak 1NT, 1C can be short, Bergen raises' }, card.note) as HTMLTextAreaElement;
+    vsEl = h('input', { name: 'vsnt', maxLength: PAIR_NOTE_MAX, oninput: typing, autocomplete: 'off',
+      placeholder: 'Natural, Cappelletti, DONT, \u2026 ?', value: card.vsNt }) as HTMLInputElement;
     sysEl = h('select', { onchange: typing },
       ['SAYC', '2/1'].map((x) => h('option', { value: x, selected: card.system === x }, x))) as HTMLSelectElement;
 
@@ -1410,14 +1423,15 @@ function openPartnership(l: Listing, partner: string): void {
       if (busy) return;
       busy = true; err = null; draw();
       const system = sysEl?.value === '2/1' ? '2/1' : 'SAYC';
+      const vsNt = vsEl?.value ?? '';
       const note = noteEl?.value ?? '';
       try {
         if (d.canWrite) await d.openPairs();
-        await d.savePairCard(key, system, note);
+        await d.savePairCard(key, system, vsNt, note);
         await loadPairCards(true);
         unsaved = false;
         /* So the other side has it without waiting for the page to be read. */
-        transport?.send({ k: 'card', system, note });
+        transport?.send({ k: 'card', system, vsNt, note });
         notice = 'Your pair card is saved.';
       } catch (e) { err = (e as Error).message; }
       busy = false; draw();
@@ -1455,6 +1469,7 @@ function openPartnership(l: Listing, partner: string): void {
         where,
         h('form.grid', { onsubmit: (e: Event) => { e.preventDefault(); void save(); } },
           tipped('Bidding system', sysEl, 'The system the two of you have agreed to play.'),
+          tipped('Over Opponents 1NT', vsEl, 'Natural, Cappelletti, DONT, \u2026 ?'),
           tipped('Pair description', noteEl, 'Carding, notrump range, and anything else the table should know.'),
           h('div.row', h('span.spacer'),
             h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Save pair card')))),
