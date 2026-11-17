@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chooseCall, chooseCard } from '../src/engine/bot';
 import { planConfig } from '../src/tournament/plan';
-import { cardTotal, pairOf, reviewBoard, scorecard } from '../src/tournament/review';
+import { boardComplete, cardTotal, pairOf, reviewBoard, scorecard } from '../src/tournament/review';
 import { reduce, standings, turnAt, type LobbyPlayer, type TState } from '../src/tournament/state';
 
 const roster = (n: number): LobbyPlayer[] =>
@@ -21,6 +21,77 @@ function played(players: number, rounds = 2): TState {
   }
   return state;
 }
+
+/** One table driven on its own, so the field is left part-way through. */
+function oneTableAhead(players: number): { state: TState; board: number } {
+  const config = planConfig({ id: 'rv', name: 'Review', seed: 'fixed', roster: roster(players), boardsPerRound: 2, rounds: 1 });
+  let state = reduce(null, { t: 'start', config });
+  let guard = 0;
+  while (!state.results.length && guard++ < 400000) {
+    const table = state.tables.find((t) => t.index === 0 && turnAt(t));
+    if (!table) break;
+    const turn = turnAt(table)!;
+    state = reduce(state, turn.phase === 'auction'
+      ? { t: 'call', table: table.index, board: table.boardNo!, seat: turn.seat, call: chooseCall(table.deal![turn.seat], table.auction!, turn.seat) }
+      : { t: 'play', table: table.index, board: table.boardNo!, seat: turn.seat, card: chooseCard(table.play!, turn.seat) });
+  }
+  return { state, board: state.results[0]!.board };
+}
+
+describe('a board the field has not finished', () => {
+  it('is not complete while another table can still play it', () => {
+    const { state, board } = oneTableAhead(8);
+    expect(state.tables.length).toBeGreaterThan(1);
+    expect(state.results.filter((r) => r.board === board)).toHaveLength(1);
+    expect(boardComplete(state, board)).toBe(false);
+  });
+
+  it('is complete once every table that is still playing has reported', () => {
+    const s = played(8, 1);
+    for (const board of new Set(s.results.map((r) => r.board))) {
+      expect(boardComplete(s, board), `board ${board}`).toBe(true);
+    }
+  });
+
+  it('waits for nobody once the tournament is over', () => {
+    const { state, board } = oneTableAhead(8);
+    expect(boardComplete(state, board)).toBe(false);
+    /* Nothing more will be reported, so what is in is all there is. */
+    expect(boardComplete({ ...state, finished: true }, board)).toBe(true);
+  });
+
+  it('does not wait for a table that has been switched off', () => {
+    const { state, board } = oneTableAhead(8);
+    const off = { ...state, tables: state.tables.map((t) => (t.index === 0 ? t : { ...t, active: false })) };
+    expect(boardComplete(off, board)).toBe(true);
+  });
+});
+
+describe('the seat the table is waiting on', () => {
+  it('is never dummy, so dummy is free to read the records all hand', () => {
+    const config = planConfig({ id: 'rv', name: 'Review', seed: 'fixed', roster: roster(8), boardsPerRound: 2, rounds: 1 });
+    let state = reduce(null, { t: 'start', config });
+    let sawDummy = 0;
+    let guard = 0;
+    while (!state.finished && guard++ < 400000) {
+      const table = state.tables.find((t) => turnAt(t));
+      if (!table) break;
+      const turn = turnAt(table)!;
+      if (turn.phase === 'play') {
+        const play = table.play!;
+        /* Declarer answers for dummy, so dummy is never the one holding the
+           table up — which is what leaves the records open to them. */
+        expect(turn.controller).not.toBe(play.dummy);
+        if (turn.seat === play.dummy) sawDummy++;
+      }
+      state = reduce(state, turn.phase === 'auction'
+        ? { t: 'call', table: table.index, board: table.boardNo!, seat: turn.seat, call: chooseCall(table.deal![turn.seat], table.auction!, turn.seat) }
+        : { t: 'play', table: table.index, board: table.boardNo!, seat: turn.seat, card: chooseCard(table.play!, turn.seat) });
+    }
+    /* And the case was actually met: dummy's cards did come up for playing. */
+    expect(sawDummy).toBeGreaterThan(0);
+  });
+});
 
 describe('looking back over a board', () => {
   it('keeps the auction that produced each result', () => {

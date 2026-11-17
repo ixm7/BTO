@@ -35,6 +35,25 @@ export interface BoardReview {
   own: TravellerRow | null;
 }
 
+/**
+ * Has the field finished with this board?
+ *
+ * A traveller is only shown once nobody can still be playing the board it
+ * belongs to. Seeing what other tables did with a board that is still in play
+ * elsewhere is the one thing a duplicate game has to prevent: the result is
+ * not yours to know yet, and a word in the wrong place carries it to somebody
+ * who has not bid it.
+ *
+ * A table that has been switched off will send nothing more, so it is not
+ * waited for, and a tournament that has finished is finished whatever its
+ * tables were doing when it stopped.
+ */
+export function boardComplete(state: TState, board: number): boolean {
+  if (state.finished) return true;
+  const done = new Set(state.results.filter((r) => r.board === board).map((r) => r.table));
+  return state.tables.every((t) => !t.active || done.has(t.index));
+}
+
 /** Scores across the field on one board, matchpointed against each other. */
 export function reviewBoard(state: TState, board: number, myPair: number | null): BoardReview {
   const rows = state.results.filter((r) => r.board === board);

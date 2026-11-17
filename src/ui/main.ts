@@ -2693,13 +2693,28 @@ function openClaim(n: TournamentNode): void {
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
+  /*
+   * Whether the table is waiting on this player right now. Dummy is never
+   * waited on — declarer plays those cards — so dummy keeps the records open
+   * through the whole hand, which is the one seat with nothing else to do.
+   */
+  const seated = n.mySeat();
+  const myTurn = !!seated && turnAt(seated.table)?.controller === seated.seat;
+  /* The hand records take over the page, and the turn clock does not stop for
+     them. Being on turn closes them rather than leaving somebody reading a
+     traveller while their own clock runs out. */
+  if (myTurn && reviewing) { reviewing = false; recBoard = null; recTable = null; }
   const head = h('div.row', { style: 'margin-bottom:10px' },
     h('button', { onclick: leaveRoom }, '← Leave'),
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'),
     state && state.results.length > 0
-      ? h('button', { onclick: () => { reviewing = !reviewing; recBoard = null; recTable = null; recMode = 'mine'; render(); },
-          title: 'Look back over the boards: all four hands, the bidding, and what every other table did' },
+      ? h('button', {
+          disabled: myTurn,
+          onclick: () => { reviewing = !reviewing; recBoard = null; recTable = null; recMode = 'mine'; render(); },
+          title: myTurn
+            ? 'The table is waiting for you. The records open again once you have called or played.'
+            : 'Look back over the boards: all four hands, the bidding, and what every other table did' },
         reviewing ? 'Back to the table' : 'Hand records')
       : null,
     state ? seatControls(n, state, info.demo) : null,

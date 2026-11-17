@@ -8,7 +8,7 @@
  */
 import { SUIT_SYMBOLS, cardSuit, rankChar, sortForDisplay, type Card, type Seat } from '../engine/cards';
 import { callToString, type Call } from '../engine/bidding';
-import { impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
+import { boardComplete, impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
 import type { BoardResult, TState } from '../tournament/state';
 import { h } from './dom';
 
@@ -95,9 +95,13 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   const weAreNS = review.own ? review.own.result.nsPair === myPair : true;
   const others = view.mode === 'others';
   const byImps = state.config.scoring === 'imps';
+  /* Until the field has finished a board, the only line on it that is yours
+     to read is your own. */
+  const complete = boardComplete(state, board);
+  const traveller = complete ? review.traveller : review.traveller.filter((t) => t.mine);
 
   const rows = others
-    ? review.traveller.map((t: TravellerRow) => {
+    ? traveller.map((t: TravellerRow) => {
         const s = fromOurSide(t.result, weAreNS, t.nsMatchpoints, t.top);
         const names = [pairAt(state, t.result.nsPair), pairAt(state, t.result.ewPair)]
           .map((p) => (p ? p.players.map((x) => x.name).join(' & ') : '—')).join(' v ');
@@ -115,7 +119,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
 
   /* Whichever line is selected supplies the bidding shown with the deal. */
   const shown = others && view.table !== null
-    ? review.traveller.find((t) => t.result.table === view.table) ?? review.own
+    ? traveller.find((t) => t.result.table === view.table) ?? review.own
     : review.own;
   const { N, E, S, W } = review.hands;
   const ourSeats = review.own ? (review.own.result.nsPair === myPair ? 'NS' : 'EW') : '';
@@ -133,7 +137,9 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
     h('div.d-bottom', handBlock(S, 'South', ourSeats.includes('S'))));
 
   return h('div.panel',
-    h('div.row', h('h3', others ? `Board ${board} at every table` : 'Your boards'), h('span.spacer'),
+    h('div.row', h('h3', others
+        ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
+        : 'Your boards'), h('span.spacer'),
       h('button', {
         onclick: () => on.setMode(others ? 'mine' : 'others'),
         title: others
@@ -141,7 +147,10 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
           : 'See what every other table did with this same board',
       }, others ? 'My table' : 'Other tables')),
     h('p.muted', others
-      ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
+      ? complete
+        ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
+        : 'Some of the field is still playing this board, so only your own line is here. '
+          + 'The rest appear once everyone has finished it.'
       : 'Every board you have played, scored against the tables that played it. Pick a board to see the deal.'),
     h('div.table-scroll', h('table.list.scorecard',
       h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS).map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
