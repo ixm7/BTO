@@ -136,6 +136,29 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
     h('div.d-right', handBlock(E, 'East', ourSeats.includes('E'))),
     h('div.d-bottom', handBlock(S, 'South', ourSeats.includes('S'))));
 
+  /*
+   * The boards, always on screen. In "other tables" the list below is that
+   * one board's traveller, so without this the only way to the next board was
+   * out to "my table", down the card and back again — three clicks to read
+   * the board after the one you were reading.
+   */
+  const mine = card.map((r) => r.board);
+  const at = mine.indexOf(board);
+  const step = (by: number): (() => void) | undefined => {
+    const to = mine[at + by];
+    return at < 0 || to === undefined ? undefined : () => on.pickBoard(to);
+  };
+  const hop = (by: number, label: string, what: string): HTMLElement => {
+    const go = step(by);
+    return h('button.bstep', { disabled: !go, title: go ? what : `No ${by < 0 ? 'earlier' : 'later'} board`, onclick: go }, label);
+  };
+  const strip = h('div.boardstrip',
+    hop(-1, '\u2039', 'The board before this one'),
+    h('div.bnums', mine.map((b) => h(`button.bnum${b === board ? '.sel' : ''}`, {
+      title: `Board ${b}`, onclick: () => on.pickBoard(b),
+    }, String(b)))),
+    hop(1, '\u203a', 'The board after this one'));
+
   return h('div.panel',
     h('div.row', h('h3', others
         ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
@@ -146,6 +169,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
           ? 'Go back to every board you played at your own table'
           : 'See what every other table did with this same board',
       }, others ? 'My table' : 'Other tables')),
+    strip,
     h('p.muted', others
       ? complete
         ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'

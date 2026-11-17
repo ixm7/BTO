@@ -2316,7 +2316,12 @@ const pairNames = (s: Standing): string => s.pair.players.map((p) => p.name).joi
  * what it was worth. The full ranking is a tournament-wide thing and waits
  * for the end; this is their evening.
  */
-function myCardPanel(state: TState, meId: string): HTMLElement {
+/**
+ * The card down the side of the table. A board that has been scored carries
+ * its contract as a way into the hand records for that board — the place a
+ * player looks after a board is the line for it on their own card.
+ */
+function myCardPanel(state: TState, meId: string, onBoard?: (board: number) => void): HTMLElement {
   const byImps = state.config.scoring === 'imps';
   const c = state.config;
   const rows = scorecard(state, pairOf(state, meId));
@@ -2345,9 +2350,18 @@ function myCardPanel(state: TState, meId: string): HTMLElement {
   const line = (board: number): HTMLElement => {
     const r = played.get(board);
     const starts = board > 1 && (board - 1) % c.boardsPerRound === 0;
+    const said = r ? (r.result.contract ? r.result.text : 'Passed out') : null;
+    const contract = said === null
+      ? h('td.muted', '\u00b7')
+      : onBoard
+        ? h(`td${r?.result.contract ? '' : '.muted'}`, h('button.link', {
+            title: `The deal, the bidding and every table's result on board ${board}`,
+            onclick: () => onBoard(board),
+          }, said))
+        : h(`td${r?.result.contract ? '' : '.muted'}`, said);
     return h(`tr${starts ? '.round-start' : ''}${r ? '' : '.to-come'}`,
       h('td.num', board),
-      r ? (r.result.contract ? h('td', r.result.text) : h('td.muted', 'Passed out')) : h('td.muted', '\u00b7'),
+      contract,
       h('td.num.muted', r?.result.contract ? score(r) : ''),
       h('td.num', r ? (byImps ? impText(r.weImps) : Math.round(r.wePercent)) : ''));
   };
@@ -2838,7 +2852,12 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     }
   }
   if (boardPanel.childElementCount) side.append(boardPanel);
-  side.append(myCardPanel(state, n.me.playerId));
+  /* On turn the records are shut and the way in is closed with them: the
+     table is waiting, and the clock does not stop for a traveller. */
+  side.append(myCardPanel(state, n.me.playerId, myTurn ? undefined : (board) => {
+    reviewing = true; recBoard = board; recTable = null; recMode = 'mine';
+    render();
+  }));
   return h('div', head, h('div.room', main, side));
 }
 

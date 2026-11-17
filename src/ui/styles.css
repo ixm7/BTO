@@ -722,3 +722,10 @@ button.busy { cursor: progress; opacity: .8; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+
+/* ---- the records: the boards you played, always within reach ---- */
+.boardstrip { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
+.boardstrip .bnums { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.boardstrip button { padding: 3px 9px; font-size: .9rem; line-height: 1.3; }
+.boardstrip .bstep { font-size: 1.1rem; line-height: 1; padding: 3px 10px; }
+.boardstrip .bnum.sel { background: var(--nav); border-color: var(--nav); color: #fff; font-weight: 700; }
