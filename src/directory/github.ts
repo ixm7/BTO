@@ -114,6 +114,13 @@ export interface TournamentMeta {
   repeat?: 'weekly';
   /** The system the robots bid. Absent means Standard American (SAYC). */
   robots?: 'sayc' | '2/1';
+  /**
+   * A tournament only the director's own people may enter. This is a verifier
+   * the relay makes from the password and a secret of its own — not the
+   * password, and no use to anybody reading it here, since without that
+   * secret it cannot be checked against a guess.
+   */
+  lock?: string;
   /** The first tournament of a weekly series; absent on that first one itself. */
   seriesId?: number;
 }
@@ -336,8 +343,10 @@ export function issueBody(meta: TournamentMeta): string {
     `| **Format** | ${meta.rounds} round(s) × ${meta.boardsPerRound} board(s) |`,
     `| **Inactivity limit** | ${idleSecOf(meta)} seconds, then a robot takes the seat |`,
     `| **Robots** | ${meta.robots === '2/1' ? '2/1' : 'SAYC'} |`,
+    ...(meta.lock ? ['| **Entry** | Password needed — ask the director |'] : []),
     ...(meta.repeat === 'weekly' ? ['| **Repeats** | Every week, same day and time |'] : []),
     '',
+    ...(meta.lock ? ['**This tournament takes a password.** Registering here on GitHub will not get you a seat: enter it through the site, which asks for the password.', ''] : []),
     'To register, add a comment containing `/register Your Name` (optionally followed by `pair:CODE` — two players using the same code are partnered — and `level:Your Level`).',
     'To withdraw, comment `/withdraw`.',
     '',
@@ -371,6 +380,7 @@ export function parseMeta(body: string | null | undefined): TournamentMeta | nul
         : {}),
       ...(j.repeat === 'weekly' ? { repeat: 'weekly' as const } : {}),
       ...(j.robots === '2/1' ? { robots: '2/1' as const } : {}),
+      ...(typeof j.lock === 'string' && /^v1\.[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,88}$/.test(j.lock) ? { lock: j.lock } : {}),
       ...(Number.isInteger(j.seriesId) && (j.seriesId as number) > 0 ? { seriesId: j.seriesId } : {}),
     };
   } catch { return null; }
@@ -1512,13 +1522,34 @@ export class Directory {
     return res.json();
   }
 
-  register(number: number, name: string, pairCode?: string, skill?: MaybeSkill, systems?: SystemPref): Promise<unknown> {
+  /**
+   * Turn a password into the verifier a tournament carries. Only the relay
+   * can: the secret that makes it worth anything is the relay's own.
+   */
+  async lockFor(password: string): Promise<string> {
+    if (!this.relay) throw new Error('A password needs the relay, which this browser is not using.');
+    const res = await this.fetcher(`${this.relay.url.replace(/\/+$/, '')}/lock`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+      body: JSON.stringify({ key: this.relay.key, name: this.relay.name, pw: password }),
+    });
+    if (!res.ok) {
+      let msg = '';
+      try { msg = String(((await res.json()) as { error?: string }).error ?? ''); } catch { /* no body */ }
+      throw new GitHubError(msg || `The password could not be set (error ${res.status}).`, res.status);
+    }
+    const out = (await res.json()) as { lock?: string };
+    if (!out.lock) throw new Error('The password could not be set.');
+    return out.lock;
+  }
+
+  register(number: number, name: string, pairCode?: string, skill?: MaybeSkill, systems?: SystemPref, password?: string): Promise<unknown> {
     const clean = name.replace(/[\r\n]/g, ' ').trim();
     const code = pairCode?.trim().replace(/\s+/g, '-');
     const level = skill ? ` level:${skill}` : '';
     const sys = systemToken(systems ?? '');
     return this.playerAct(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}${sys ? ` sys:${sys}` : ''}`, 'register',
-      { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}), ...(sys ? { sys } : {}) });
+      { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}), ...(sys ? { sys } : {}),
+        ...(password ? { pw: password } : {}) });
   }
 
   withdraw(number: number): Promise<unknown> { return this.playerAct(number, '/withdraw', 'withdraw'); }

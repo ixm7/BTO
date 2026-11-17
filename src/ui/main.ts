@@ -159,7 +159,7 @@ async function applyAutoRegister(d: Directory, l: Listing): Promise<Listing> {
   const mine = l.registrations?.find((r) => r.login.toLowerCase() === myLogin);
   if (mine && mine.pairCode?.trim().toLowerCase() === code) return l; // already registered together
   try {
-    await d.register(l.number, settings.name, code, settings.skill);
+    await d.register(l.number, settings.name, code, settings.skill, settings.systems, rememberedPassword(l.number));
     return await d.get(l.number);
   } catch { return l; } // offline, rate-limited, etc. — try again on the next refresh
 }
@@ -259,7 +259,9 @@ async function endPartnership(l: Listing, partner: string): Promise<void> {
     const me = myId();
     const mine = l.registrations?.find((r) => r.login.toLowerCase() === me);
     /* Still in the tournament, but no longer half of a pair. */
-    if (mine?.pairCode && settings.name.trim()) await d.register(l.number, settings.name, '', settings.skill);
+    if (mine?.pairCode && settings.name.trim()) {
+      await d.register(l.number, settings.name, '', settings.skill, settings.systems, rememberedPassword(l.number));
+    }
     await refresh();
   } catch (e) { fail(e); }
 }
@@ -303,7 +305,8 @@ function notePartnershipChanges(): void {
   const d = directory();
   const mine = l.registrations?.find((r) => r.login.toLowerCase() === me);
   if (d?.canAct && mine?.pairCode && settings.name.trim()) {
-    void d.register(l.number, settings.name, '', settings.skill, settings.systems).then(() => refresh()).catch(() => { /* next refresh */ });
+    void d.register(l.number, settings.name, '', settings.skill, settings.systems, rememberedPassword(l.number))
+      .then(() => refresh()).catch(() => { /* next refresh */ });
   }
 }
 
@@ -602,10 +605,10 @@ function listTable(rows: Listing[]): HTMLElement {
   return h('div.table-scroll', h('table.list',
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
-      h('td', h(`button.open${l.status === 'starting' ? '.starting' : ''}`, {
-        title: l.status === 'starting' ? 'Starting now — go to this tournament' : 'Go to this tournament',
+      h('td', h(`button.open${l.status === 'starting' ? '.starting' : ''}${l.meta.lock ? '.locked' : ''}`, {
+        title: `${l.status === 'starting' ? 'Starting now — go to this tournament' : 'Go to this tournament'}${l.meta.lock ? ' [Password-Protected]' : ''}`,
         onclick: () => { location.hash = `t=${l.number}`; },
-      }, l.meta.name)),
+      }, l.meta.lock ? `\u{1F512} ${l.meta.name}` : l.meta.name)),
       /* Two lines in the width of one: the name button has made the row tall
          enough to hold them, and what a tournament is matters less than when
          it starts. */
@@ -893,9 +896,20 @@ function detailView(l: Listing): HTMLElement {
         : waiting('register', h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: (e: Event) => {
           const btn = e.currentTarget;
           askAboutClash(l, () => {
-            if (btn instanceof HTMLButtonElement) markBusy(btn, 'Registering…');
-            void act(() => d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems),
-              'You are registered.', { key: 'register', label: 'Registering…' })();
+            const go = (password: string): void => {
+              if (btn instanceof HTMLButtonElement) markBusy(btn, 'Registering…');
+              void act(async () => {
+                try {
+                  await d.register(l.number, settings.name, settings.pairCode, settings.skill, settings.systems, password);
+                } catch (x) {
+                  /* A password that is not taken is not worth keeping. */
+                  if (password) forgetPassword(l.number);
+                  throw x;
+                }
+                if (password) rememberPassword(password, l.number);
+              }, 'You are registered.', { key: 'register', label: 'Registering…' })();
+            };
+            if (l.meta.lock && !d.canWrite) askPassword(l, go); else go('');
           });
         } }, full ? 'Full' : 'Register')));
     } else {
@@ -949,6 +963,7 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
         h('dt', 'Boards'), h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`),
+        l.meta.lock ? [h('dt', 'Entry'), h('dd', `\u{1F512} Password needed${rememberedPassword(l.number) ? ' \u2014 you have it' : ' \u2014 ask the director'}`)] : null,
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
@@ -1290,6 +1305,55 @@ function openAbout(): void {
     h('p', 'Please email feedback and suggestions to ',
       h('a', { href: `mailto:${MAIL}` }, MAIL), '.'),
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+}
+
+/* ----------------------------------------------------------- passwords */
+
+/**
+ * A password this browser has had accepted for a tournament, so that leaving
+ * the table, timing out or coming back tomorrow does not mean asking again.
+ * It is kept for the one tournament, never shown, and goes when it stops
+ * working.
+ */
+const passwordKey = (number: number): string => `bridge-p2p:pw:${settings.repo}:${number}`;
+
+function rememberPassword(password: string, number: number): void {
+  try { localStorage.setItem(passwordKey(number), password); } catch { /* no storage */ }
+}
+
+function rememberedPassword(number: number): string {
+  try { return localStorage.getItem(passwordKey(number)) ?? ''; } catch { return ''; }
+}
+
+function forgetPassword(number: number): void {
+  try { localStorage.removeItem(passwordKey(number)); } catch { /* no storage */ }
+}
+
+/**
+ * Ask for the password of a tournament that takes one, and hand it on. The
+ * answer is tried by the relay, so a wrong one comes back as a refusal and
+ * the asking starts again.
+ */
+function askPassword(l: Listing, use: (password: string) => void): void {
+  const had = rememberedPassword(l.number);
+  if (had) { use(had); return; }
+  dialog(`${l.meta.name} takes a password`, (close) => {
+    const box = h('input', { type: 'password', autocomplete: 'off', maxLength: 128,
+      placeholder: 'The password the director gave you' }) as HTMLInputElement;
+    setTimeout(() => box.focus(), 50);
+    return h('form', { onsubmit: (e: Event) => {
+      e.preventDefault();
+      const said = box.value.trim();
+      if (!said) return;
+      close();
+      use(said);
+    } },
+      h('p.muted', { style: 'margin-top:0' }, 'Only the players the director gave it to can enter this one. You will not be asked again on this device once it is accepted.'),
+      box,
+      h('div.row', { style: 'margin-top:12px' }, h('span.spacer'),
+        h('button', { type: 'button', onclick: close }, 'Cancel'),
+        h('button.primary', { type: 'submit' }, 'Enter')));
+  });
 }
 
 /* ---------------------------------------------------------- partnership */
@@ -1689,6 +1753,13 @@ function openCreate(): void {
         /* Everything is checked before anything is made, so a form that is
            not quite right does not leave half a week of tournaments behind. */
         const metas = starts.map((start) => makeMeta({ ...common, start }));
+        /* A password is kept nowhere: what goes on the page is the verifier
+           the relay makes of it, which is no use to anybody reading it. */
+        const password = val(f, 'password').trim();
+        if (password) {
+          const lock = await d.lockFor(password);
+          for (const meta of metas) meta.lock = lock;
+        }
         close();
         let first = 0;
         let made = 0;
@@ -1699,6 +1770,8 @@ function openCreate(): void {
             render();
             const number = await d.create(meta);
             made++;
+            /* The director does not have to type their own password back. */
+            if (password) rememberPassword(password, number);
             if (!first) { first = number; location.hash = `t=${number}`; }
             /* Gently, so GitHub does not take a run of new issues for a flood. */
             if (i + 1 < metas.length) await new Promise((r) => setTimeout(r, 1200));
@@ -1740,6 +1813,11 @@ function openCreate(): void {
       field('Robots bid',
         h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
         'The system robots use when they fill a seat. They explain every bid they make.'),
+      field('Password (optional)',
+        h('input', { name: 'password', type: 'text', autocomplete: 'off', maxLength: 128,
+          placeholder: 'Leave empty for a tournament anybody may enter' }),
+        'Set one and only the players you give it to can register — for a club night or a class. '
+        + 'It is not kept anywhere: the page carries a signature of it that cannot be read back, and the relay checks it.'),
       h('label.check', h('input', { type: 'checkbox', name: 'weekly' }),
         'Repeat every week on the same day and time'),
       h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),

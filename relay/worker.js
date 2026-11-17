@@ -46,6 +46,7 @@ export default {
       let res;
       if (request.method === 'GET' && url.pathname.startsWith('/repos/')) res = await read(url, env, ctx);
       else if (request.method === 'POST' && url.pathname === '/act') res = await act(request, url, env, ctx);
+      else if (request.method === 'POST' && url.pathname === '/lock') res = await makeLock(request, env);
       else if (request.method === 'GET' && url.pathname === '/') res = json({ ok: true, repo: env.REPO });
       else res = json({ error: 'Not found' }, 404);
       return withHeaders(res, cors);
@@ -107,6 +108,64 @@ function github(pathAndQuery, env, init = {}) {
   });
 }
 
+
+/* ------------------------------------------------------------- passwords */
+
+/*
+ * A tournament can be shut to everybody but the people its director gives a
+ * password to. What the page carries is not the password and not a hash of it
+ * alone: it is a signature made with a secret only this relay holds, over a
+ * salt it chose. So the page gives a reader nothing to guess against — there
+ * is no checking a guess without the secret, and the only way to try one is
+ * through here, where the rate limit is waiting.
+ */
+const LOCK_RE = /^v1\.([0-9a-f]{32})\.([A-Za-z0-9_-]{20,88})$/;
+
+function lockSecret(env) {
+  const secret = String(env.LOCK_SECRET || '');
+  /* Without it nothing can be checked, so nothing is let through: a gate that
+     fails open is not a gate. */
+  if (secret.length < 16) throw new Refusal('This relay cannot check tournament passwords. Ask the director to set LOCK_SECRET.', 503);
+  return secret;
+}
+
+async function sign(secret, salt, password) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${salt}:${password}`));
+  return btoa(String.fromCharCode(...new Uint8Array(mac))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The verifier for a password, with a salt of this relay's choosing. */
+async function makeLock(request, env) {
+  throttle(request.headers.get('CF-Connecting-IP') || 'unknown');
+  let input;
+  try { input = await request.json(); } catch { throw new Refusal('That request could not be read.'); }
+  const key = String(input.key || '');
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(key)) throw new Refusal('This browser has no player key.');
+  const password = String(input.pw || '');
+  if (password.length < 4 || password.length > 128) throw new Refusal('A password must be between 4 and 128 characters.');
+  const secret = lockSecret(env);
+  /* The salt is never the caller's to choose: one that was could be used to
+     try guesses against a verifier read off the page. */
+  const salt = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return json({ lock: `v1.${salt}.${await sign(secret, salt, password)}` });
+}
+
+/** Is this the password that tournament was shut with? */
+async function unlocks(lock, password, env) {
+  const m = LOCK_RE.exec(String(lock || ''));
+  if (!m) return false;
+  const want = m[2];
+  const got = await sign(lockSecret(env), m[1], String(password || ''));
+  /* Same length every time, so the comparison gives nothing away by how long
+     it takes. */
+  if (got.length !== want.length) return false;
+  let same = 0;
+  for (let i = 0; i < got.length; i++) same |= got.charCodeAt(i) ^ want.charCodeAt(i);
+  return same === 0;
+}
+
 /* -------------------------------------------------------------- acting */
 
 const recent = new Map();
@@ -147,6 +206,21 @@ async function act(request, url, env, ctx) {
   const found = await issueRes.json();
   if (found.pull_request || !new RegExp(`<!--\\s*${wants}`).test(found.body || '')) throw new Refusal('No such page.', 404);
   if (found.state !== 'open') throw new Refusal('That page is closed.', 409);
+
+  /*
+   * A tournament shut with a password takes one. Only registering is gated:
+   * it is what decides who plays, and everything else here is done by people
+   * already registered.
+   */
+  if (input.act === 'register') {
+    const meta = (() => {
+      const m = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/.exec(found.body || '');
+      try { return m ? JSON.parse(m[1]) : null; } catch { return null; }
+    })();
+    if (meta && meta.lock) {
+      if (!await unlocks(meta.lock, input.pw, env)) throw new Refusal('That is not the password for this tournament.', 403);
+    }
+  }
 
   /*
    * Taking back something said in the lobby. A player without a token cannot

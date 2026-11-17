@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHAT_KEEP, Directory, LOBBY_LABEL, LOBBY_MARK, PAIRS_LABEL, PAIRS_MARK, pairKey, systemBetween } from '../src/directory/github';
+import { CHAT_KEEP, Directory, LOBBY_LABEL, LOBBY_MARK, PAIRS_LABEL, PAIRS_MARK, SKILLS, issueBody, makeMeta, pairKey, parseMeta, systemBetween } from '../src/directory/github';
 
 /** A GitHub with one labelled lobby issue and whatever comments a test gives it. */
 function fakeGitHub(comments: { id: number; login: string; body: string; at?: string }[]) {
@@ -151,5 +151,39 @@ describe('pair cards', () => {
     /* Nothing said, or nothing shared: the table is told SAYC. */
     expect(systemBetween({ id: 'ann', systems: '' }, { id: 'bob', systems: '2/1' })).toBe('SAYC');
     expect(systemBetween({ id: 'ann' }, { id: 'bob' })).toBe('SAYC');
+  });
+});
+
+describe('a tournament that takes a password', () => {
+  it('keeps the verifier on the page and nothing else', () => {
+    const meta = makeMeta({
+      name: 'Club night', director: 'Ida', start: '2026-12-01T19:00', timeZone: 'UTC',
+      levels: [...SKILLS], capacity: 8, boardsPerRound: 2, rounds: 3,
+    });
+    meta.lock = `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`;
+    const body = issueBody(meta);
+    expect(body).toContain('Password needed');
+    expect(parseMeta(body)?.lock).toBe(meta.lock);
+
+    /* Anything that is not one of this relay's verifiers is not kept. */
+    const bad = body.replace(meta.lock, 'hunter2');
+    expect(parseMeta(bad)?.lock).toBeUndefined();
+  });
+
+  it('sends the password with the registration, and only then', async () => {
+    const sent: { url: string; body?: Record<string, unknown> }[] = [];
+    const fetcher = (async (url: string, init?: { body?: string }) => {
+      sent.push({ url, ...(init?.body ? { body: JSON.parse(init.body) as Record<string, unknown> } : {}) });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as never;
+    const relay = { url: 'https://api.bridgebreak.org', login: 'relaybot', key: 'k'.repeat(40), name: 'Ida' };
+    const d = new Directory('ixm7/BTO', null, fetcher, relay);
+
+    await d.register(7, 'Ann', '', 'Expert', 'SAYC', 'open sesame');
+    expect(sent.at(-1)?.body).toMatchObject({ act: 'register', pw: 'open sesame' });
+
+    /* A tournament without one says nothing about passwords. */
+    await d.register(7, 'Ann');
+    expect(sent.at(-1)?.body).not.toHaveProperty('pw');
   });
 });
