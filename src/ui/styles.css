@@ -226,6 +226,11 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
    read at a sensible size. The grid has an outline of its own, so it stands
    on the page rather than inside a card. */
 .board-panel { display: grid; }
+/* The auction's edge is a ring painted outside its box, so it reaches a pixel
+   past the column on each side. The panels below it draw their border inside
+   their box, so they are given that pixel back and the whole column lines up
+   down one edge. */
+.side > .panel { margin-inline: -1px; }
 /* Read beside your own hand rather than squeezed into a rail, the auction can
    be the size it is during the bidding: a call takes about a quarter of the
    panel, so it grows with the panel however wide the window is. */
