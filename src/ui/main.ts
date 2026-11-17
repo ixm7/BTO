@@ -794,7 +794,9 @@ function boardControls(l: Listing): HTMLElement | null {
       if (file) void uploadBoards(l, file);
     },
   }) as HTMLInputElement;
-  return h('div.row', { style: 'margin-top:8px' },
+  /* Beside the boards they act on rather than under them: one short line of
+     a fact does not need a line of its own underneath for its button. */
+  return h('span.row.inline',
     pick,
     h('button', {
       title: `Play boards from a file of your own instead of the ${boardCount(l.meta)} this tournament would deal itself. PBN or LIN.`,

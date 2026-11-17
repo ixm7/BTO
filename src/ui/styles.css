@@ -161,6 +161,9 @@ dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
   dl.facts.pairs { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); column-gap: 26px; }
 }
 dl.facts.pairs { margin: 10px 0; }
+/* A control that belongs to a fact sits on the fact's own line. */
+.row.inline { display: inline-flex; vertical-align: middle; gap: 8px; margin-left: 10px; }
+.facts .row.inline button { padding: 3px 10px; font-size: .9em; }
 /* The title line carries the start time, so it wraps rather than pushing the
    status badge off the end on a narrow window. */
 .titlerow { flex-wrap: wrap; row-gap: 4px; }
