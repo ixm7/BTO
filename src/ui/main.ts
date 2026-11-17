@@ -799,7 +799,7 @@ function boardControls(l: Listing): HTMLElement | null {
   return h('span.row.inline',
     pick,
     h('button', {
-      title: `Play boards from a file of your own instead of the ${boardCount(l.meta)} this tournament would deal itself. PBN or LIN.`,
+      title: 'Optional! Instead of defaulting to random hands, you may upload a PBN/LIN file',
       onclick: () => pick.click(),
     }, l.boards ? 'Replace the boards' : 'Upload boards'),
     l.boards ? h('button.link', { onclick: () => void clearBoards(l) }, 'Deal them instead') : null);
