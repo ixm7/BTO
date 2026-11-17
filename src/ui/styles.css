@@ -53,10 +53,16 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1rem; }
 a { color: var(--accent); }
 button, input, select { font: inherit; color: inherit; }
 button {
-  border: 1px solid var(--line); background: var(--card); border-radius: 8px;
+  /* The ordinary button wears the navigation blue too, only faintly: enough
+     edge to read as something to press against the paper behind it, without
+     competing with the solid ones. */
+  border: 1px solid rgba(29, 90, 122, .45); background: var(--card); border-radius: 8px;
   padding: 7px 12px; cursor: pointer;
 }
-button:hover:not(:disabled) { border-color: var(--accent); }
+/* Hover thickens that edge with an inset line rather than a wider border, so
+   nothing beside it shifts as the pointer crosses. */
+button:hover:not(:disabled) { border-color: var(--nav); box-shadow: inset 0 0 0 1px var(--nav); }
+button.primary:hover:not(:disabled), button.danger:hover:not(:disabled), button.open:hover:not(:disabled) { box-shadow: none; }
 button:disabled { opacity: .4; cursor: default; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--nav); outline-offset: 2px;
@@ -90,7 +96,7 @@ button.open {
   background: var(--nav); border-color: var(--nav); color: #fff;
   box-shadow: 0 2px 0 rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .16);
 }
-button.open:hover:not(:disabled) { background: var(--nav-dark); border-color: var(--nav-dark); }
+button.open:hover:not(:disabled) { background: var(--nav-dark); border-color: var(--nav-dark); box-shadow: 0 2px 0 rgba(0, 0, 0, .22); }
 button.open.locked:hover:not(:disabled) { background: var(--red-dark); border-color: var(--red-dark); }
 button.open:active { transform: translateY(2px); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
 /* A tournament going off right now: the one thing in the list that changes
