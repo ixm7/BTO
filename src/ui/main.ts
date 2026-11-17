@@ -1,3 +1,4 @@
+import { BoardError, readBoards } from '../engine/boards';
 import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { ago, allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
@@ -730,6 +731,62 @@ function canStop(l: Listing): boolean {
   return l.initiatorLogin.toLowerCase() === me || settings.repo.split('/')[0]?.toLowerCase() === me;
 }
 
+/**
+ * Boards of the director's own. A tournament deals itself from a seed every
+ * browser shares, which is what makes it serverless; a director who wants
+ * particular boards — a club's set, a lesson, a hand from a book — brings a
+ * file instead, and it goes on the tournament's page for everybody to deal
+ * from. Only before it starts: boards cannot change under a field playing
+ * them.
+ */
+async function uploadBoards(l: Listing, file: File): Promise<void> {
+  const d = directory();
+  if (!d) return;
+  const want = boardCount(l.meta);
+  try {
+    const deals = readBoards(await file.text());
+    if (deals.length < want) {
+      throw new BoardError(`This tournament plays ${want} boards and that file has ${deals.length}.`);
+    }
+    await d.setBoards(l.number, deals.slice(0, want));
+    notice = deals.length > want
+      ? `${want} boards set from ${file.name}; the rest of the file was left out.`
+      : `${want} boards set from ${file.name}.`;
+    await refresh(l.number);
+  } catch (e) { fail(e); }
+}
+
+async function clearBoards(l: Listing): Promise<void> {
+  const d = directory();
+  if (!d) return;
+  try {
+    await d.setBoards(l.number, []);
+    notice = 'This tournament will deal its own boards again.';
+    await refresh(l.number);
+  } catch (e) { fail(e); }
+}
+
+/** The director's own row of board controls, on a tournament not yet played. */
+function boardControls(l: Listing): HTMLElement | null {
+  if (!canStop(l) || l.pinned || l.results) return null;
+  const pick = h('input', {
+    type: 'file', accept: '.pbn,.lin,text/plain', style: 'display:none',
+    onchange: (e: Event) => {
+      const input = e.target as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = '';
+      if (file) void uploadBoards(l, file);
+    },
+  }) as HTMLInputElement;
+  return h('div.row', { style: 'margin-top:8px' },
+    pick,
+    h('button', {
+      title: `Play boards from a file of your own instead of the ${boardCount(l.meta)} this tournament would deal itself. PBN or LIN.`,
+      onclick: () => pick.click(),
+    }, l.boards ? 'Replace the boards' : 'Upload boards'),
+    l.boards ? h('button.link', { onclick: () => void clearBoards(l) }, 'Deal them instead') : null);
+}
+
 /** Stop the series: this one and any later one already on the list stop repeating. */
 async function stopSeries(l: Listing): Promise<void> {
   const d = directory();
@@ -964,7 +1021,9 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
-        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`),
+        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
+          l.boards ? h('div.muted', `From the director's own file${l.pinned || l.results ? '' : ', and can still be changed'}`) : null,
+          boardControls(l)),
         l.meta.lock ? [h('dt', 'Entry'), h('dd', `\u{1F512} Password needed${rememberedPassword(l.number) ? ' \u2014 you have it' : ' \u2014 ask the director'}`)] : null,
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
@@ -2046,6 +2105,7 @@ function pinnedPlan(l: Listing): TournamentConfig | null {
     idleTimeoutMs: idleSecOf(l.meta) * 1000,
     scoring: l.meta.scoring,
     robots: l.meta.robots,
+    ...(l.boards ? { deals: l.boards } : {}),
   });
 }
 

@@ -10,6 +10,7 @@
  * in, or falls back to opening a pre-filled page on github.com.
  */
 import { zonedToUtc } from './time';
+import { readable } from '../engine/boards';
 
 /**
  * How a player describes their own game, from the Settings dialog, and the
@@ -217,6 +218,8 @@ export interface Listing {
   registrations: Registration[] | null;
   results: TournamentResults | null;
   partners: PartnersData | null;
+  /** Boards the director brought, when they did: one deal to a board. */
+  boards?: string[];
   /** Peer-to-peer room name for this tournament. */
   roomId: string;
   /** Set once the director has closed the entry list and fixed the deals. */
@@ -426,6 +429,42 @@ export function parseStart(comments: readonly RawComment[], directorLogin: strin
     if (m) return { seed: m[1] as string, at: c.created_at };
   }
   return null;
+}
+
+/*
+ * Boards a director brought from a file. They go on the tournament's page in
+ * a comment of the director's own, one deal to a line, so that every browser
+ * lays out the same cards — and so that anybody can see what was played.
+ * Only the director's word counts: a board somebody else posted would be a
+ * board they had already seen.
+ */
+const BOARDS_RE = /<!--\s*bridge-boards\s*([\s\S]*?)-->/;
+
+export function boardsBody(deals: readonly string[]): string {
+  return [
+    `/boards ${deals.length}`,
+    '',
+    `The ${deals.length} boards of this tournament, from the director's own file.`,
+    '',
+    `<!-- bridge-boards\n${deals.join('\n')}\n-->`,
+  ].join('\n');
+}
+
+/** The boards for a tournament, or null where it deals its own. */
+export function parseBoards(comments: readonly RawComment[], directorLogin: string): string[] | null {
+  let found: string[] | null = null;
+  for (const c of [...comments].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if ((c.user?.login ?? '').toLowerCase() !== directorLogin.toLowerCase()) continue;
+    const body = c.body ?? '';
+    /* A later word from the director replaces an earlier one, and "/boards
+       clear" puts the tournament back to dealing its own. */
+    if (/^\s*\/boards\s+clear\s*$/im.test(body)) { found = null; continue; }
+    const m = BOARDS_RE.exec(body);
+    if (!m) continue;
+    const deals = (m[1] as string).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    if (deals.length && deals.every(readable)) found = deals;
+  }
+  return found;
 }
 
 const ABANDONED_RE = /^\s*\/abandoned\s*$/im;
@@ -1124,6 +1163,7 @@ export class Directory {
     let results: TournamentResults | null = null;
     let partners: PartnersData | null = { seekers: [], invitations: [], notes: {} };
     let pinned: PinnedStart | null = null;
+    let boards: string[] | null = null;
     let abandoned = false;
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];
@@ -1151,6 +1191,7 @@ export class Directory {
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login ?? '')));
         partners = parsePartners(cs);
         pinned = parseStart(cs, issue.user?.login ?? '');
+        boards = parseBoards(cs, issue.user?.login ?? '');
         abandoned = parseAbandoned(cs, trusted);
       } catch { registrations = null; partners = null; readable = false; }
     }
@@ -1168,7 +1209,7 @@ export class Directory {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
       status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan, abandoned }),
       registrations, results, partners, roomId: this.roomId(issue.number),
-      pinned, names, plan, ...(field ? { field } : {}),
+      pinned, names, plan, ...(field ? { field } : {}), ...(boards ? { boards } : {}),
       ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
       ...(skimmed ? { skimmed: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
@@ -1470,6 +1511,15 @@ export class Directory {
     const pinned = all.filter((m) => m.pinned);
     const rest = all.filter((m) => !m.pinned).slice(-CHAT_KEEP);
     return [...pinned, ...rest];
+  }
+
+  /**
+   * Put a director's own boards on a tournament, or take them off again with
+   * an empty list. Only a token can: it is the director's word that counts.
+   */
+  async setBoards(number: number, deals: readonly string[]): Promise<unknown> {
+    if (!this.token) throw new Error('A GitHub token is needed for this');
+    return this.comment(number, deals.length ? boardsBody(deals) : '/boards clear');
   }
 
   /** Say something in the lobby. */

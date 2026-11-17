@@ -11,6 +11,7 @@ import {
   type AuctionEntry, type AuctionState, type Call, type Contract,
 } from '../engine/bidding';
 import { dealBoard, dealerForBoard, seededRandom, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
+import { handsOf } from '../engine/boards';
 import { applyPlay, controllerOf, isPlayOver, startPlay, type PlayState } from '../engine/play';
 import { crossImps, matchpoints, nsScore, resultToString } from '../engine/scoring';
 
@@ -30,6 +31,11 @@ export interface TournamentConfig {
   name: string;
   /** Seed for all deals. */
   seed: string;
+  /**
+   * Boards the director brought from a file, one deal to a board. When they
+   * are here they are what is played; otherwise the seed deals them.
+   */
+  deals?: string[];
   tables: number;
   rounds: number;
   boardsPerRound: number;
@@ -285,7 +291,7 @@ function setBoard(c: TournamentConfig, table: TableState, boardNo: number | null
   }
   table.dealer = dealerForBoard(boardNo);
   table.vul = vulnerabilityForBoard(boardNo);
-  table.deal = dealBoard(c.seed, boardNo);
+  table.deal = boardFor(c, boardNo);
   table.auction = newAuction(table.dealer);
 }
 
@@ -743,10 +749,23 @@ function makeBot(n: number): PlayerRef {
  * code play together, everyone else is paired in arrival order, and robots fill
  * any gap so that every table has four players.
  */
+/**
+ * The cards for a board: the director's own if they brought a file, and
+ * otherwise the ones the seed deals. Every browser works this out for itself
+ * from the same tournament, so all of them lay out the same board.
+ */
+export function boardFor(c: TournamentConfig, boardNo: number): Hands {
+  const given = c.deals?.[boardNo - 1];
+  if (given) {
+    try { return handsOf(given); } catch { /* fall back to the deal below */ }
+  }
+  return dealBoard(c.seed, boardNo);
+}
+
 export function buildConfig(opts: {
   id: string; name: string; seed: string; players: LobbyPlayer[];
   boardsPerRound: number; rounds?: number; capacity?: number; minTables?: number;
-  idleTimeoutMs?: number; scoring?: Scoring; robots?: RobotSystem;
+  idleTimeoutMs?: number; scoring?: Scoring; robots?: RobotSystem; deals?: readonly string[];
 }): TournamentConfig {
   botCounter = 0;
   botSystem = opts.robots;
@@ -810,5 +829,7 @@ export function buildConfig(opts: {
     ...(opts.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: Math.max(0, Math.round(opts.idleTimeoutMs)) }),
     ...(opts.scoring === 'imps' ? { scoring: 'imps' as const } : {}),
     ...(opts.robots === '2/1' ? { robots: '2/1' as const } : {}),
+    /* Only as many as will be played, and only ones that read as deals. */
+    ...(opts.deals?.length ? { deals: opts.deals.slice(0, rounds * Math.max(1, opts.boardsPerRound)).map(String) } : {}),
   };
 }

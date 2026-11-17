@@ -6,7 +6,8 @@
  * result records the field reports. So a board can be reviewed by anyone who
  * has the results, whether or not they were at the table that played it.
  */
-import { dealBoard, dealerForBoard, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
+import { dealerForBoard, vulnerabilityForBoard, type Hands, type Vulnerability } from '../engine/deal';
+import { boardFor } from './state';
 import { crossImps, matchpoints } from '../engine/scoring';
 import type { Seat } from '../engine/cards';
 import type { BoardResult, Pair, TState } from './state';
@@ -57,7 +58,7 @@ export function reviewBoard(state: TState, board: number, myPair: number | null)
     board,
     dealer: dealerForBoard(board),
     vul: vulnerabilityForBoard(board),
-    hands: dealBoard(state.config.seed, board),
+    hands: boardFor(state.config, board),
     traveller,
     own: traveller.find((r) => r.mine) ?? null,
   };

@@ -16,6 +16,8 @@ import { SEATS, type Seat } from '../engine/cards';
 import { buildConfig, ewPairAt, firstBoardOfRound, type LobbyPlayer, type RobotSystem, type Scoring, type TournamentConfig } from './state';
 
 export interface PlanInput {
+  /** Boards the director brought, if any: one deal to a board. */
+  deals?: string[];
   /** Tournament id, used to name the rooms. */
   id: string;
   name: string;
@@ -42,6 +44,7 @@ export function planConfig(input: PlanInput): TournamentConfig {
     id: input.id, name: input.name, seed: input.seed, players: input.roster,
     boardsPerRound: input.boardsPerRound, rounds: input.rounds,
     capacity: input.capacity, minTables: input.minTables, idleTimeoutMs: input.idleTimeoutMs, scoring: input.scoring, robots: input.robots,
+    ...(input.deals ? { deals: input.deals } : {}),
   });
 }
 
