@@ -1011,8 +1011,13 @@ function detailView(l: Listing): HTMLElement {
   if (open && welcome) {
     const seeking = l.partners?.seekers.length;
     actions.append(h('button', {
+      /* Finding a partner is something a player in the tournament does:
+         inviting anybody from here needs an entry of your own first. */
+      disabled: !amRegistered,
       onclick: () => openPartners(l),
-      title: 'Players looking for a partner for this tournament',
+      title: amRegistered
+        ? 'Players looking for a partner for this tournament'
+        : 'Register first — then you can look for a partner, and be found.',
     }, seeking === undefined ? 'Partners List' : `Partners List [${seeking}]`));
   }
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
