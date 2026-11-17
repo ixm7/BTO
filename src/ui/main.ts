@@ -1113,7 +1113,6 @@ function detailView(l: Listing): HTMLElement {
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     l.noPlayers ? h('div.note', { style: 'margin-top:10px' },
       'Cancelled: nobody had registered by the time entries closed.') : null,
-    startNote(l) ? h('p.muted', { style: 'margin-top:10px' }, startNote(l)) : null,
     h('div.panel', { style: 'margin-top:10px' },
       /* The name, how it stands and when it starts, all on the line that is
          read first: a page whose facts run down a column in ones pushes the
@@ -1135,6 +1134,10 @@ function detailView(l: Listing): HTMLElement {
           controls))(boardControls(l)),
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
+      /* How the tournament gets going sits beside the button that puts you in
+         it rather than on a line of its own above the panel: it is about
+         that button, and a line to itself was a line of the page spent. */
+      ((note) => { if (note) actions.append(h('span.startnote.muted', note)); return null; })(startNote(l)),
       actions),
     l.results
       ? h('div.panel', { style: 'margin-top:14px' },
