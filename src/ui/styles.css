@@ -467,11 +467,19 @@ button.pc:disabled { opacity: 1; }
 }
 .center.bidding .auction { grid-area: auto; width: 100%; }
 /* While the bidding is on, the auction is the thing everyone at the table is
-   reading, so a call is about a tenth of the panel's width — the proportion
-   BBO uses, measured from their table rather than guessed. */
-.center.bidding .auction table { font-size: clamp(16px, 10.3cqw, 2.6rem); }
-/* A long auction scrolls rather than stretching the table out of shape. */
-.center.bidding .auction { max-height: min(40vh, 330px); overflow-y: auto; }
+   reading, so a call is as large as a quarter of the panel will hold. "Pass"
+   is the widest call at 2.34em, and a cell is a quarter of the panel less its
+   padding, so anything above about 9.8cqw puts the last column past the edge
+   — which is what a horizontal scrollbar under the grid is telling you. */
+.center.bidding .auction table { font-size: clamp(13px, 9cqw, 2.6rem); }
+/* A long auction scrolls rather than stretching the table out of shape. The
+   gutter is held open whether or not it is scrolling, so the width the cells
+   are measured against is the same either way and the grid never has to
+   shuffle sideways to make room for a bar that just appeared. */
+.center.bidding .auction {
+  max-height: min(40vh, 330px); overflow-y: auto; overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
 .center.bidding .bidbox { width: 100%; max-width: none; margin-top: 0; }
 .center .bidwait { text-align: center; font-size: .85rem; opacity: .85; padding: 4px 0 2px; }
 .center .pc { position: absolute; }
