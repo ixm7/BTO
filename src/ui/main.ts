@@ -378,6 +378,10 @@ const toldOf = new Set<string>();
  * shown as a banner rather than inside the partners dialog, and announced the
  * way the start of a tournament is.
  */
+/** One invitation, one answer, one key \u2014 whichever button is pressed. */
+const answerKey = (number: number, from: string, yes: boolean): string =>
+  `${yes ? 'accept' : 'decline'}:${number}:${from.toLowerCase()}`;
+
 function inviteBanner(): HTMLElement | null {
   const waiting = invitesForMe();
   const fresh = waiting.filter(({ l, i }) => !toldOf.has(`${l.number}:${i.from}`));
@@ -388,22 +392,45 @@ function inviteBanner(): HTMLElement | null {
   }
   if (!waiting.length) return null;
   const d = directory();
-  const answer = (number: number, from: string, yes: boolean): void => {
+  /*
+   * Answering goes to the page and back, which is a second or two. The button
+   * says so from the click rather than at the end of it, and the key survives
+   * the redraws in between, so a banner rebuilt while the answer is in flight
+   * comes back still waiting rather than looking untouched.
+   */
+  const answer = (number: number, from: string, yes: boolean, e?: Event): void => {
     if (!d) return;
+    const key = answerKey(number, from, yes);
+    if (working?.key === key) return;
+    working = { key, label: yes ? 'Accepting\u2026' : 'Declining\u2026' };
+    const btn = e?.currentTarget;
+    if (btn instanceof HTMLButtonElement) markBusy(btn, working.label);
+    /* The same answer has a button in the players list as well, and it is the
+       answer that is waiting rather than the button that was pressed. */
+    render();
     void (async () => {
       try {
         await d.respondToInvite(number, from, yes);
         await refresh();
-      } catch (e) { fail(e); }
+      } catch (e2) { fail(e2); } finally {
+        if (working?.key === key) { working = null; render(); }
+      }
     })();
+  };
+  /** The same look, put back on a button whose answer has not come yet. */
+  const stillWaiting = (key: string, btn: HTMLElement): HTMLElement => {
+    if (working?.key === key && btn instanceof HTMLButtonElement) markBusy(btn, working.label);
+    return btn;
   };
   return h('div.invites', waiting.map(({ l, i }) => h('div.invite',
     h('div.invite-what',
       h('b', who(l, i.from)), ' wants to play with you in ', h('b', l.meta.name), ' ', untilTag(l.meta.startUtc) ?? '', '.',
       i.note ? h('div.muted', i.note) : null),
     h('div.row',
-      h('button.primary', { onclick: () => answer(l.number, i.from, true) }, 'Accept'),
-      h('button.danger', { onclick: () => answer(l.number, i.from, false) }, 'Decline'),
+      stillWaiting(answerKey(l.number, i.from, true),
+        h('button.primary', { onclick: (e: Event) => answer(l.number, i.from, true, e) }, 'Accept')),
+      stillWaiting(answerKey(l.number, i.from, false),
+        h('button.danger', { onclick: (e: Event) => answer(l.number, i.from, false, e) }, 'Decline')),
       h('button.link', { onclick: () => openPartners(l) }, 'Partners list')))));
 }
 
@@ -890,6 +917,8 @@ function detailView(l: Listing): HTMLElement {
       if (busy) working = busy;
       const btn = e?.currentTarget;
       if (btn instanceof HTMLButtonElement) markBusy(btn, busy?.label);
+      /* Whatever else on the page is this same action waiting too. */
+      if (busy) render();
       try { await fn(); notice = done; await refresh(); } catch (err) { fail(err); } finally {
         if (busy && working?.key === busy.key) { working = null; render(); }
       }
@@ -970,8 +999,11 @@ function detailView(l: Listing): HTMLElement {
     if (invites.some(theirs)) {
       return h('div.row',
         h('span', 'Invited you:'),
-        waiting(`accept:${them}`, h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`, { key: `accept:${them}` }) }, 'Accept')),
-        waiting(`decline:${them}`, h('button.danger', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.', { key: `decline:${them}` }) }, 'Decline')));
+        /* The same answer has a button here and another in the banner at the
+           top of the page; one key for both, so pressing either shows both
+           waiting rather than leaving the twin looking untouched. */
+        waiting(answerKey(l.number, r.login, true), h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`, { key: answerKey(l.number, r.login, true), label: 'Accepting\u2026' }) }, 'Accept')),
+        waiting(answerKey(l.number, r.login, false), h('button.danger', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.', { key: answerKey(l.number, r.login, false), label: 'Declining\u2026' }) }, 'Decline')));
     }
     if (invites.some(mine)) {
       return h('div.row', h('span.muted', 'Invitation sent'),
@@ -1164,16 +1196,31 @@ function openPartners(initial: Listing): void {
     const body = h('div');
     const myLogin = myId();
 
-    const act = (fn: () => Promise<unknown>) => async (): Promise<void> => {
-      if (busy) return;
-      busy = true; err = null; draw();
-      try {
-        await fn();
-        current = await d.get(current.number);
-        current = await applyAutoRegister(d, current);
-        syncListing(current);
-      } catch (e) { err = (e as Error).message; }
-      busy = false; draw();
+    /*
+     * Which button is waiting, so the redraw that follows the click can put
+     * the spinner back on it. Disabling every button says something is
+     * happening; it does not say which thing, and the one that was pressed is
+     * the one the eye is on.
+     */
+    let pending: { key: string; label?: string } | null = null;
+    const act = (fn: () => Promise<unknown>, pend?: { key: string; label?: string }) =>
+      async (e?: Event): Promise<void> => {
+        if (busy) return;
+        busy = true; err = null; pending = pend ?? null;
+        const btn = e?.currentTarget;
+        if (btn instanceof HTMLButtonElement) markBusy(btn, pend?.label);
+        draw();
+        try {
+          await fn();
+          current = await d.get(current.number);
+          current = await applyAutoRegister(d, current);
+          syncListing(current);
+        } catch (e2) { err = (e2 as Error).message; }
+        busy = false; pending = null; draw();
+      };
+    const pendingOn = (key: string, btn: HTMLElement): HTMLElement => {
+      if (pending?.key === key && btn instanceof HTMLButtonElement) markBusy(btn, pending.label);
+      return btn;
     };
 
     const openNoteDialog = (title: string, submitLabel: string, onSubmit: (note: string) => void, defaultValue = ''): void => {
@@ -1210,8 +1257,10 @@ function openPartners(initial: Listing): void {
           const inviteRow = (i: Invitation): HTMLElement => h('tr',
             h('td', h('b', who(current, i.from)), biddingLine(systemsOf(i.from)), i.note ? h('div.muted', i.note) : null),
             h('td', h('div.row',
-              h('button.primary', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, true)) }, 'Accept'),
-              h('button.danger', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
+              pendingOn(`accept:${i.from}`, h('button.primary', { disabled: busy,
+                onclick: act(() => d.respondToInvite(current.number, i.from, true), { key: `accept:${i.from}`, label: 'Accepting\u2026' }) }, 'Accept')),
+              pendingOn(`decline:${i.from}`, h('button.danger', { disabled: busy,
+                onclick: act(() => d.respondToInvite(current.number, i.from, false), { key: `decline:${i.from}`, label: 'Declining\u2026' }) }, 'Decline')))));
           rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
 
