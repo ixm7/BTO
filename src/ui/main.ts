@@ -2742,10 +2742,12 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   }
 
   const side = h('div.side');
-  /* Once play starts, the auction and the trick count go here rather than
-     down the rail beside the table: read beside your own hand they can be a
-     comfortable size, and the cards get the width the rail was spending. */
-  const boardPanel = h('div.panel.board-panel');
+  /* Once play starts the auction goes here rather than the foot of the rail
+     beside the table: read beside your own hand it can be a comfortable size,
+     and the cards get the width the rail was spending. It carries its own
+     edge, so it is not given a panel to sit inside — that would only be a
+     second border around the same thing. */
+  const boardPanel = h('div.board-panel');
   const at = n.mySeat();
   const main = h('div');
 

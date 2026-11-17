@@ -221,10 +221,11 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 .room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(260px, 17vw, 380px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }
 .side { display: grid; gap: 14px; }
-/* The auction and the trick count, beside your own hand rather than in a rail
-   on the felt. Off the table they are not fighting the cards for width, so
-   they can be read at a sensible size. */
-.board-panel { display: grid; gap: 10px; }
+/* The auction, beside your own hand rather than at the foot of a rail on the
+   felt. Off the table it is not fighting the cards for width, so it can be
+   read at a sensible size. The grid has an outline of its own, so it stands
+   on the page rather than inside a card. */
+.board-panel { display: grid; }
 /* Read beside your own hand rather than squeezed into a rail, the auction can
    be the size it is during the bidding: a call takes about a quarter of the
    panel, so it grows with the panel however wide the window is. */
