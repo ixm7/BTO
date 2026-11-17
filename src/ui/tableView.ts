@@ -1,6 +1,6 @@
 import { SEATS, STRAINS, SUIT_SYMBOLS, cardSuit, legalPlays, nextSeat, partnerOf, rankChar, sideOf, sortForDisplay, type Card, type Seat, type Strain, type Suit } from '../engine/cards';
 import { legalCalls, type AuctionState, type Call, type Contract } from '../engine/bidding';
-import { isVulnerable, type Vulnerability } from '../engine/deal';
+import { isVulnerable } from '../engine/deal';
 import { isDummyVisible } from '../engine/play';
 import { contractToString, resultToString } from '../engine/scoring';
 import { ALERT_MAX, claimBlocked, claimParties, claimWaitingOn, tricksLeft, turnAt, type TableState } from '../tournament/state';
@@ -133,37 +133,6 @@ function renderBidBox(key: string, auction: AuctionState, onCall: (call: Call, a
   return h('div.bidbox', callRow, levelRow, suitRow, alertRow);
 }
 
-/* ---- Board badge: vulnerability, board number and dealer in one glyph ----
-
-   The square's four edges are the four seats. An edge is red when that side is
-   vulnerable, so you can read the risk at a glance without parsing "Vul: EW".
-   The board number sits in the middle and the dealer's edge is marked D. */
-
-function vulBadge(boardNo: number | null, vul: Vulnerability, dealer: Seat): HTMLElement {
-  const ns = isVulnerable(vul, 'NS') ? 'vul' : 'nv';
-  const ew = isVulnerable(vul, 'EW') ? 'vul' : 'nv';
-  const side: Record<Seat, string> = { N: ns, S: ns, E: ew, W: ew };
-  /* Centred in that seat's trapezoid, which spans 22 units at each edge. */
-  const dPos: Record<Seat, [number, number]> = { N: [50, 11], E: [89, 50], S: [50, 89], W: [11, 50] };
-  const [dx, dy] = dPos[dealer];
-  const vulText = vul === 'None' ? 'nobody vulnerable' : vul === 'Both' ? 'both sides vulnerable' : `${vul} vulnerable`;
-
-  const el = h('div.vulbadge', {
-    title: `Board ${boardNo ?? '—'} · dealer ${SEAT_NAMES[dealer]} · ${vulText}`,
-    role: 'img', 'aria-label': `Board ${boardNo ?? 'none'}, dealer ${SEAT_NAMES[dealer]}, ${vulText}`,
-  });
-  /* Every value below is a number or one of the four seat letters. */
-  el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">
-    <polygon class="${side.N}" points="0,0 100,0 78,22 22,22"/>
-    <polygon class="${side.E}" points="100,0 100,100 78,78 78,22"/>
-    <polygon class="${side.S}" points="100,100 0,100 22,78 78,78"/>
-    <polygon class="${side.W}" points="0,100 0,0 22,22 22,78"/>
-    <rect class="mid" x="22" y="22" width="56" height="56"/>
-    <text class="bno" x="50" y="51">${boardNo ?? '–'}</text>
-    <text class="dlr ${side[dealer] === 'vul' ? 'on-vul' : ''}" x="${dx}" y="${dy}">D</text>
-  </svg>`;
-  return el;
-}
 
 /* ---- Contract and declarer ---- */
 
@@ -203,6 +172,13 @@ function callCell(call: Call, alert?: string): HTMLElement {
 }
 
 export interface TableViewOptions {
+  /**
+   * Where the auction and the trick count go once play has begun: a panel
+   * beside the table rather than a rail on it, so the cards have the width
+   * and the figures can be read at a comfortable size. Left out, they stay
+   * where they were.
+   */
+  panel?: HTMLElement;
   table: TableState;
   mySeat: Seat | null;
   /**
@@ -295,6 +271,11 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const label = h(`div.who${vul ? '.vul' : ''}${turn?.seat === seat ? '.active' : ''}`,
       { 'data-tip': tip, 'aria-label': tip },
       h('b.seat-letter', seat),
+      /* Vulnerability belongs on the players it applies to rather than in a
+         diagram of its own off to one side. The word is there as well as the
+         colour: red against dark red is a thin difference for a colour-blind
+         eye, and this is the one number at the table that costs real points. */
+      vul ? h('b.vultag', { title: `${SEAT_NAMES[seat]} is vulnerable` }, 'VUL') : null,
       h('span.pname', {
         role: 'button', tabindex: 0,
         onclick: (e: MouseEvent) => { e.stopPropagation(); o.onPlayerInfo?.(details); },
@@ -341,17 +322,23 @@ export function renderTable(o: TableViewOptions): HTMLElement {
   const won = play ? (declaring ? play.declarerTricks : play.defenderTricks) : 0;
   const lost = play ? (declaring ? play.defenderTricks : play.declarerTricks) : 0;
 
-  /* Everything about the board that is not a hand lives in one rail down the
-     left edge, as on BBO: the table, the vulnerability, the contract, the
-     tricks, and once the play has begun, the auction that led to it. Height
-     is what a landscape screen runs out of first, and a rail spends width. */
+  /*
+   * What is left in the corner of the table is what belongs to the table
+   * itself: which table it is, which board, who dealt it, and what is being
+   * played. The auction and the tricks go to the panel beside the table,
+   * where they can be read without taking width from the cards, and who is
+   * vulnerable is said on the players rather than in a diagram of its own.
+   */
   const info = h('div.info',
     h('div.tablename', `Table ${table.index + 1}`),
-    vulBadge(table.boardNo, table.vul, table.dealer),
+    h('div.boardline',
+      h('span', `Board ${table.boardNo ?? '\u2013'}`),
+      h('span', `${SEAT_NAMES[table.dealer]} deals`)),
     play ? contractBox(play.contract) : h('div.contract-box.pending', h('span.decl', 'Bidding')),
-    play ? trickCounts(won, lost) : null,
-    play ? auction : null,
+    play && !o.panel ? trickCounts(won, lost) : null,
+    play && !o.panel ? auction : null,
   );
+  if (play && o.panel) o.panel.append(trickCounts(won, lost), auction);
 
   let status = '';
   const ended = table.claimEnd;

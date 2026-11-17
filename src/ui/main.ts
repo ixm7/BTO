@@ -2742,6 +2742,10 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   }
 
   const side = h('div.side');
+  /* Once play starts, the auction and the trick count go here rather than
+     down the rail beside the table: read beside your own hand they can be a
+     comfortable size, and the cards get the width the rail was spending. */
+  const boardPanel = h('div.panel.board-panel');
   const at = n.mySeat();
   const main = h('div');
 
@@ -2787,6 +2791,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
         playerInfo: tablePlayerInfo(n),
         onPlayerInfo: (p) => openPlayerInfo(p, n.state?.config.robots),
         robots: n.state?.config.robots,
+        panel: boardPanel,
       }));
       if (n.lastError) main.append(h('div.error', n.lastError));
     } else {
@@ -2802,6 +2807,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
          the card below shows this table's own place in the boards. */
     }
   }
+  if (boardPanel.childElementCount) side.append(boardPanel);
   side.append(myCardPanel(state, n.me.playerId));
   return h('div', head, h('div.room', main, side));
 }

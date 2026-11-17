@@ -218,9 +218,19 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 .about li { line-height: 1.45; }
 
 /* ---------------------------------------------------------------- room */
-.room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(250px, 15vw, 330px); gap: 14px; align-items: start; }
+.room { display: grid; grid-template-columns: minmax(0, 1fr) clamp(260px, 17vw, 380px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .room { grid-template-columns: 1fr; } }
 .side { display: grid; gap: 14px; }
+/* The auction and the trick count, beside your own hand rather than in a rail
+   on the felt. Off the table they are not fighting the cards for width, so
+   they can be read at a sensible size. */
+.board-panel { display: grid; gap: 10px; }
+.board-panel .tricks { justify-content: center; }
+.board-panel .tcount { font-size: clamp(1.1rem, 1.4vw, 1.45rem); padding: 7px 16px; }
+/* Read beside your own hand rather than squeezed into a rail, the auction can
+   be the size it is during the bidding: a call takes about a quarter of the
+   panel, so it grows with the panel however wide the window is. */
+.board-panel .auction table { font-size: clamp(1rem, 9cqw, 2.1rem); }
 
 .felt {
   background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
@@ -231,11 +241,12 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
   /* The middle column is the wide one: it carries the auction, which is what
      everyone is reading while the bidding goes on. The side hands are the
      opponents' and face down, so they give up the width. */
-  /* The board's details run down a rail on the left rather than across a
-     band at the top: a landscape screen has width to spare and runs out of
-     height first, and a band at the top pushed your own hand off the
-     bottom of the window. */
-  --rail-w: clamp(128px, 9vw, 168px);
+  /* The board's details run down a corner on the left rather than across a
+     band at the top: a band at the top pushed your own hand off the bottom of
+     the window. It is a corner and not a rail now — the auction and the
+     tricks are in the panel beside the table — so it is as wide as the
+     contract box needs and no wider, and the cards have the rest. */
+  --rail-w: clamp(92px, 6.5vw, 124px);
   grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
@@ -252,42 +263,22 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
     grid-template-areas: "info info" "top top" "left right" "center center" "bottom bottom"; }
 }
 
-/* ---- board panel: table, vulnerability, contract and trick count ---- */
-/* A narrow rail in the corner, read top to bottom as on BBO. */
+/* ---- board corner: which table, which board, and what is being played ----
+   A short column in the corner of the felt. The auction and the trick count
+   used to live at the foot of it; they are in the panel beside the table now,
+   so this is only what identifies the board. */
 .felt .info {
   grid-area: info; font-size: var(--who-font); align-self: start;
   display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
   min-width: 0;
 }
-/* The auction, once play has begun, is a reference at the foot of the rail. */
-.felt .info .auction { width: 100%; margin-top: 4px; }
-/* A phone has no width for a rail, so the details lie along one line at the
-   top instead, with the auction beneath them. (After the rules above, so as
-   to win over them.) */
+/* A phone stacks nothing: the three lines lie along one row at the top. */
 @media (max-width: 640px) {
   .felt .info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
   .felt .info .tablename { flex: 1 1 100%; }
-  .felt .info .vulbadge { width: 54px; }
-  .felt .info .auction { flex: 1 1 100%; margin-top: 0; }
 }
 .felt .info .tablename { font-weight: 700; letter-spacing: .02em; opacity: .9; }
-
-/* The badge: four edges for four seats, red where that side is vulnerable. */
-.vulbadge { width: clamp(62px, 5vw, 94px); flex: 0 0 auto; line-height: 0; }
-.vulbadge svg { width: 100%; height: auto; display: block; }
-.vulbadge .nv { fill: #f2efe4; stroke: rgba(0,0,0,.35); stroke-width: 1; }
-.vulbadge .vul { fill: #c8372d; stroke: rgba(0,0,0,.35); stroke-width: 1; }
-.vulbadge .mid { fill: #c9d8cd; stroke: rgba(0,0,0,.3); stroke-width: 1; }
-.vulbadge .bno {
-  fill: #14201a; font-weight: 800; font-size: 38px;
-  text-anchor: middle; dominant-baseline: central;
-}
-/* The dealer's edge is marked D, in white on red where that side is vulnerable. */
-.vulbadge .dlr {
-  fill: #14201a; font-weight: 800; font-size: 17px;
-  text-anchor: middle; dominant-baseline: central;
-}
-.vulbadge .dlr.on-vul { fill: #fff; }
+.felt .info .boardline { display: flex; flex-direction: column; opacity: .85; line-height: 1.3; }
 
 /* Contract and declarer. */
 .felt .contract-box {
@@ -307,15 +298,15 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
    simulating it puts them at little more than a shade apart in weight, so the
    tick and the cross are what carry the difference and the colour only
    agrees with them. The ink clears 4.5:1 on both, simulated or not. */
-.felt .tricks { display: flex; gap: 6px; }
-.felt .tcount {
+.tricks { display: flex; gap: 6px; }
+.tcount {
   display: flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 6px;
   background: #009E73; color: #0b1410; border: 1px solid rgba(0,0,0,.3);
   font-weight: 800; font-size: clamp(.95rem, 1.05vw, 1.2rem);
 }
-.felt .tcount.lost { background: #D55E00; }
-.felt .tcount .mark { font-style: normal; font-size: 1.05em; line-height: 1; }
+.tcount.lost { background: #D55E00; }
+.tcount .mark { font-style: normal; font-size: 1.05em; line-height: 1; }
 
 /* ---- seats & player labels (BBO-style compact badge) ---- */
 .seat { text-align: center; min-width: 0; }
@@ -330,8 +321,16 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 .seat.left .who, .seat.right .who { max-width: 100%; }
 .seat .who.active { background: var(--gold); color: #1b1503; }
 .seat .who.active .seat-letter { background: rgba(0, 0, 0, .15); color: #1b1503; }
-.seat .who.vul .seat-letter { color: #ff9d94; }
-.seat .who.active.vul .seat-letter { color: var(--red); }
+/* A vulnerable pair's badges go red, and carry the word as well: colour on
+   its own is not something to hang a doubled contract on. */
+.seat .who.vul { background: #8f1e18; }
+.seat .who.vul .seat-letter { background: rgba(255, 255, 255, .22); color: #fff; }
+.seat .who.active.vul .seat-letter { color: #1b1503; }
+.seat .who .vultag {
+  display: flex; align-items: center; padding: 0 .45em;
+  background: #c8372d; color: #fff;
+  font-size: .68em; font-weight: 800; letter-spacing: .06em; flex-shrink: 0;
+}
 
 /* ---- player name tooltip (click to see note) ---- */
 .seat .who .pname { cursor: pointer; }
