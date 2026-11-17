@@ -225,8 +225,6 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
    on the felt. Off the table they are not fighting the cards for width, so
    they can be read at a sensible size. */
 .board-panel { display: grid; gap: 10px; }
-.board-panel .tricks { justify-content: center; }
-.board-panel .tcount { font-size: clamp(1.1rem, 1.4vw, 1.45rem); padding: 7px 16px; }
 /* Read beside your own hand rather than squeezed into a rail, the auction can
    be the size it is during the bidding: a call takes about a quarter of the
    panel, so it grows with the panel however wide the window is. */
@@ -298,15 +296,20 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
    simulating it puts them at little more than a shade apart in weight, so the
    tick and the cross are what carry the difference and the colour only
    agrees with them. The ink clears 4.5:1 on both, simulated or not. */
-.tricks { display: flex; gap: 6px; }
+/* One above the other in the rail: it is a tall narrow corner, and side by
+   side under the auction's seat letters the counts looked like a seat's. */
+.tricks { display: flex; flex-direction: column; gap: 6px; }
 .tcount {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 10px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 4.4em; padding: 6px 10px; border-radius: 6px;
   background: #009E73; color: #0b1410; border: 1px solid rgba(0,0,0,.3);
   font-weight: 800; font-size: clamp(.95rem, 1.05vw, 1.2rem);
 }
 .tcount.lost { background: #D55E00; }
 .tcount .mark { font-style: normal; font-size: 1.05em; line-height: 1; }
+/* Off the felt's rail they were small because the rail was busy; it is
+   not any more, so they are the size they are worth. */
+.felt .tcount { font-size: clamp(1rem, 1.2vw, 1.35rem); }
 
 /* ---- seats & player labels (BBO-style compact badge) ---- */
 .seat { text-align: center; min-width: 0; }
@@ -323,9 +326,12 @@ dialog:has(.about) { width: min(680px, calc(100vw - 32px)); }
 .seat .who.active .seat-letter { background: rgba(0, 0, 0, .15); color: #1b1503; }
 /* A vulnerable pair's badges go red, and carry the word as well: colour on
    its own is not something to hang a doubled contract on. */
-.seat .who.vul { background: #8f1e18; }
+.seat .who.vul { background: #8f1e18; color: #fff; }
 .seat .who.vul .seat-letter { background: rgba(255, 255, 255, .22); color: #fff; }
-.seat .who.active.vul .seat-letter { color: #1b1503; }
+/* Whose turn it is and who is vulnerable are two different facts, so neither
+   gives way: the badge stays red and the gold goes round it. */
+.seat .who.active.vul { box-shadow: 0 0 0 3px var(--gold); }
+.seat .who.active.vul .seat-letter { background: var(--gold); color: #1b1503; }
 .seat .who .vultag {
   display: flex; align-items: center; padding: 0 .45em;
   background: #c8372d; color: #fff;
@@ -487,14 +493,17 @@ button.pc:disabled { opacity: 1; }
   border-collapse: collapse; width: 100%; font-size: var(--auction-font);
   background: var(--auction-bg); color: var(--auction-ink);
   border-radius: 8px; overflow: hidden; line-height: 1.16;
+  /* An edge of its own: against the pale panel beside the table the grid
+     would otherwise bleed into the page behind it. */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .3);
   /* The same face the cards use, where a suit symbol is the weight and size
      of the digit beside it rather than a smaller mark. */
   font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
 }
 .auction th, .auction td { padding: .07em .1em; text-align: center; width: 25%; }
 .auction th {
-  font-weight: 700; letter-spacing: .03em; background: #fff; color: #16211c;
-  border-bottom: 1px solid rgba(0,0,0,.18);
+  font-weight: 700; letter-spacing: .03em; background: #cfdde2; color: #16211c;
+  border-bottom: 1px solid rgba(0,0,0,.25);
 }
 .auction th.vul { background: var(--red); color: #fff; }
 .auction td { font-weight: 600; }

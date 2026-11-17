@@ -173,10 +173,11 @@ function callCell(call: Call, alert?: string): HTMLElement {
 
 export interface TableViewOptions {
   /**
-   * Where the auction and the trick count go once play has begun: a panel
-   * beside the table rather than a rail on it, so the cards have the width
-   * and the figures can be read at a comfortable size. Left out, they stay
-   * where they were.
+   * Where the auction goes once play has begun: a panel beside the table
+   * rather than the foot of the rail on it, so the cards have the width and
+   * the calls can be read at a comfortable size. Left out, it stays where it
+   * was. The trick count stays on the table either way — under the auction's
+   * seat letters it read as though it belonged to a seat.
    */
   panel?: HTMLElement;
   table: TableState;
@@ -335,10 +336,10 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       h('span', `Board ${table.boardNo ?? '\u2013'}`),
       h('span', `${SEAT_NAMES[table.dealer]} deals`)),
     play ? contractBox(play.contract) : h('div.contract-box.pending', h('span.decl', 'Bidding')),
-    play && !o.panel ? trickCounts(won, lost) : null,
+    play ? trickCounts(won, lost) : null,
     play && !o.panel ? auction : null,
   );
-  if (play && o.panel) o.panel.append(trickCounts(won, lost), auction);
+  if (play && o.panel) o.panel.append(auction);
 
   let status = '';
   const ended = table.claimEnd;
