@@ -154,6 +154,18 @@ label.check input { margin: 0; cursor: pointer; }
 
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0; }
 dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
+/* Two facts to a line where the page is wide enough for it: a column of
+   single facts is mostly empty on the right and spends the height that the
+   list of players underneath needs. */
+@media (min-width: 720px) {
+  dl.facts.pairs { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); column-gap: 26px; }
+}
+dl.facts.pairs { margin: 10px 0; }
+/* The title line carries the start time, so it wraps rather than pushing the
+   status badge off the end on a narrow window. */
+.titlerow { flex-wrap: wrap; row-gap: 4px; }
+.titlerow .startline { display: flex; align-items: baseline; gap: 6px; }
+.titlerow .startline > div { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 
 dialog { border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; width: min(520px, calc(100vw - 32px)); background: var(--card); color: var(--ink); }
 dialog::backdrop { background: rgba(20, 30, 25, .45); }

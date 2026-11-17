@@ -954,8 +954,8 @@ function detailView(l: Listing): HTMLElement {
       h('span.muted', 'Not open to your level.'));
   }
   if (open && welcome && myPartnerLogin && d.canAct) {
-    actions.append(h('span.tip', { title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.' },
-      h('button', { onclick: () => void endPartnership(l, myPartnerLogin) }, `Cancel partnership with ${who(l, myPartnerLogin)}`)));
+    actions.append(h('span.tip', { title: `End your partnership with ${who(l, myPartnerLogin)}. You both stay in the tournament, and either of you can find somebody else.` },
+      h('button', { onclick: () => void endPartnership(l, myPartnerLogin) }, 'Cancel partnership')));
   }
   if (open && welcome) {
     if (d.canAct) {
@@ -1032,20 +1032,24 @@ function detailView(l: Listing): HTMLElement {
       'Cancelled: nobody had registered by the time entries closed.') : null,
     startNote(l) ? h('p.muted', { style: 'margin-top:10px' }, startNote(l)) : null,
     h('div.panel', { style: 'margin-top:10px' },
-      h('div.row', h('h2', l.meta.name), badge(l.status)),
-      h('dl.facts',
+      /* The name, how it stands and when it starts, all on the line that is
+         read first: a page whose facts run down a column in ones pushes the
+         players who have entered off the bottom of the window, and they are
+         what somebody comes here to see. */
+      h('div.row.titlerow', h('h2', l.meta.name), badge(l.status),
+        h('span.startline', when(l), h('span.muted', ` ${l.meta.timeZone}`))),
+      h('dl.facts.pairs',
         h('dt', 'Director'), h('dd', `${l.meta.director} (@${l.initiatorLogin})`),
-        h('dt', 'Type'), h('dd', scoringName(l.meta.scoring)),
-        h('dt', 'Robots bid'), h('dd', l.meta.robots === '2/1' ? '2/1' : 'SAYC'),
-        h('dt', 'Start'), h('dd', when(l)),
-        h('dt', 'Time zone'), h('dd', l.meta.timeZone),
-        h('dt', 'Open to'), h('dd', levelText(l.meta)),
-        h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
-        h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
+        /* How many are in and how many it holds is one fact, not two. */
+        h('dt', 'Players'), h('dd', regs
+          ? `${regs.length} of ${l.meta.capacity}${full ? ' \u2014 full' : ''}`
+          : `? of ${l.meta.capacity} (too many requests just now)`),
+        h('dt', 'Type'), h('dd', `${scoringName(l.meta.scoring)} \u00b7 robots bid ${l.meta.robots === '2/1' ? '2/1' : 'SAYC'}`),
+        h('dt', 'Open to'), h('dd', levelText(l.meta),
+          l.meta.lock ? h('span', ` \u00b7 \u{1F512} password needed${rememberedPassword(l.number) ? ' (you have it)' : ' \u2014 ask the director'}`) : null),
         h('dt', 'Boards'), ((controls) => h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
-          l.boards ? h('div.muted', `From the director's own file${controls ? ', and can still be changed' : ''}`) : null,
+          l.boards ? h('span.muted', ` \u00b7 from the director's own file${controls ? ', and can still be changed' : ''}`) : null,
           controls))(boardControls(l)),
-        l.meta.lock ? [h('dt', 'Entry'), h('dd', `\u{1F512} Password needed${rememberedPassword(l.number) ? ' \u2014 you have it' : ' \u2014 ask the director'}`)] : null,
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
