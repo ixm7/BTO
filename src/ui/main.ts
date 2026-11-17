@@ -361,7 +361,7 @@ function inviteBanner(): HTMLElement | null {
       i.note ? h('div.muted', i.note) : null),
     h('div.row',
       h('button.primary', { onclick: () => answer(l.number, i.from, true) }, 'Accept'),
-      h('button', { onclick: () => answer(l.number, i.from, false) }, 'Decline'),
+      h('button.danger', { onclick: () => answer(l.number, i.from, false) }, 'Decline'),
       h('button.link', { onclick: () => openPartners(l) }, 'Partners list')))));
 }
 
@@ -768,7 +768,9 @@ async function clearBoards(l: Listing): Promise<void> {
 
 /** The director's own row of board controls, on a tournament not yet played. */
 function boardControls(l: Listing): HTMLElement | null {
-  if (!canStop(l) || l.pinned || l.results) return null;
+  /* Only while it is still to be played: boards cannot change under a field
+     playing them, and a tournament that is over is a record. */
+  if (!canStop(l) || l.pinned || l.results || (l.status !== 'upcoming' && l.status !== 'starting')) return null;
   const pick = h('input', {
     type: 'file', accept: '.pbn,.lin,text/plain', style: 'display:none',
     onchange: (e: Event) => {
@@ -904,11 +906,11 @@ function detailView(l: Listing): HTMLElement {
       return h('div.row',
         h('span', 'Invited you:'),
         waiting(`accept:${them}`, h('button.primary', { onclick: act(() => d.respondToInvite(l.number, r.login, true), `You and ${r.name} are partners.`, { key: `accept:${them}` }) }, 'Accept')),
-        waiting(`decline:${them}`, h('button', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.', { key: `decline:${them}` }) }, 'Decline')));
+        waiting(`decline:${them}`, h('button.danger', { onclick: act(() => d.respondToInvite(l.number, r.login, false), 'Invitation declined.', { key: `decline:${them}` }) }, 'Decline')));
     }
     if (invites.some(mine)) {
       return h('div.row', h('span.muted', 'Invitation sent'),
-        waiting(`cancel:${them}`, h('button.link', { onclick: act(() => d.cancelInvite(l.number, r.login), 'Invitation cancelled.', { key: `cancel:${them}` }) }, 'Cancel')));
+        waiting(`cancel:${them}`, h('button.link.danger', { onclick: act(() => d.cancelInvite(l.number, r.login), 'Invitation cancelled.', { key: `cancel:${them}` }) }, 'Cancel')));
     }
     return waiting(`invite:${them}`, h('button', {
       title: `Ask ${r.name} to be your partner for this tournament.`,
@@ -944,7 +946,7 @@ function detailView(l: Listing): HTMLElement {
   if (open && welcome) {
     if (d.canAct) {
       actions.append(amRegistered
-        ? waiting('withdraw', h('button', { onclick: act(async () => {
+        ? waiting('withdraw', h('button.danger', { onclick: act(async () => {
             await d.withdraw(l.number);
             // Unregistering breaks the partnership too, so the ex-partner's own browser
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
@@ -1021,12 +1023,12 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
-        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
-          l.boards ? h('div.muted', `From the director's own file${l.pinned || l.results ? '' : ', and can still be changed'}`) : null,
-          boardControls(l)),
+        h('dt', 'Boards'), ((controls) => h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
+          l.boards ? h('div.muted', `From the director's own file${controls ? ', and can still be changed' : ''}`) : null,
+          controls))(boardControls(l)),
         l.meta.lock ? [h('dt', 'Entry'), h('dd', `\u{1F512} Password needed${rememberedPassword(l.number) ? ' \u2014 you have it' : ' \u2014 ask the director'}`)] : null,
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
-          canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
+          canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
     l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
@@ -1122,7 +1124,7 @@ function openPartners(initial: Listing): void {
             h('td', h('b', who(current, i.from)), biddingLine(systemsOf(i.from)), i.note ? h('div.muted', i.note) : null),
             h('td', h('div.row',
               h('button.primary', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, true)) }, 'Accept'),
-              h('button', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
+              h('button.danger', { disabled: busy, onclick: act(() => d.respondToInvite(current.number, i.from, false)) }, 'Decline'))));
           rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
 
@@ -1142,7 +1144,7 @@ function openPartners(initial: Listing): void {
                 title: 'Talk to your partner, and agree the system and description your table will see.',
                 onclick: () => openPartnership(current, partner),
               }, 'Chat [Partnership]'),
-              d.canAct ? h('button', {
+              d.canAct ? h('button.danger', {
                 disabled: busy,
                 title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.',
                 onclick: act(() => endPartnership(current, partner)),
@@ -1673,7 +1675,7 @@ function openLobby(): void {
       h('div.chat-meta', h('span.muted', ago(m.at)),
         d.canWrite ? [' ', h('button.link', { disabled: busy, onclick: act(() => d.pinMessage(m.id, !m.pinned)) }, m.pinned ? 'Unpin' : 'Pin')] : null,
         !m.pinned && (d.canWrite || (!!me && m.who.toLowerCase() === me))
-          ? [' ', h('button.link', { disabled: busy, onclick: act(() => d.removeMessage(m.id)) }, 'Delete')]
+          ? [' ', h('button.link.danger', { disabled: busy, onclick: act(() => d.removeMessage(m.id)) }, 'Delete')]
           : null));
 
     draw = (): void => {

@@ -8,6 +8,12 @@
   --felt-dark: #174634;
   --felt-ink: #eef5f0;
   --red: #b3261e;
+  /* Where a button goes rather than what it does: the blue of a link, dark
+     enough to carry white text (WCAG AA at this size and weight). */
+  --nav: #1d5a7a;
+  --nav-dark: #184c67;
+  --accent-dark: #174634;
+  --red-dark: #8f1e18;
   --gold: #c39a1c;
   --accent: #1f5c45;
   --radius: 10px;
@@ -52,17 +58,40 @@ button {
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--nav); outline-offset: 2px;
+}
+/*
+ * Four kinds of button, told apart by shape as much as by colour, since
+ * roughly one man in twelve cannot rely on red against green:
+ *
+ *   plain    — the ordinary one. Closing, cancelling, looking at something.
+ *   .primary — solid green. The one thing this panel is for: register, save,
+ *              send, enter. One to a panel, so it stays worth noticing.
+ *   .danger  — outlined red, filling in on hover. Giving something up:
+ *              unregistering, deleting, declining, ending a partnership.
+ *   .open    — solid blue. Going somewhere rather than doing something.
+ *
+ * Hover darkens by about a tenth, which keeps every one of them above the
+ * contrast it started at rather than washing out.
+ */
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
-/* The name of a tournament is the way into it, so it carries the weight of
-   the buttons that do things: the same green, white and bold, raised a
-   little off the row and pressed down when clicked. */
+button.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
+button.danger { border-color: var(--red); color: var(--red); background: var(--card); }
+button.danger:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; }
+button.link { border: 0; background: none; padding: 0; color: var(--nav); text-decoration: underline; }
+button.link.danger { color: var(--red); background: none; }
+button.link.danger:hover:not(:disabled) { background: none; color: var(--red-dark); }
+/* The name of a tournament is the way into it: a button that goes somewhere,
+   in the blue such buttons wear here, raised off the row and pressed down
+   when clicked. */
 button.open {
   display: block; width: 100%; text-align: center; font-weight: 600;
-  background: var(--accent); border-color: var(--accent); color: #fff;
+  background: var(--nav); border-color: var(--nav); color: #fff;
   box-shadow: 0 2px 0 rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .16);
 }
-button.open:hover:not(:disabled) { filter: brightness(1.1); }
+button.open:hover:not(:disabled) { background: var(--nav-dark); border-color: var(--nav-dark); }
+button.open.locked:hover:not(:disabled) { background: var(--red-dark); border-color: var(--red-dark); }
 button.open:active { transform: translateY(2px); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
 /* A tournament going off right now: the one thing in the list that changes
    while somebody is looking at it, so it beats rather than sits there. */
