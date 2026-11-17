@@ -168,6 +168,7 @@ describe('the listing every browser sees', () => {
 /* ------------------------------------------------------------- weekly series */
 
 import { nextInSeries, nextWeekly, parseMeta, seriesDue } from '../src/directory/github';
+import { READ_PAST, SKILLS } from '../src/directory/github';
 import worker, { nextWeekly as relayNextWeekly } from '../relay/worker.js';
 
 describe('weekly tournaments', () => {
@@ -355,5 +356,32 @@ describe('a list of hundreds', () => {
     /* The rest say plainly that the numbers are not known yet. */
     expect(list.filter((l) => l.registrations === null).length).toBe(168 - read.length);
     expect(list.every((l) => (l.registrations === null) === (l.skimmed === true))).toBe(true);
+  });
+});
+
+
+describe('the numbers on finished tournaments', () => {
+  it('reads the last few that are over, so they show how many played', async () => {
+    const now = Date.parse('2026-11-17T12:00:00Z');
+    const asked: string[] = [];
+    const made = (n: number, daysAgo: number) => ({
+      number: n, html_url: `u${n}`, state: 'closed', comments: 3,
+      created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', user: { login: 'ida' },
+      body: `<!-- bridge-tournament\n${JSON.stringify(makeMeta({
+        name: `T${n}`, director: 'Ida', start: '2026-11-10T19:00', timeZone: 'UTC',
+        levels: [...SKILLS], capacity: 8, boardsPerRound: 2, rounds: 2,
+      })).replace(/"startUtc":"[^"]*"/, `"startUtc":"${new Date(now - daysAgo * 86400_000).toISOString()}"`)}\n-->`,
+    });
+    const issues = Array.from({ length: 20 }, (_, i) => made(i + 1, 1 + i * 0.1));
+    const fetcher = (async (url: string) => {
+      asked.push(url);
+      const json = (x: unknown): Response => new Response(JSON.stringify(x), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (/\/issues\?/.test(url)) return json(issues);
+      return json([]);
+    }) as never;
+    await new Directory('ixm7/BTO', null, fetcher).list(now);
+    const reads = asked.filter((u) => /\/comments/.test(u));
+    expect(reads.length).toBeLessThanOrEqual(READ_PAST);
+    expect(reads.length).toBeGreaterThan(0);
   });
 });

@@ -806,6 +806,9 @@ export function worthReading(meta: TournamentMeta, now: number): boolean {
   return now >= start - READ_AHEAD_MS && now <= start + playingWindowMs(meta) + READ_BEHIND_MS;
 }
 
+/** How many finished tournaments are read for their numbers, newest first. */
+export const READ_PAST = 12;
+
 /** How long a played-out tournament stays on the list before it is dropped. */
 export const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 
@@ -1258,7 +1261,20 @@ export class Directory {
     const out = await Promise.all(unique.map(({ issue, meta }) => this.toListing(issue, meta, now, false)));
     const show = (): void => onPartial?.(out.filter((l) => visibleInList(l, now)).sort(byStart));
     show();
-    const deep = unique.map((u, i) => ({ ...u, at: i })).filter((u) => u.issue.comments > 0 && worthReading(u.meta, now));
+    /*
+     * The ones near enough to matter, and the last few that are over: a
+     * tournament that has been played shows how many played it, which is in
+     * its comments like everything else. Only a dozen of those, newest
+     * first, so a repository with a tournament every hour does not turn its
+     * history into hundreds of requests.
+     */
+    const over = unique
+      .filter((u) => u.issue.comments > 0 && !worthReading(u.meta, now) && u.issue.state === 'closed')
+      .sort((a, b) => b.meta.startUtc.localeCompare(a.meta.startUtc))
+      .slice(0, READ_PAST);
+    const wanted = new Set([...over.map((u) => u.issue.number)]);
+    const deep = unique.map((u, i) => ({ ...u, at: i }))
+      .filter((u) => u.issue.comments > 0 && (worthReading(u.meta, now) || wanted.has(u.issue.number)));
     for (let i = 0; i < deep.length; i += READ_AT_ONCE) {
       const batch = deep.slice(i, i + READ_AT_ONCE);
       const done = await Promise.all(batch.map(({ issue, meta }) => this.toListing(issue, meta, now, true)));

@@ -531,7 +531,21 @@ function when(l: Listing): HTMLElement {
 }
 
 const badge = (status: string): HTMLElement => h(`span.badge.${status.replace(' ', '-')}`, status);
-const playersCell = (l: Listing): string => `${l.registrations ? l.registrations.length : '?'} / ${l.meta.capacity}`;
+/*
+ * How many are in it. While there is still room to join, the capacity is the
+ * other half of the answer; once it is over, the number who played is the
+ * whole of it — and that can be counted from the result even where the entry
+ * list was never read.
+ */
+const playersCell = (l: Listing): string => {
+  const done = l.status === 'finished' || l.status === 'abandoned' || l.status === 'cancelled';
+  /* Once it is over, the result says who played it, which is the truer
+     number: somebody may have entered and never sat down. */
+  const played = l.results ? l.results.rankings.length * 2 : null;
+  const entered = l.registrations ? l.registrations.length : null;
+  const n = done ? played ?? entered : entered;
+  return done ? `${n ?? '?'}` : `${n ?? '?'} / ${l.meta.capacity}`;
+};
 /** Why a list of hundreds shows a question mark instead of a number. */
 const PLAYERS_LATER = 'The entry list is read closer to the start, and whenever you open the tournament. Open it to see who has entered.';
 
