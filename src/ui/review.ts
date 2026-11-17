@@ -81,19 +81,21 @@ const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
 
 export function renderRecords(state: TState, myPair: number | null, view: RecordsView, on: RecordsHandlers): HTMLElement {
   const boards = [...new Set(state.results.map((r) => r.board))].sort((a, b) => a - b);
-  if (boards.length === 0 || myPair === null) {
+  if (boards.length === 0) {
     return h('div.panel', h('h3', 'Hand records'),
-      h('p.muted', myPair === null
-        ? 'You are not playing in this tournament, so there is no card for you.'
-        : 'Nothing finished yet. Boards appear here as they are played.'));
+      h('p.muted', 'Nothing finished yet. Boards appear here as they are played.'));
   }
 
   const card = scorecard(state, myPair);
+  /* Somebody reading a tournament they did not play has no card of their own,
+     so there is nothing to show but what the tables did — which is most of
+     what the records are. */
+  const played = myPair !== null && card.length > 0;
   const board = view.board ?? card[card.length - 1]?.board ?? (boards[boards.length - 1] as number);
   const review = reviewBoard(state, board, myPair);
   /* Which way round we sat on this board decides which column is "we". */
   const weAreNS = review.own ? review.own.result.nsPair === myPair : true;
-  const others = view.mode === 'others';
+  const others = view.mode === 'others' || !played;
   const byImps = state.config.scoring === 'imps';
   /* Until the field has finished a board, the only line on it that is yours
      to read is your own. */
@@ -117,10 +119,12 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
         h('td.num', r.theyScore === null ? '' : String(r.theyScore)),
         ...(byImps ? [h('td.num', impText(r.weImps))] : [h('td.num', `${r.wePercent}%`), h('td.num.muted', `${r.theyPercent}%`)])));
 
-  /* Whichever line is selected supplies the bidding shown with the deal. */
+  /* Whichever line is selected supplies the bidding. A reader who was not in
+     the field has no line of their own, so the first is shown until they
+     choose another — better than a deal with no auction under it. */
   const shown = others && view.table !== null
     ? traveller.find((t) => t.result.table === view.table) ?? review.own
-    : review.own;
+    : review.own ?? (played ? null : traveller[0] ?? null);
   const { N, E, S, W } = review.hands;
   const ourSeats = review.own ? (review.own.result.nsPair === myPair ? 'NS' : 'EW') : '';
 
@@ -142,7 +146,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
    * out to "my table", down the card and back again — three clicks to read
    * the board after the one you were reading.
    */
-  const mine = card.map((r) => r.board);
+  const mine = played ? card.map((r) => r.board) : boards;
   const at = mine.indexOf(board);
   const step = (by: number): (() => void) | undefined => {
     const to = mine[at + by];
@@ -163,25 +167,35 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
     h('div.row', h('h3', others
         ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
         : 'Your boards'), h('span.spacer'),
-      h('button', {
-        onclick: () => on.setMode(others ? 'mine' : 'others'),
-        title: others
-          ? 'Go back to every board you played at your own table'
-          : 'See what every other table did with this same board',
-      }, others ? 'My table' : 'Other tables')),
+      played
+        ? h('button', {
+            onclick: () => on.setMode(others ? 'mine' : 'others'),
+            title: others
+              ? 'Go back to every board you played at your own table'
+              : 'See what every other table did with this same board',
+          }, others ? 'My table' : 'Other tables')
+        : null),
     strip,
-    h('p.muted', others
-      ? complete
-        ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
-        : 'Some of the field is still playing this board, so only your own line is here. '
-          + 'The rest appear once everyone has finished it.'
-      : 'Every board you have played, scored against the tables that played it. Pick a board to see the deal.'),
+    h('p.muted', !played
+      ? 'You did not play in this tournament, so there is no card of your own here \u2014 these are the tables that did.'
+      : others
+        ? complete
+          ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
+          : 'Some of the field is still playing this board, so only your own line is here. '
+            + 'The rest appear once everyone has finished it.'
+        : 'Every board you have played, scored against the tables that played it. Pick a board to see the deal.'),
     h('div.table-scroll', h('table.list.scorecard',
-      h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS).map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
+      /* "We" and "they" belong to somebody who was there; to a reader who
+         was not, the two sides are just the two sides. */
+      h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS)
+        .map((t) => (played ? t : t.replace(/^We/, 'N-S').replace(/^They/, 'E-W')))
+        .map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
       h('tbody', rows))),
     h('div.deal-wrap', diagram),
     shown?.result.auction
-      ? h('div', h('h4', others && view.table !== null ? `How table ${shown.result.table + 1} bid it` : 'How you bid it'),
+      ? h('div', h('h4', !played || (others && view.table !== null)
+            ? `How table ${shown.result.table + 1} bid it`
+            : 'How you bid it'),
           auctionTable(shown.result.auction))
       : null);
 }

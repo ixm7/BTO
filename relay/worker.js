@@ -247,7 +247,11 @@ async function act(request, url, env, ctx) {
   /* A tournament has one result, and every browser that saw the last board
      scored offers one. The first is kept and the rest are told it is done,
      so the page is not filled with the same table over and over. */
-  if (input.act === 'results' && await hasResults(owner, repo, issue, env)) return json({ ok: true, already: true });
+  if (input.act === 'results' && await alreadyThere(owner, repo, issue, env, /<!--\s*bridge-results/)) return json({ ok: true, already: true });
+  /* The hand records are the largest thing a tournament puts on its page and
+     every browser that finishes offers them, so the same rule holds: one
+     copy, and the rest are told it is done. */
+  if (input.act === 'records' && await alreadyThere(owner, repo, issue, env, /<!--\s*bridge-records/)) return json({ ok: true, already: true });
 
   /* The command a person reads on the page, then the signature the app reads. */
   const trailer = `<!-- player ${JSON.stringify({ t: tag, n: name })} -->`;
@@ -270,13 +274,13 @@ async function act(request, url, env, ctx) {
   return json({ ok: true, tag });
 }
 
-/** Is the result already on the page? */
-async function hasResults(owner, repo, issue, env) {
+/** Is this already on the page? Used for the one-copy things: result, records. */
+async function alreadyThere(owner, repo, issue, env, mark) {
   for (let page = 1; page <= 5; page++) {
     const res = await github(`/repos/${owner}/${repo}/issues/${issue}/comments?per_page=100&page=${page}`, env);
     if (!res.ok) return false;
     const batch = await res.json();
-    if (batch.some((c) => /<!--\s*bridge-results/.test(c.body || ''))) return true;
+    if (batch.some((c) => mark.test(c.body || ''))) return true;
     if (batch.length < 100) return false;
   }
   return false;
@@ -418,11 +422,88 @@ function command(action, input, name, tag) {
     }
     case 'abandoned': return ABANDONED_BODY;
     case 'results': return resultsBody(input.results);
+    case 'records': return recordsBody(input.records);
     default: throw new Refusal('That is not something the relay does.');
   }
 }
 
 const ABANDONED_BODY = ['/abandoned', '', 'Every table was left without a player, so this tournament was given up on.'].join('\n');
+
+/* ------------------------------------------------------- the hand records */
+
+/*
+ * The hands a tournament played, so they outlive the browsers that played
+ * them. It is a lot of numbers, and the relay writes none of it on trust:
+ * every field is read back as the kind of thing it is meant to be, and the
+ * body is built here rather than taken from the browser.
+ *
+ * The deal of a board is not written down — the seed deals it again for
+ * anybody — unless the director brought the boards in a file, in which case
+ * the file is the only copy there is.
+ */
+const DEAL_RE = /^[NESW]:[AKQJT2-9]*\.[AKQJT2-9]*\.[AKQJT2-9]*\.[AKQJT2-9]*(?: [AKQJT2-9]*\.[AKQJT2-9]*\.[AKQJT2-9]*\.[AKQJT2-9]*){3}$/;
+/* "Pass" as the app writes it, and the short forms a file might use. */
+const CALL_RE = /^(?:[1-7](?:[SHDCN]|NT)|P|PASS|X|DBL|XX|RDBL)(?:![^,]{0,80})?$/i;
+
+function recordsBody(input) {
+  if (!input || typeof input !== 'object') throw new Refusal('Those hand records could not be read.');
+  const rounds = int(input.rounds, 1, 60, 'rounds');
+  const bpr = int(input.boardsPerRound, 1, 60, 'boards a round');
+  const tables = int(input.tables, 1, 200, 'tables');
+  const seed = String(input.seed || '').slice(0, 80);
+  if (!/^[\w .:+/-]{1,80}$/.test(seed)) throw new Refusal('Those hand records have no seed.');
+
+  const pairs = Array.isArray(input.pairs) ? input.pairs : null;
+  if (!pairs || pairs.length === 0 || pairs.length > 400) throw new Refusal('Those hand records have no pairs in them.');
+  const names = pairs.map((p) => {
+    const two = Array.isArray(p) ? p : [];
+    return [clean(two[0], 60) || '?', clean(two[1], 60) || '?'];
+  });
+
+  const lines = Array.isArray(input.lines) ? input.lines : null;
+  if (!lines || lines.length === 0 || lines.length > 4000) throw new Refusal('Those hand records have no boards in them.');
+  const rows = lines.map((l) => {
+    const row = {
+      b: int(l && l.b, 1, rounds * bpr, 'board'),
+      t: int(l && l.t, 0, tables - 1, 'table'),
+      n: int(l && l.n, 0, names.length - 1, 'pair'),
+      e: int(l && l.e, 0, names.length - 1, 'pair'),
+      s: int(l && l.s, -10000, 10000, 'score'),
+      r: clean(l && l.r, 40),
+    };
+    const auction = String((l && l.a) || '').slice(0, 600);
+    if (auction) {
+      const calls = auction.split(',');
+      if (calls.length > 80 || !calls.every((c) => CALL_RE.test(c))) throw new Refusal('That bidding could not be read.');
+      row.a = calls.join(',');
+    }
+    return row;
+  });
+
+  const given = Array.isArray(input.deals) ? input.deals.slice(0, rounds * bpr) : [];
+  const deals = given.filter((d) => typeof d === 'string' && DEAL_RE.test(d));
+  if (deals.length !== given.length) throw new Refusal('One of those boards is not a deal.');
+
+  const r = {
+    v: 1, seed, rounds, boardsPerRound: bpr, tables,
+    ...(input.scoring === 'imps' ? { scoring: 'imps' } : {}),
+    ...(deals.length ? { deals } : {}),
+    pairs: names, lines: rows,
+  };
+  /* A page holds one comment of 65,536 characters. The browser drops the
+     bidding before it sends anything this large, so a payload that still does
+     not fit is one to refuse rather than to have GitHub refuse for us. */
+  if (JSON.stringify(r).length > 62000) throw new Refusal('Those hand records are too large for one page.');
+  const boards = new Set(rows.map((x) => x.b)).size;
+  return [
+    `### Hand records \u2014 ${boards} board(s), ${tables} table(s)`,
+    '',
+    'Every board of this tournament: the deal, the bidding at each table and what it scored. '
+      + 'Open the tournament on the site to read them.',
+    '',
+    `<!-- bridge-records\n${JSON.stringify(r)}\n-->`,
+  ].join('\n');
+}
 
 /* --------------------------------------------------------- the result */
 

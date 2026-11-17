@@ -11,6 +11,7 @@
  */
 import { zonedToUtc } from './time';
 import { readable } from '../engine/boards';
+import { fitRecords, readRecords, type HandRecords } from '../tournament/records';
 
 /**
  * How a player describes their own game, from the Settings dialog, and the
@@ -217,6 +218,8 @@ export interface Listing {
   /** Null when comments could not be read (e.g. rate limit). */
   registrations: Registration[] | null;
   results: TournamentResults | null;
+  /** Whether the hands this tournament played are written down on its page. */
+  records?: boolean;
   partners: PartnersData | null;
   /** Boards the director brought, when they did: one deal to a board. */
   boards?: string[];
@@ -254,6 +257,9 @@ export function parseRepo(s: string): Repo {
 
 const META_RE = /<!--\s*bridge-tournament\s*([\s\S]*?)-->/;
 const RESULTS_RE = /<!--\s*bridge-results\s*([\s\S]*?)-->/;
+const RECORDS_RE = /<!--\s*bridge-records\s*([\s\S]*?)-->/;
+/** Cheap enough to run over every comment of every listing. */
+const RECORDS_MARK = '<!-- bridge-records';
 
 export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc' | 'levels'> & { levels: readonly Skill[]; scoring?: TournamentMeta['scoring'] }): TournamentMeta {
   const name = input.name.trim();
@@ -751,6 +757,41 @@ export function parseResults(comments: readonly RawComment[]): TournamentResults
   return null;
 }
 
+/**
+ * The hand records, as they go on the page: a sentence for a person reading
+ * the issue, and the records themselves in a comment the site reads back.
+ */
+export function recordsBody(r: HandRecords): string {
+  const boards = new Set(r.lines.map((l) => l.b)).size;
+  return [
+    `### Hand records \u2014 ${boards} board(s), ${r.tables} table(s)`,
+    '',
+    'Every board of this tournament: the deal, the bidding at each table and what it scored. '
+      + 'Open the tournament on the site to read them.',
+    '',
+    `<!-- bridge-records\n${JSON.stringify(r)}\n-->`,
+  ].join('\n');
+}
+
+/**
+ * The records a tournament's page carries. Later ones win: a tournament may
+ * be written down more than once if two browsers finish at the same moment,
+ * and both say the same thing.
+ */
+export function parseRecords(comments: readonly RawComment[]): HandRecords | null {
+  let found: HandRecords | null = null;
+  for (const c of comments) {
+    const m = RECORDS_RE.exec(c.body ?? '');
+    if (!m) continue;
+    try { found = readRecords(JSON.parse(m[1] as string)) ?? found; } catch { /* keep looking */ }
+  }
+  return found;
+}
+
+/** Whether a tournament has records, without the cost of reading them. */
+export const hasRecords = (comments: readonly RawComment[]): boolean =>
+  comments.some((c) => (c.body ?? '').includes(RECORDS_MARK));
+
 export function resultsBody(r: TournamentResults): string {
   return [
     `### Final results — ${r.tables} table(s), ${r.boards} board(s)`,
@@ -1168,6 +1209,7 @@ export class Directory {
     let pinned: PinnedStart | null = null;
     let boards: string[] | null = null;
     let abandoned = false;
+    let records = false;
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];
     let readable = true;
@@ -1196,6 +1238,7 @@ export class Directory {
         pinned = parseStart(cs, issue.user?.login ?? '');
         boards = parseBoards(cs, issue.user?.login ?? '');
         abandoned = parseAbandoned(cs, trusted);
+        records = hasRecords(cs);
       } catch { registrations = null; partners = null; readable = false; }
     }
     /* A director's /start, from before starts were automatic, still counts. */
@@ -1212,7 +1255,7 @@ export class Directory {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
       status: deriveStatus(meta, issue, results, now, { started: !!pinned, plan, abandoned }),
       registrations, results, partners, roomId: this.roomId(issue.number),
-      pinned, names, plan, ...(field ? { field } : {}), ...(boards ? { boards } : {}),
+      pinned, names, plan, ...(field ? { field } : {}), ...(boards ? { boards } : {}), ...(records ? { records } : {}),
       ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
       ...(skimmed ? { skimmed: true } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
@@ -1671,6 +1714,29 @@ export class Directory {
   /** Break up an already-accepted partnership with `otherId` (either side may call this). */
   unpair(number: number, otherId: string): Promise<unknown> {
     return this.playerAct(number, `/unpair @${otherId}`, 'unpair', { target: otherId });
+  }
+
+  /**
+   * Put the hands up beside the result, so they outlive the session.
+   *
+   * It goes up before the result, and separately from it: the result closes
+   * the issue for a token holder, and a closed issue is a worse place to be
+   * adding to. If this one fails the tournament is still scored — the records
+   * are a convenience, not the outcome.
+   */
+  async publishRecords(number: number, records: HandRecords): Promise<unknown> {
+    const fitted = fitRecords(records);
+    return this.playerAct(number, recordsBody(fitted), 'records', { records: fitted });
+  }
+
+  /**
+   * The hands a finished tournament played, read from its page. Fetched when
+   * somebody asks for them rather than with every listing: they are the
+   * largest thing a tournament carries, and most of the time nobody looks.
+   */
+  async records(number: number): Promise<HandRecords | null> {
+    const { comments } = asActors(await this.comments(number), this.relay?.login ?? '');
+    return parseRecords(comments);
   }
 
   /** Post the final rankings and close the issue (closing only works for the director or a maintainer). */

@@ -6,6 +6,7 @@ import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
 import { cardImps, cardTotal, impText, pairOf, scorecard } from '../tournament/review';
 import { renderRecords, type RecordsMode } from './review';
+import { pairOfName, recordsOf, stateOfRecords, type HandRecords } from '../tournament/records';
 import { TournamentNode, deviceScore } from '../tournament/node';
 import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
@@ -93,6 +94,47 @@ let reviewing = false;
 let recBoard: number | null = null;
 let recTable: number | null = null;
 let recMode: RecordsMode = 'mine';
+/*
+ * The hands of a tournament that is over, read back from its page. The log
+ * they were played from is gone with the browsers that held it, so this is
+ * the copy the page kept — fetched when somebody asks, because it is the
+ * largest thing a tournament carries and most of the time nobody looks.
+ */
+let pastRecords: { number: number; data: HandRecords } | null = null;
+let pastLoading = false;
+let pastError: string | null = null;
+
+/** Open the hands of a finished tournament, fetching them the first time. */
+function openPastRecords(l: Listing): void {
+  if (pastRecords?.number === l.number) { pastRecords = null; render(); return; }
+  const d = directory();
+  if (!d) return;
+  pastLoading = true; pastError = null; recBoard = null; recTable = null; recMode = 'mine';
+  render();
+  void (async () => {
+    try {
+      const data = await d.records(l.number);
+      if (!data) throw new Error('This tournament did not write its hands down.');
+      pastRecords = { number: l.number, data };
+    } catch (e) { pastError = (e as Error).message; }
+    pastLoading = false;
+    render();
+  })();
+}
+
+/** The records panel for a tournament nobody is playing any more. */
+function pastRecordsPanel(l: Listing): HTMLElement | null {
+  if (pastLoading) return h('div.panel', h('p.muted', 'Reading the hands\u2026'));
+  if (pastError) return h('div.panel', h('div.error', pastError));
+  if (pastRecords?.number !== l.number) return null;
+  const data = pastRecords.data;
+  const state = stateOfRecords(data, l.meta.name);
+  return renderRecords(state, pairOfName(data, settings.name), { board: recBoard, table: recTable, mode: recMode }, {
+    pickBoard: (b) => { recBoard = b; recTable = null; render(); },
+    pickTable: (t) => { recTable = t; render(); },
+    setMode: (m) => { recMode = m; recTable = null; render(); },
+  });
+}
 let published = false;
 /** Set once this browser has reported a tournament as given up on. */
 let markedAbandoned = false;
@@ -1062,7 +1104,20 @@ function detailView(l: Listing): HTMLElement {
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
-    l.results ? h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Final results'), resultsTable(l.results)) : null,
+    l.results
+      ? h('div.panel', { style: 'margin-top:14px' },
+          h('div.row', h('h3', 'Final results'), h('span.spacer'),
+            /* The hands outlive the session that played them, so a player can
+               go back over a board a week later, from any browser. */
+            l.records
+              ? h('button', {
+                  onclick: () => openPastRecords(l),
+                  title: 'The deal, the bidding at every table and what it scored, board by board',
+                }, pastRecords?.number === l.number ? 'Hide hand records' : 'Hand records')
+              : null),
+          resultsTable(l.results))
+      : null,
+    l.results ? pastRecordsPanel(l) : null,
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list',
         h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
@@ -2108,6 +2163,11 @@ function maybePublish(n: TournamentNode): void {
   setTimeout(() => {
     void (async () => {
       try {
+        /* The hands first and the result after: for a browser with a token
+           the result closes the issue, and a closed page is a worse place to
+           be adding to. If the hands do not go up the tournament is still
+           scored — they are a convenience, not the outcome. */
+        try { await d.publishRecords(l.number, recordsOf(state)); } catch { /* the result matters more */ }
         await d.publishResults(l.number, toResults(state));
         published = true;
         render();
