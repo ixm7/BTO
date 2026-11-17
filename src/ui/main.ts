@@ -593,8 +593,10 @@ function askAboutClash(l: Listing, go: () => void): void {
       h('button', { onclick: close }, 'Cancel'),
       h('button.primary', { onclick: () => { close(); go(); } }, 'Enter anyway'))));
 }
+/* "3 rounds x 3 boards": the arithmetic of the number beside it, written the
+   way a player would say it rather than as a sentence. */
 const boardsText = (meta: { rounds: number; boardsPerRound: number }): string =>
-  `${meta.rounds} round${meta.rounds === 1 ? '' : 's'} of ${meta.boardsPerRound} board${meta.boardsPerRound === 1 ? '' : 's'}`;
+  `${meta.rounds} round${meta.rounds === 1 ? '' : 's'} x ${meta.boardsPerRound} board${meta.boardsPerRound === 1 ? '' : 's'}`;
 
 function listTable(rows: Listing[]): HTMLElement {
   return h('div.table-scroll', h('table.list',
@@ -946,7 +948,7 @@ function detailView(l: Listing): HTMLElement {
         h('dt', 'Open to'), h('dd', levelText(l.meta)),
         h('dt', 'Capacity'), h('dd', `${l.meta.capacity} players`),
         h('dt', 'Registered'), h('dd', regs ? `${regs.length}${full ? ' (full)' : ''}` : 'unknown (too many requests just now)'),
-        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)} — ${boardsText(l.meta)}`),
+        h('dt', 'Boards'), h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`),
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
           canStop(l) ? [' ', h('button.link', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
       actions),
