@@ -1109,7 +1109,9 @@ function detailView(l: Listing): HTMLElement {
     /* No link out to the underlying page here: everything on it can be done
        from this view, and where it cannot — registering without a token — the
        link sits with the action it belongs to. */
-    h('div.row', h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments')),
+    h('div.row.backrow',
+      h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments'),
+      noticeTag()),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     l.noPlayers ? h('div.note', { style: 'margin-top:10px' },
       'Cancelled: nobody had registered by the time entries closed.') : null,
@@ -2975,7 +2977,20 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
 
 /* ---------------------------------------------------------------- render */
 
+/**
+ * What was just done, said once and dismissable. It is drawn at the head of
+ * the page, except on a tournament's own page, where it goes on the line the
+ * back button is already using: that page is read for the list of players at
+ * the foot of it, and a banner across the top pushed them further down.
+ */
+function noticeTag(): HTMLElement | null {
+  return notice
+    ? h('div.note', notice, ' ', h('button.link', { onclick: () => { notice = null; render(); } }, 'dismiss'))
+    : null;
+}
+
 function render(): void {
+  const onDetail = !(room && (awaitingStart || session) && !node) && !(node && room) && !!detail;
   const view = room && (awaitingStart || session) && !node ? waitingRoom(room)
     : node && room ? roomView(node, room)
     : detail ? detailView(detail) : directoryView();
@@ -2989,7 +3004,7 @@ function render(): void {
       h('button', { onclick: openAbout, title: 'What this is, what it does, and how to start' }, 'About'),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,
-    notice ? h('div.note', notice, ' ', h('button.link', { onclick: () => { notice = null; render(); } }, 'dismiss')) : null,
+    onDetail ? null : noticeTag(),
     inviteBanner(),
     view));
 }
