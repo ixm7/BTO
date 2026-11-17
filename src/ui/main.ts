@@ -799,10 +799,17 @@ function boardControls(l: Listing): HTMLElement | null {
   return h('span.row.inline',
     pick,
     h('button', {
-      title: 'Optional! Instead of defaulting to random hands, you may upload a PBN/LIN file',
+      /* Both states open the file picker, so both tooltips say so. Going back
+         to dealt hands is the other control, and says that there. */
+      title: l.boards
+        ? 'Upload a different PBN/LIN file to play instead of the boards you uploaded'
+        : 'Optional! Instead of defaulting to random hands, you may upload a PBN/LIN file',
       onclick: () => pick.click(),
     }, l.boards ? 'Replace the boards' : 'Upload boards'),
-    l.boards ? h('button.link', { onclick: () => void clearBoards(l) }, 'Deal them instead') : null);
+    l.boards ? h('button.link', {
+      title: 'Revert the boards to randomly dealt hands',
+      onclick: () => void clearBoards(l),
+    }, 'Deal them instead') : null);
 }
 
 /** Stop the series: this one and any later one already on the list stop repeating. */
