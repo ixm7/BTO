@@ -1,5 +1,5 @@
 import { BoardError, readBoards } from '../engine/boards';
-import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_EXTENSIONS, MIN_WAIT_MS, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
 import { ago, allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -693,19 +693,19 @@ const HOURS: readonly { hour: number; name: string }[] = Array.from({ length: 24
   name: `${hour === 0 || hour === 12 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`,
 }));
 
-/** Small numbers read better as words in a sentence. */
-const inWords = (n: number): string => ['no', 'one', 'two', 'three', 'four', 'five', 'six'][n] ?? String(n);
-
 const clock = (t: number): string => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
 /** How the tournament gets going, said in terms of this one's numbers. */
 function startNote(l: Listing): string | null {
   const plan = l.plan;
   if (l.status === 'upcoming') {
-    return `Starts automatically at the start time if all ${l.meta.capacity} places are taken, or if the players registered `
-      + 'fill whole tables of four. Otherwise entries stay open a minute longer to look for the players who would spare a table '
-      + `its robots, and another minute each time somebody joins, up to ${inWords(MAX_EXTENSIONS)} more. Short of ${MIN_PLAYERS} players it waits `
-      + `${inWords(MIN_WAIT_MS / 60000)} minutes for them, then plays anyway with robots in the empty seats \u2014 however few turn up, you get your game.`;
+    /* The whole of the waiting rule used to be set out here, and it ran to
+       four lines above a page whose point is the list of players. What a
+       player needs to know before the start is that turning up is enough;
+       the rest is said at the time, by the lines below, when it is the thing
+       actually happening. */
+    return 'Tournaments with at least 1 registration always play! '
+      + `Robots provide at least ${MIN_TABLES} tables.`;
   }
   if (l.status === 'starting' && plan?.kind === 'wait') {
     const n = l.registrations?.length ?? 0;
