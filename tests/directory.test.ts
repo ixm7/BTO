@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts, expectedLength, overlap } from '../src/directory/github';
+import {
+  byLevelThenSystem, DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts, expectedLength, overlap } from '../src/directory/github';
 import { countdown, formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -750,5 +751,52 @@ describe('making a week of tournaments at once', () => {
     expect(() => repeatStarts('2026-11-18T10:00', [], [24])).toThrow(/hours of the day/);
     /* Every hour of every day is a whole week of them, which is allowed. */
     expect(repeatStarts('2026-11-18T00:00', [0, 1, 2, 3, 4, 5, 6], [...Array(24).keys()])).toHaveLength(168);
+  });
+});
+
+describe('the entry list, in the order a partner is looked for', () => {
+  const at = (n: number) => `2026-11-12T10:${String(n).padStart(2, '0')}:00Z`;
+  const who = (name: string, skill: string | undefined, systems: string, i: number) =>
+    ({ login: name.toLowerCase(), name, at: at(i), ...(skill ? { skill } : {}), ...(systems ? { systems } : {}) }) as never;
+
+  it('puts the strongest first and groups the systems within a level', () => {
+    const regs = [
+      who('Ada', 'Advanced', 'SAYC', 1),
+      who('Bob', 'World Class', '2/1', 2),
+      who('Cal', 'Advanced', '2/1', 3),
+      who('Dee', 'Expert', 'SAYC', 4),
+      who('Eve', 'Advanced', 'SAYC', 5),
+    ];
+    expect(byLevelThenSystem(regs).map((x) => x.r.name)).toEqual(['Bob', 'Dee', 'Ada', 'Eve', 'Cal']);
+  });
+
+  it('keeps the place each player entered in, which is what decides a seat', () => {
+    const regs = [who('Ada', 'Beginner', 'SAYC', 1), who('Bob', 'Expert', 'SAYC', 2)];
+    expect(byLevelThenSystem(regs).map((x) => [x.r.name, x.entry])).toEqual([['Bob', 1], ['Ada', 0]]);
+  });
+
+  it('puts those who said nothing last, since they are hardest to pair with', () => {
+    const regs = [
+      who('Ada', undefined, '', 1),
+      who('Bob', 'Beginner', '', 2),
+      who('Cal', undefined, 'SAYC', 3),
+      who('Dee', 'Beginner', 'SAYC', 4),
+    ];
+    expect(byLevelThenSystem(regs).map((x) => x.r.name)).toEqual(['Dee', 'Bob', 'Cal', 'Ada']);
+  });
+
+  it('settles a tie by name, so the list does not shuffle between reads', () => {
+    const regs = [
+      who('Zoe', 'Expert', 'SAYC', 1),
+      who('Amy', 'Expert', 'SAYC', 2),
+      who('Mia', 'Expert', 'SAYC', 3),
+    ];
+    expect(byLevelThenSystem(regs).map((x) => x.r.name)).toEqual(['Amy', 'Mia', 'Zoe']);
+  });
+
+  it('leaves the list it was given alone', () => {
+    const regs = [who('Ada', 'Beginner', 'SAYC', 1), who('Bob', 'Expert', 'SAYC', 2)];
+    byLevelThenSystem(regs);
+    expect(regs.map((r) => (r as { name: string }).name)).toEqual(['Ada', 'Bob']);
   });
 });

@@ -328,6 +328,24 @@ export function repeatStarts(start: string, days: readonly number[], hours: read
  * the same list, so every player derives the same draw.
  */
 /**
+ * The entry list in the order a player looks for a partner in: the strongest
+ * first, and within a level the systems together. Somebody who has not said
+ * what they play, or how well, goes after those who have — they are the
+ * hardest to pair with on what is written here.
+ *
+ * Each row keeps the place it entered in, since that is what decides a seat.
+ */
+export function byLevelThenSystem(regs: readonly Registration[]): { r: Registration; entry: number }[] {
+  return regs.map((r, entry) => ({ r, entry })).sort((a, b) => {
+    const level = SKILLS.indexOf(b.r.skill as Skill) - SKILLS.indexOf(a.r.skill as Skill);
+    if (level) return level;
+    const system = (b.r.systems ?? '').localeCompare(a.r.systems ?? '', undefined, { sensitivity: 'base' });
+    if (system) return system;
+    return a.r.name.localeCompare(b.r.name, undefined, { sensitivity: 'base' }) || a.entry - b.entry;
+  });
+}
+
+/**
  * Who counts as entered for a tournament that takes a password. Only the
  * entries the relay made, because the relay is the one that asked for the
  * password: a comment written straight onto the page by anybody with a

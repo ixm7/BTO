@@ -1,5 +1,5 @@
 import { BoardError, readBoards } from '../engine/boards';
-import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, type Invitation, type Listing, type Skill, type TournamentResults } from '../directory/github';
+import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, byLevelThenSystem, type Invitation, type Listing, type Registration, type Skill, type TournamentResults } from '../directory/github';
 import { ago, allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -1158,12 +1158,19 @@ function detailView(l: Listing): HTMLElement {
     h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
       regs && regs.length ? h('div.table-scroll', h('table.list',
         h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
-        h('tbody', regs.map((r, i) => h('tr',
-          h('td.num', i + 1), h('td', nameCell(r)),
+        /*
+         * Strongest first, and players of a system together within that: the
+         * list is read to find somebody to play with, and that is the order
+         * the question is asked in. The number stays the one they entered
+         * under, because it is what decides who has a seat and who is on the
+         * waiting list — sorting the rows must not move anybody up the queue.
+         */
+        h('tbody', byLevelThenSystem(regs).map(({ r, entry }) => h('tr',
+          h('td.num', entry + 1), h('td', nameCell(r)),
           h('td.muted', r.skill ?? ''),
           h('td.muted', r.systems ?? ''),
           h('td.muted', partnerCell(r)),
-          h('td.muted', i >= l.meta.capacity ? 'waiting list' : ''))))))
+          h('td.muted', entry >= l.meta.capacity ? 'waiting list' : ''))))))
         : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
 }
 
