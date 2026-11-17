@@ -1345,8 +1345,8 @@ function openAbout(): void {
       h('li', h('b', 'Robots.'), ' They fill any empty, timed-out, or withdrawn seat. You can hand your seat '
         + 'to a robot, and take it back later. Latecomers can take a robot\u2019s place.'),
       h('li', h('b', 'Rejoin after Timeouts.'), ' A button click allows you to replace the robot that replaced you.'),
-      h('li', h('b', 'Start tournaments.'), ' To create your own tournaments, expand the \u2018Tournament Creator\u2019 '
-        + 'section under \u2018Settings\u2019, and follow the instructions to generate a token.'),
+      h('li', h('b', 'Start tournaments.'), ' Save a token under Settings and create public or password-protected '
+        + 'tournaments. Optionally, upload boards using PBN or LIN formats.'),
       h('li', h('b', 'Skill Levels.'), ' Tournaments may limit the range of allowed skill levels.')),
 
     h('h3', 'First steps'),
