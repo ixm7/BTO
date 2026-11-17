@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHAT_KEEP, Directory, LOBBY_LABEL, LOBBY_MARK, PAIRS_LABEL, PAIRS_MARK, SKILLS, issueBody, makeMeta, pairKey, parseMeta, systemBetween } from '../src/directory/github';
+import { CHAT_KEEP, Directory, LOBBY_LABEL, LOBBY_MARK, PAIRS_LABEL, PAIRS_MARK, SKILLS, entrants, issueBody, makeMeta, pairKey, parseMeta, parseRegistrations, systemBetween } from '../src/directory/github';
 
 /** A GitHub with one labelled lobby issue and whatever comments a test gives it. */
 function fakeGitHub(comments: { id: number; login: string; body: string; at?: string }[]) {
@@ -185,5 +185,30 @@ describe('a tournament that takes a password', () => {
     /* A tournament without one says nothing about passwords. */
     await d.register(7, 'Ann');
     expect(sent.at(-1)?.body).not.toHaveProperty('pw');
+  });
+});
+
+describe('who counts as entered for a tournament with a password', () => {
+  const shut = (lock?: string) => {
+    const meta = makeMeta({
+      name: 'Club night', director: 'Ida', start: '2026-12-01T19:00', timeZone: 'UTC',
+      levels: [...SKILLS], capacity: 8, boardsPerRound: 2, rounds: 3,
+    });
+    if (lock) meta.lock = lock;
+    return meta;
+  };
+  const regs = () => parseRegistrations([
+    { user: { login: '~1234567890abcdef1234' }, body: '/register Ann', created_at: '2026-11-16T12:00:00Z' },
+    { user: { login: 'bob' }, body: '/register Bob', created_at: '2026-11-16T12:01:00Z' },
+  ]);
+
+  it('takes only the entries the relay made, since the relay asked for the password', () => {
+    const open = entrants(regs(), shut());
+    expect(open.map((r) => r.name)).toEqual(['Ann', 'Bob']);
+
+    /* Bob wrote himself onto the page with a GitHub account of his own and
+       was never asked for the word, so he has no seat. */
+    const locked = entrants(regs(), shut(`v1.${'a'.repeat(32)}.${'B'.repeat(43)}`));
+    expect(locked.map((r) => r.name)).toEqual(['Ann']);
   });
 });

@@ -318,6 +318,17 @@ export function repeatStarts(start: string, days: readonly number[], hours: read
  * at or before that moment, in the order they entered. Every player derives
  * the same list, so every player derives the same draw.
  */
+/**
+ * Who counts as entered for a tournament that takes a password. Only the
+ * entries the relay made, because the relay is the one that asked for the
+ * password: a comment written straight onto the page by anybody with a
+ * GitHub account of their own says `/register` without having said the word,
+ * and a seat is not given for saying it.
+ */
+export function entrants(regs: Registration[], meta: TournamentMeta): Registration[] {
+  return meta.lock ? regs.filter((r) => r.login.startsWith('~')) : regs;
+}
+
 export function pinnedRoster(l: { registrations: Registration[] | null; pinned: PinnedStart | null; field?: Registration[] }): Registration[] {
   if (l.pinned && l.field) return [...l.field].sort((a, b) => a.at.localeCompare(b.at) || a.login.localeCompare(b.login));
   if (!l.pinned || !l.registrations) return [];
@@ -1134,7 +1145,7 @@ export class Directory {
         const read = asActors(await this.comments(issue.number), this.relay?.login ?? '');
         cs = read.comments;
         names = read.names;
-        registrations = parseRegistrations(cs);
+        registrations = entrants(parseRegistrations(cs), meta);
         // Only the director or a registered player can publish results.
         const trusted = new Set([issue.user?.login ?? '', ...registrations.map((r) => r.login)]);
         results = parseResults(cs.filter((c) => trusted.has(c.user?.login ?? '')));
@@ -1147,11 +1158,11 @@ export class Directory {
     const plan = readable && !pinned && !results ? planStart(meta, cs, now) : null;
     let field: Registration[] | undefined;
     if (plan?.kind === 'start') {
-      field = parseRegistrations(cs.filter((c) => Date.parse(c.created_at) <= plan.at));
+      field = entrants(parseRegistrations(cs.filter((c) => Date.parse(c.created_at) <= plan.at)), meta);
       pinned = { seed: await seedFor(issue, plan.at, field), at: new Date(plan.at).toISOString() };
     } else if (pinned) {
       const at = pinned.at;
-      field = parseRegistrations(cs.filter((c) => c.created_at <= at));
+      field = entrants(parseRegistrations(cs.filter((c) => c.created_at <= at)), meta);
     }
     return {
       number: issue.number, url: issue.html_url, meta, initiatorLogin: issue.user?.login ?? '',
@@ -1507,8 +1518,11 @@ export class Directory {
    * as written; without, the relay posts it, building the same line itself
    * from the fields given here.
    */
-  private async playerAct(number: number, line: string, act: string, fields: Record<string, unknown> = {}): Promise<unknown> {
-    if (this.token) return this.comment(number, line);
+  private async playerAct(number: number, line: string, act: string, fields: Record<string, unknown> = {}, viaRelay = false): Promise<unknown> {
+    /* A password is checked by the relay, so a password goes through it —
+       even for a browser holding a token, which would otherwise write
+       straight to the page and be asked nothing. */
+    if (this.token && !viaRelay) return this.comment(number, line);
     if (!this.relay) throw new Error('A token is needed to do this from here.');
     const res = await this.fetcher(`${this.relay.url.replace(/\/+$/, '')}/act`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
@@ -1549,7 +1563,7 @@ export class Directory {
     const sys = systemToken(systems ?? '');
     return this.playerAct(number, `/register ${clean}${code ? ` pair:${code}` : ''}${level}${sys ? ` sys:${sys}` : ''}`, 'register',
       { name: clean, ...(code ? { pair: code } : {}), ...(skill ? { level: skill } : {}), ...(sys ? { sys } : {}),
-        ...(password ? { pw: password } : {}) });
+        ...(password ? { pw: password } : {}) }, !!password);
   }
 
   withdraw(number: number): Promise<unknown> { return this.playerAct(number, '/withdraw', 'withdraw'); }

@@ -909,7 +909,9 @@ function detailView(l: Listing): HTMLElement {
                 if (password) rememberPassword(password, l.number);
               }, 'You are registered.', { key: 'register', label: 'Registering…' })();
             };
-            if (l.meta.lock && !d.canWrite) askPassword(l, go); else go('');
+            /* A token is no way past this: the password is what the relay
+               asks for, and the relay is what makes an entry count. */
+            if (l.meta.lock) askPassword(l, go); else go('');
           });
         } }, full ? 'Full' : 'Register')));
     } else {
