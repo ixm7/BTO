@@ -603,7 +603,7 @@ function listTable(rows: Listing[]): HTMLElement {
     h('thead', h('tr', LIST_COLUMNS.map((t) => h(t === 'Players' || t === 'Boards' ? 'th.num' : 'th', t)))),
     h('tbody', rows.map((l) => h('tr',
       h('td', h(`button.open${l.status === 'starting' ? '.starting' : ''}`, {
-        title: l.status === 'starting' ? 'Starting now — open this tournament' : 'Open this tournament',
+        title: l.status === 'starting' ? 'Starting now — go to this tournament' : 'Go to this tournament',
         onclick: () => { location.hash = `t=${l.number}`; },
       }, l.meta.name)),
       /* Two lines in the width of one: the name button has made the row tall
