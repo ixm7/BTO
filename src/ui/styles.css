@@ -746,11 +746,14 @@ button.open.swap { display: inline-block; width: auto; margin-left: 22px; paddin
 .device-why { font-size: .83rem; line-height: 1.45; margin: 0; }
 .device-section .error-text { color: var(--red); }
 .device-section .warn-text { color: var(--red); font-weight: 600; }
-.device-section small.muted { font-size: .83rem; line-height: 1.45; display: block; }
+.device-section small.muted, .device-section small.device-said { font-size: .83rem; line-height: 1.45; display: block; color: var(--muted); }
 /* The code itself: long, wrapped, and plainly not prose. */
-textarea.devcode {
+form.grid textarea.devcode, textarea.devcode {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .78rem; line-height: 1.35; resize: vertical;
   word-break: break-all; white-space: pre-wrap;
+  /* The form caps its textareas at four lines, which is half of this one.
+     It is a long string and the point is to see all of it. */
+  min-height: calc(3 * 1.35em + 16px); max-height: none;
 }
 .device-section .check { font-size: .83rem; color: var(--muted); }

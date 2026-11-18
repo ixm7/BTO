@@ -1945,49 +1945,52 @@ function openSettings(): void {
  * or answer the other's invitations.
  *
  * So the player carries it themselves: everything this site has stored, in
- * one line short enough to paste into a message to yourself.
+ * one line, there to be copied the moment the section is opened.
  */
 function deviceSection(): HTMLElement {
-  const said = h('small.muted');
+  const said = h('small.device-said');
   const code = h('textarea.devcode', {
-    rows: 2, readOnly: true, spellcheck: false, placeholder: 'Press the button and your settings appear here',
-    'aria-label': 'Your settings as a code',
+    rows: 4, readOnly: true, spellcheck: false, 'aria-label': 'Your settings, to copy to your other device',
   }) as HTMLTextAreaElement;
   const paste = h('textarea.devcode', {
-    name: 'devcode', rows: 2, spellcheck: false, autocomplete: 'off',
+    name: 'devcode', rows: 3, spellcheck: false, autocomplete: 'off',
     placeholder: 'Paste the code from your other device',
     'aria-label': 'A settings code from another device',
   }) as HTMLTextAreaElement;
-  const withToken = h('input', { type: 'checkbox', checked: !!settings.token }) as HTMLInputElement;
-  const tokenRow = settings.token
-    ? h('label.check', { title: 'Your tournament-creator token lets its holder write to the tournament repository '
-        + 'directly, beyond anything this site would do. Leave it out if the code is going anywhere you would not '
-        + 'send a password.' },
-      withToken, ' Include my tournament-creator token')
-    : null;
 
-  const make = h('button', {
+  /* Ready before it is asked for: there is nothing to decide, and a code
+     nobody has pressed a button for is one less thing in the way. */
+  void (async () => {
+    try {
+      const text = await pack(collect(localStorage, true));
+      code.value = text;
+      /* Tall enough for the whole of it, so what you are copying is in view. */
+      code.rows = Math.min(12, Math.max(3, Math.ceil(text.length / 46)));
+    } catch (e) {
+      code.value = '';
+      said.replaceChildren(h('span.error-text', (e as Error).message));
+    }
+  })();
+
+  const copy = h('button', {
     type: 'button',
-    title: 'Pack everything this browser knows about you \u2014 your player key, name, level, bidding system and any '
-      + 'tournament passwords \u2014 into one code to paste into Bridge Break on your other device.',
+    title: 'Copy this code, then paste it into Settings on your other device under this same heading. '
+      + 'It carries your player key, name, level, bidding system, any tournament passwords and your '
+      + 'tournament-creator token, so treat it like a password.',
     onclick: () => {
       void (async () => {
+        if (!code.value) return;
         try {
-          const text = await pack(collect(localStorage, !settings.token || withToken.checked));
-          code.value = text;
-          let copied = false;
-          try { await navigator.clipboard.writeText(text); copied = true; } catch { /* selecting is as good */ }
-          if (!copied) { code.focus(); code.select(); }
-          said.replaceChildren(h('span.warn-text', 'Treat this code like a password \u2014 it can enter and withdraw '
-            + 'tournaments as you. '), copied
-            ? `Copied (${text.length} characters). Paste it into Settings on your other device, under this same heading.`
-            : `It is selected above (${text.length} characters) \u2014 copy it yourself, then paste it into Settings on your other device.`);
-        } catch (e) {
-          said.replaceChildren(h('span.error-text', (e as Error).message));
+          await navigator.clipboard.writeText(code.value);
+          said.replaceChildren(`Copied. Paste it into Settings on your other device, under this same heading.`);
+        } catch {
+          code.focus();
+          code.select();
+          said.replaceChildren('Your browser would not let the page copy it. It is selected above — copy it yourself.');
         }
       })();
     },
-  }, 'Copy my settings');
+  }, 'Copy');
 
   /* Pressing once says what is in the code and what will go; pressing again
      does it. Replacing who you are on a device is not a thing to do by a
@@ -2037,13 +2040,14 @@ function deviceSection(): HTMLElement {
       + 'Bridge Break knows you by a key kept in this browser alone, and no browser sync copies it across.' },
       'Playing on more than one device'),
     h('div.grid',
-      h('p.muted.device-why', 'Bridge Break knows you by a key stored in this browser only, and your name and '
-        + 'preferences sit beside it. Browser sync does not carry any of it, so on another device you would be a '
-        + 'different player \u2014 unable to withdraw an entry made here, or to answer an invitation sent to you '
-        + 'there. Carry the code across once and both devices are you.'),
-      h('label', h('span', 'Take my settings with me'), code),
-      tokenRow,
-      h('div.row', make),
+      h('p.muted.device-why', 'Bridge Break identifies you by a key stored in this browser. On another device you '
+        + 'are a different player even if the name is the same. Copy the string below to the other device, and both '
+        + 'devices would see you as the same player.'),
+      code,
+      h('small.muted', h('span.warn-text', 'Treat it like a password. '),
+        'It carries your player key, your settings, any tournament passwords you have been given and your '
+        + 'tournament-creator token if you have one.'),
+      h('div.row', copy),
       h('label', h('span', 'Settings from another device'), paste,
         h('small', 'Everything on this device is replaced by what the code holds, and the page starts again.')),
       h('div.row', use),
