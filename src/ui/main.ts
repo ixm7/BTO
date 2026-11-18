@@ -175,8 +175,15 @@ const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message :
 /** Keep `detail` and `listings` in sync with a Listing fetched elsewhere (e.g. from
  * inside the Partners dialog), and push it to that dialog too, if one is open for it. */
 function syncListing(l: Listing): void {
-  if (detail && detail.number === l.number) detail = l;
-  if (listings) { const i = listings.findIndex((x) => x.number === l.number); if (i >= 0) listings[i] = l; }
+  /* Never back to a skimmed one: the page being looked at has read its
+     comments, and the next poll of the list has not. */
+  if (detail && detail.number === l.number && !(l.skimmed && !detail.skimmed)) detail = l;
+  if (listings) {
+    const i = listings.findIndex((x) => x.number === l.number);
+    /* Same for the list itself, so going back and in again does not have to
+       read it a second time. */
+    if (i >= 0 && !(l.skimmed && !listings[i]?.skimmed)) listings[i] = l;
+  }
   partnersSync?.(l);
   notePartnershipChanges();
   render();
@@ -1178,7 +1185,9 @@ function detailView(l: Listing): HTMLElement {
           h('td.muted', r.systems ?? ''),
           h('td.muted', partnerCell(r)),
           h('td.muted', entry >= l.meta.capacity ? 'waiting list' : ''))))))
-        : h('p.muted', regs ? 'Nobody yet.' : 'Could not load registrations.')));
+        : h('p.muted', regs ? 'Nobody yet.'
+          : l.skimmed ? 'Reading the entry list\u2026'
+          : l.readError ?? 'Could not load registrations.')));
 }
 
 function resultsTable(r: TournamentResults): HTMLElement {
@@ -3215,13 +3224,21 @@ async function route(): Promise<void> {
   detail = listings?.find((l) => l.number === number) ?? null;
   render();
   startPolling(); // catches a partner's invite/accept/unregister while this page stays open
-  if (!detail) {
+  /*
+   * A listing taken from the list may never have had its comments read: the
+   * list skims everything that is not about to start, being played or lately
+   * finished, because reading all of them every minute is more than the
+   * allowance will bear. That is right for a list, where only the numbers
+   * show, and wrong here, where the page is the entry list. So anything
+   * skimmed is read in full on the way in, as it always meant to be.
+   */
+  if (!detail || detail.skimmed) {
     const d = directory();
     if (!d) return;
     try {
       let l = await d.get(number);
       l = await applyAutoRegister(d, l);
-      detail = l; render();
+      syncListing(l);
     } catch (e) { fail(e); }
   }
 }
