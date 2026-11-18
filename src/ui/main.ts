@@ -2032,9 +2032,9 @@ function deviceSection(): HTMLElement {
    */
   const addressed = (text: string): string => {
     const body = [text, '',
-      'Bridge Break settings, to carry this player to another device.',
-      'There: Settings \u2192 "Playing on more than one device" \u2192 paste into "Settings from another device".',
-      'Treat it like a password, and delete this message once you have used it.'].join('\n');
+      'Bridge Break settings, to copy this player to another device.',
+      'At the other device, in Bridge Break, Settings \u2192 "Playing on more than one device" '
+        + '\u2192 paste into "Settings from another device".'].join('\n');
     return `mailto:?subject=${encodeURIComponent('Bridge Break settings')}&body=${encodeURIComponent(body)}`;
   };
 
