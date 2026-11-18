@@ -239,6 +239,12 @@ export interface Listing {
    * rather than absent. Nothing may be decided from their absence.
    */
   skimmed?: boolean;
+  /**
+   * Why the entry list could not be read, when it could not. Kept rather than
+   * swallowed: a page that says "too many requests" because it guessed sends
+   * everybody looking in the wrong place.
+   */
+  readError?: string;
   /** Where the automatic start stands; null when the comments could not be read. */
   plan?: StartPlan | null;
   /** Everyone in the draw, once entries have closed. */
@@ -1228,6 +1234,7 @@ export class Directory {
     let boards: string[] | null = null;
     let abandoned = false;
     let records = false;
+    let readError: string | undefined;
     let names: Record<string, string> = {};
     let cs: RawComment[] = [];
     let readable = true;
@@ -1257,7 +1264,10 @@ export class Directory {
         boards = parseBoards(cs, issue.user?.login ?? '');
         abandoned = parseAbandoned(cs, trusted);
         records = hasRecords(cs);
-      } catch { registrations = null; partners = null; readable = false; }
+      } catch (e) {
+        registrations = null; partners = null; readable = false;
+        readError = (e as Error).message || 'The entry list could not be read.';
+      }
     }
     /* A director's /start, from before starts were automatic, still counts. */
     const plan = readable && !pinned && !results ? planStart(meta, cs, now) : null;
@@ -1276,6 +1286,7 @@ export class Directory {
       pinned, names, plan, ...(field ? { field } : {}), ...(boards ? { boards } : {}), ...(records ? { records } : {}),
       ...(issue.state === 'open' && !results && plan?.kind === 'cancel' ? { noPlayers: true } : {}),
       ...(skimmed ? { skimmed: true } : {}),
+      ...(readError ? { readError } : {}),
       ...(issue.node_id ? { nodeId: issue.node_id } : {}),
     };
   }

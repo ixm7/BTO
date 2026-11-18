@@ -1126,9 +1126,12 @@ function detailView(l: Listing): HTMLElement {
       h('dl.facts.pairs',
         h('dt', 'Director'), h('dd', `${l.meta.director} (@${l.initiatorLogin})`),
         /* How many are in and how many it holds is one fact, not two. */
-        h('dt', 'Players'), h('dd', regs
+        /* When it is not known, say that it is not known. The reason is the
+           one the service gave, and it goes below where there is room for it,
+           rather than being guessed at in four words here. */
+        h('dt', 'Players'), h('dd', { title: regs ? '' : l.readError ?? '' }, regs
           ? `${regs.length} of ${l.meta.capacity}${full ? ' \u2014 full' : ''}`
-          : `? of ${l.meta.capacity} (too many requests just now)`),
+          : `? of ${l.meta.capacity}${l.skimmed ? ' (still loading)' : ''}`),
         h('dt', 'Type'), h('dd', `${scoringName(l.meta.scoring)} \u00b7 robots bid ${l.meta.robots === '2/1' ? '2/1' : 'SAYC'}`),
         h('dt', 'Open to'), h('dd', levelText(l.meta),
           l.meta.lock ? h('span', ` \u00b7 \u{1F512} password needed${rememberedPassword(l.number) ? ' (you have it)' : ' \u2014 ask the director'}`) : null),
@@ -1141,7 +1144,10 @@ function detailView(l: Listing): HTMLElement {
          it rather than on a line of its own above the panel: it is about
          that button, and a line to itself was a line of the page spent. */
       ((note) => { if (note) actions.append(h('span.startnote.muted', note)); return null; })(startNote(l)),
-      actions),
+      actions,
+      /* Said once, in full, where it can be read and reported. */
+      l.readError ? h('div.error', { style: 'margin-top:10px' },
+        `The entry list could not be read, so this page cannot tell who has registered. ${l.readError}`) : null),
     l.results
       ? h('div.panel', { style: 'margin-top:14px' },
           h('div.row', h('h3', 'Final results'), h('span.spacer'),
