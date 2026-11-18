@@ -737,3 +737,7 @@ button.busy { cursor: progress; opacity: .8; }
 /* The back button and whatever has just been done, on one line. */
 .backrow { align-items: center; }
 .backrow .note { flex: 1 1 18em; min-width: 0; margin: 0; padding: 6px 11px; }
+
+/* The records' own navigation: wide enough to read, beside its heading but
+   not against it, and sized to its words rather than to the panel. */
+button.open.swap { display: inline-block; width: auto; margin-left: 22px; padding: 7px 16px; }

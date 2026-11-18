@@ -166,9 +166,15 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   return h('div.panel',
     h('div.row', h('h3', others
         ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
-        : 'Your boards'), h('span.spacer'),
+        : 'Your boards'),
+      /* The way between the two halves of the records, and the thing most
+         people come here to press. It was over on the far edge, away from
+         the boards it works with, and in the quietest style on the page:
+         somebody opening the records for the first time had no reason to
+         think it was there. It sits by the heading now, in the colour the
+         site uses for going somewhere. */
       played
-        ? h('button', {
+        ? h('button.open.swap', {
             onclick: () => on.setMode(others ? 'mine' : 'others'),
             title: others
               ? 'Go back to every board you played at your own table'
