@@ -760,6 +760,13 @@ form.grid textarea.devcode, textarea.devcode {
   min-height: calc(3 * 1.35em + 16px); max-height: none;
 }
 .device-section .check { font-size: .83rem; color: var(--muted); }
+/* The square and what to do with it, side by side while there is room. */
+.qrrow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.qrbox { flex: 0 0 auto; line-height: 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: #fff; }
+.qrbox svg { display: block; width: 268px; height: auto; max-width: 100%; }
+.qrwords { flex: 1 1 14em; min-width: 0; }
+.qrwords p { margin: 0 0 .5rem; font-size: .88rem; line-height: 1.45; }
+.codebox { margin-top: 2px; }
 /* A link that acts as a button, and should look like one. */
 a.actionbtn {
   display: inline-flex; align-items: center; text-decoration: none; color: var(--ink);

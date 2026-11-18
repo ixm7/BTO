@@ -10,19 +10,18 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "preview": "vite preview",
-    "deploy": "npm run build && npx gh-pages -d dist"
+    "preview": "vite preview"
   },
   "dependencies": {
+    "qrcode-generator": "^2.0.4",
     "trystero": "^0.26.0"
   },
   "devDependencies": {
-    "gh-pages": "^6.3.0",
+    "@bridge-tools/dd": "^0.2.2",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
-    "vitest": "^5.1.0",
-    "@bridge-tools/dd": "^0.2.2",
-    "@types/node": "^26.6.6"
+    "vitest": "^5.1.0"
   },
   "private": true,
   "type": "module"

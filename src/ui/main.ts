@@ -6,6 +6,7 @@ import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
 import { cardImps, cardTotal, impText, pairOf, scorecard } from '../tournament/review';
 import { collect, describe, pack, unpack } from './backup';
+import { qrSvg } from './qr';
 import { renderRecords, type RecordsMode } from './review';
 import { pairOfName, recordsOf, stateOfRecords, type HandRecords } from '../tournament/records';
 import { TournamentNode, deviceScore } from '../tournament/node';
@@ -1963,10 +1964,27 @@ function openSettings(): void {
  * one line, there to be copied the moment the section is opened.
  */
 function deviceSection(): HTMLElement {
+  /* Open on arrival, because the person is here to answer one question. */
+  const arriving = !!scanned;
   const said = h('small.device-said');
+  const square = h('div.qrbox');
   const code = h('textarea.devcode', {
     rows: 4, readOnly: true, spellcheck: false, 'aria-label': 'Your settings, to copy to your other device',
   }) as HTMLTextAreaElement;
+  /* The code itself is the fallback, not the first thing to look at: a phone
+     reads the square, and a second computer wants the string. */
+  const codeBox = h('label.codebox', { hidden: true }, h('span', 'The code itself'), code);
+  const reveal = h('button', {
+    type: 'button',
+    title: 'The same settings as the square, written out \u2014 for carrying them to another computer, '
+      + 'which has no camera to read a square with.',
+    onclick: () => {
+      const shut = codeBox.hidden;
+      codeBox.hidden = !shut;
+      reveal.replaceChildren(shut ? 'Hide the code' : 'Show the code');
+      if (shut) { code.focus(); code.select(); }
+    },
+  }, 'Show the code') as HTMLButtonElement;
   const paste = h('textarea.devcode', {
     name: 'devcode', rows: 3, spellcheck: false, autocomplete: 'off',
     placeholder: 'Paste the code from your other device',
@@ -2067,6 +2085,13 @@ function deviceSection(): HTMLElement {
   };
   arm();
   paste.addEventListener('input', () => { if (ready) { arm(); said.replaceChildren(); } });
+  /* Scanned a moment ago on the other device: show it the way a pasted one
+     looks after the first press, so the same second press applies it. */
+  if (scanned) {
+    paste.value = scanned;
+    scanned = null;
+    setTimeout(() => use.click(), 0);
+  }
   use.addEventListener('click', () => {
     if (ready) {
       for (const [k, v] of Object.entries(ready)) {
@@ -2105,13 +2130,21 @@ function deviceSection(): HTMLElement {
       /* Tall enough for the whole of it, so what you are copying is in view. */
       code.rows = Math.min(12, Math.max(3, Math.ceil(text.length / 46)));
       mail.href = addressed(text);
+      /* A link, not a blob: a camera turns a URL into something to tap, and
+         a phone that taps it lands here with the settings in hand. The
+         fragment is never sent to any server, so the key goes no further
+         than the two devices looking at it. */
+      const svg = qrSvg(`${location.origin}${location.pathname}#kit=${text}`,
+        { size: 268, title: 'Your Bridge Break settings, as a code to scan' });
+      if (svg) square.replaceChildren(svg);
+      else square.replaceChildren(h('small.muted', 'These settings are too long to put in a square \u2014 use the code below.'));
     } catch (e) {
       code.value = '';
       said.replaceChildren(h('span.error-text', (e as Error).message));
     }
   })();
 
-  return h('details.device-section',
+  return h('details.device-section', { open: arriving },
     h('summary', { title: 'Only needed if you play on more than one device \u2014 a laptop and a desktop, say. '
       + 'Bridge Break knows you by a key kept in this browser alone, and no browser sync copies it across.' },
       'Playing on more than one device'),
@@ -2119,11 +2152,15 @@ function deviceSection(): HTMLElement {
       h('p.muted.device-why', 'Bridge Break identifies you by a key stored in this browser. On another device you '
         + 'are a different player even if the name is the same. Copy the string below to the other device, and both '
         + 'devices would see you as the same player.'),
-      code,
-      h('small.muted', h('span.warn-text', 'Treat it like a password. '),
-        'It carries your player key, your settings, any tournament passwords you have been given and your '
-        + 'tournament-creator token if you have one.'),
-      h('div.row', copy, mail),
+      h('div.qrrow', square,
+        h('div.qrwords',
+          h('p', h('b', 'On a phone or tablet:'), ' point its camera at this square, open the link it offers, '
+            + 'and the settings come across with it.'),
+          h('small.muted', h('span.warn-text', 'Treat it like a password. '),
+            'The square and the code both carry your player key, your settings, any tournament passwords you '
+            + 'have been given and your tournament-creator token if you have one.'))),
+      h('div.row', copy, mail, reveal),
+      codeBox,
       h('label', h('span', 'Settings from another device'), paste,
         h('small', 'Everything on this device is replaced by what the code holds, and the page starts again.')),
       h('div.row', use),
@@ -3217,7 +3254,27 @@ function render(): void {
     view));
 }
 
+/**
+ * A code that arrived by camera.
+ *
+ * Scanning the square on the other device lands here with the settings in
+ * the fragment. It is taken out of the address at once: a fragment is never
+ * sent to a server, but it would otherwise sit in this phone's history, and
+ * it is a password. Nothing is applied without being confirmed — the code is
+ * put where a pasted one would go, already read and waiting on a press.
+ */
+let scanned: string | null = null;
+
+function takeScannedKit(): boolean {
+  const m = /^#kit=([A-Za-z0-9._-]+)$/.exec(location.hash);
+  if (!m) return false;
+  scanned = m[1] as string;
+  history.replaceState(null, '', `${location.pathname}${location.search}`);
+  return true;
+}
+
 async function route(): Promise<void> {
+  if (takeScannedKit()) { openSettings(); return; }
   const m = /^#t=(\d+)$/.exec(location.hash);
   if (!m) { detail = null; render(); return; }
   const number = Number(m[1]);
