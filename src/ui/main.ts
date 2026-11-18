@@ -5,6 +5,7 @@ import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
 import { planConfig, unmannedTables } from '../tournament/plan';
 import { cardImps, cardTotal, impText, pairOf, scorecard } from '../tournament/review';
+import { collect, describe, pack, unpack } from './backup';
 import { renderRecords, type RecordsMode } from './review';
 import { pairOfName, recordsOf, stateOfRecords, type HandRecords } from '../tournament/records';
 import { TournamentNode, deviceScore } from '../tournament/node';
@@ -1936,89 +1937,115 @@ function openSettings(): void {
 /**
  * Moving yourself to a second machine.
  *
- * A browser invents a private key the first time it is opened and keeps it in
- * that browser, on that machine. The public tag derived from it is who you are
- * to everybody else: it is what signs your entry, and what lets you take it
- * back. Nothing syncs it — not Chrome's own sync, which carries bookmarks and
- * passwords but never a site's storage — so the same person at a laptop and at
- * a desktop is two strangers, each unable to withdraw the other's entry or
- * answer the other's invitations.
+ * Who you are here is a key the browser invented on first run, kept in that
+ * browser on that machine; the name, the level and the system sit beside it.
+ * Nothing carries any of it across — a browser's own sync takes bookmarks and
+ * passwords but never a site's storage — so the same person at a laptop and
+ * at a desktop was two strangers, each unable to withdraw the other's entry
+ * or answer the other's invitations.
  *
- * Carrying the key across is the whole of the fix, and it is the player's to
- * carry: it never leaves their machines, and the relay has no copy to send.
+ * So the player carries it themselves: everything this site has stored, in
+ * one line short enough to paste into a message to yourself.
  */
 function deviceSection(): HTMLElement {
-  const show = h('input.masked', {
-    value: settings.playerKey, readOnly: true, spellcheck: false, autocomplete: 'off',
-    'aria-label': 'Your player key',
-  }) as HTMLInputElement;
   const said = h('small.muted');
-  const paste = h('input', {
-    name: 'otherkey', placeholder: 'Paste the key from your other device', autocomplete: 'off',
-    spellcheck: false, 'aria-label': 'A player key from another device',
-  }) as HTMLInputElement;
+  const code = h('textarea.devcode', {
+    rows: 2, readOnly: true, spellcheck: false, placeholder: 'Press the button and your settings appear here',
+    'aria-label': 'Your settings as a code',
+  }) as HTMLTextAreaElement;
+  const paste = h('textarea.devcode', {
+    name: 'devcode', rows: 2, spellcheck: false, autocomplete: 'off',
+    placeholder: 'Paste the code from your other device',
+    'aria-label': 'A settings code from another device',
+  }) as HTMLTextAreaElement;
+  const withToken = h('input', { type: 'checkbox', checked: !!settings.token }) as HTMLInputElement;
+  const tokenRow = settings.token
+    ? h('label.check', { title: 'Your tournament-creator token lets its holder write to the tournament repository '
+        + 'directly, beyond anything this site would do. Leave it out if the code is going anywhere you would not '
+        + 'send a password.' },
+      withToken, ' Include my tournament-creator token')
+    : null;
 
-  const copy = h('button', {
+  const make = h('button', {
     type: 'button',
-    title: 'Copy this key so you can paste it into Bridge Break on your other device. '
-      + 'Treat it like a password: anyone who has it can enter and withdraw tournaments as you.',
+    title: 'Pack everything this browser knows about you \u2014 your player key, name, level, bidding system and any '
+      + 'tournament passwords \u2014 into one code to paste into Bridge Break on your other device.',
     onclick: () => {
       void (async () => {
         try {
-          await navigator.clipboard.writeText(settings.playerKey);
-          said.replaceChildren('Copied. Paste it into Settings on your other device, under this same heading.');
-        } catch {
-          /* Some browsers refuse the clipboard; selecting it is as good. */
-          show.classList.remove('masked');
-          show.focus();
-          show.select();
-          said.replaceChildren('Your browser would not let the page copy it. It is selected above \u2014 copy it yourself.');
+          const text = await pack(collect(localStorage, !settings.token || withToken.checked));
+          code.value = text;
+          let copied = false;
+          try { await navigator.clipboard.writeText(text); copied = true; } catch { /* selecting is as good */ }
+          if (!copied) { code.focus(); code.select(); }
+          said.replaceChildren(h('span.warn-text', 'Treat this code like a password \u2014 it can enter and withdraw '
+            + 'tournaments as you. '), copied
+            ? `Copied (${text.length} characters). Paste it into Settings on your other device, under this same heading.`
+            : `It is selected above (${text.length} characters) \u2014 copy it yourself, then paste it into Settings on your other device.`);
+        } catch (e) {
+          said.replaceChildren(h('span.error-text', (e as Error).message));
         }
       })();
     },
-  }, 'Copy my key');
+  }, 'Copy my settings');
 
-  const use = h('button.primary', {
-    type: 'button',
-    title: 'Become the player this key belongs to on this device too, so both devices share one entry, '
-      + 'one partnership and one history. Takes effect at once, whether or not you press Save.',
-    onclick: () => {
-      const key = paste.value.trim();
-      if (key === settings.playerKey) { said.replaceChildren('That is already the key this device is using.'); return; }
-      if (!/^[A-Za-z0-9_-]{32,128}$/.test(key)) {
-        said.replaceChildren(h('span.error-text', 'That does not look like a player key. Copy it from the other device with the button above.'));
-        return;
+  /* Pressing once says what is in the code and what will go; pressing again
+     does it. Replacing who you are on a device is not a thing to do by a
+     stray click, and there is nothing to undo it with afterwards. */
+  let ready: Record<string, string> | null = null;
+  const use = h('button.primary', { type: 'button' }, 'Use these settings here');
+  const arm = (): void => {
+    ready = null;
+    use.replaceChildren('Use these settings here');
+    use.classList.remove('danger');
+    use.title = 'Replace this device\u2019s settings with the ones in the code, so both devices are the same player '
+      + 'with the same name. Takes effect at once, whether or not you press Save.';
+  };
+  arm();
+  paste.addEventListener('input', () => { if (ready) { arm(); said.replaceChildren(); } });
+  use.addEventListener('click', () => {
+    if (ready) {
+      for (const [k, v] of Object.entries(ready)) {
+        try { localStorage.setItem(k, v); } catch { /* storage full or blocked */ }
       }
-      settings.playerKey = key;
-      saveSettings(settings);
-      show.value = key;
-      paste.value = '';
-      /* The tag is what everything else keys off, so nothing may be drawn
-         under the old one after this point. */
-      void playerTag(key).then((t) => {
-        myTag = t;
-        said.replaceChildren('Done. This device is now the same player as the other one.');
-        void refresh();
-      }).catch(() => {
-        said.replaceChildren(h('span.error-text', 'This browser cannot work out the tag for that key.'));
-      });
-    },
-  }, 'Use this key here');
+      /* Everything downstream of the settings is already drawn, so the page
+         starts again rather than being patched piece by piece. */
+      location.reload();
+      return;
+    }
+    void (async () => {
+      try {
+        const items = await unpack(paste.value);
+        const what = describe(items);
+        ready = items;
+        use.replaceChildren('Replace my settings');
+        use.classList.add('danger');
+        use.title = 'Press again to replace this device\u2019s settings. There is no undo.';
+        said.replaceChildren(h('span.warn-text', 'This will replace everything on this device. '),
+          `The code holds ${what.name ? `the settings of ${what.name}` : 'a player with no name set'}`
+          + `${what.hasToken ? ', a tournament-creator token' : ''}`
+          + `${what.passwords ? `, and ${what.passwords} remembered tournament password${what.passwords > 1 ? 's' : ''}` : ''}`
+          + '. Press again to go ahead.');
+      } catch (e) {
+        said.replaceChildren(h('span.error-text', (e as Error).message));
+      }
+    })();
+  });
 
   return h('details.device-section',
     h('summary', { title: 'Only needed if you play on more than one device \u2014 a laptop and a desktop, say. '
       + 'Bridge Break knows you by a key kept in this browser alone, and no browser sync copies it across.' },
       'Playing on more than one device'),
     h('div.grid',
-      h('p.muted.device-why', 'Bridge Break knows you by a key stored in this browser only. Browser sync does not '
-        + 'carry it, so on another device you would be a different player \u2014 unable to withdraw an entry made '
-        + 'here, or to answer an invitation sent to you there. Copy the key across once and both devices are you.'),
-      h('label', h('span', 'This device\u2019s key'), show,
-        h('small', 'Keep it to yourself. It is what proves an entry is yours.')),
-      h('div.row', copy),
-      h('label', h('span', 'A key from another device'), paste,
-        h('small', 'Replaces the key above, and only that: the name, level and system on this device stay as they are. '
-          + 'Do this on the device you are bringing across, not on the one you are keeping.')),
+      h('p.muted.device-why', 'Bridge Break knows you by a key stored in this browser only, and your name and '
+        + 'preferences sit beside it. Browser sync does not carry any of it, so on another device you would be a '
+        + 'different player \u2014 unable to withdraw an entry made here, or to answer an invitation sent to you '
+        + 'there. Carry the code across once and both devices are you.'),
+      h('label', h('span', 'Take my settings with me'), code),
+      tokenRow,
+      h('div.row', make),
+      h('label', h('span', 'Settings from another device'), paste,
+        h('small', 'Everything on this device is replaced by what the code holds, and the page starts again.')),
       h('div.row', use),
       said));
 }

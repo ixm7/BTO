@@ -745,4 +745,12 @@ button.open.swap { display: inline-block; width: auto; margin-left: 22px; paddin
 /* Why anybody would want this, said once at the top of the section. */
 .device-why { font-size: .83rem; line-height: 1.45; margin: 0; }
 .device-section .error-text { color: var(--red); }
-.device-section small.muted { font-size: .83rem; }
+.device-section .warn-text { color: var(--red); font-weight: 600; }
+.device-section small.muted { font-size: .83rem; line-height: 1.45; display: block; }
+/* The code itself: long, wrapped, and plainly not prose. */
+textarea.devcode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .78rem; line-height: 1.35; resize: vertical;
+  word-break: break-all; white-space: pre-wrap;
+}
+.device-section .check { font-size: .83rem; color: var(--muted); }
