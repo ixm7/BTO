@@ -1958,39 +1958,72 @@ function deviceSection(): HTMLElement {
     'aria-label': 'A settings code from another device',
   }) as HTMLTextAreaElement;
 
-  /* Ready before it is asked for: there is nothing to decide, and a code
-     nobody has pressed a button for is one less thing in the way. */
-  void (async () => {
-    try {
-      const text = await pack(collect(localStorage, true));
-      code.value = text;
-      /* Tall enough for the whole of it, so what you are copying is in view. */
-      code.rows = Math.min(12, Math.max(3, Math.ceil(text.length / 46)));
-    } catch (e) {
-      code.value = '';
-      said.replaceChildren(h('span.error-text', (e as Error).message));
-    }
-  })();
+  /* A copy is over before the eye registers it, so the button says so for a
+     moment: pressed, then done, then itself again. Without that the only
+     evidence of a press is a clipboard nobody can see. */
+  const flash = (btn: HTMLButtonElement, label: string, then: string, ms = 1800): void => {
+    btn.disabled = true;
+    btn.classList.add('done');
+    btn.replaceChildren(label);
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.classList.remove('done');
+      btn.replaceChildren(then);
+    }, ms);
+  };
 
   const copy = h('button', {
     type: 'button',
     title: 'Copy this code, then paste it into Settings on your other device under this same heading. '
       + 'It carries your player key, name, level, bidding system, any tournament passwords and your '
       + 'tournament-creator token, so treat it like a password.',
-    onclick: () => {
+    onclick: (e: Event) => {
+      const btn = e.currentTarget as HTMLButtonElement;
       void (async () => {
         if (!code.value) return;
+        markBusy(btn, 'Copying\u2026');
         try {
           await navigator.clipboard.writeText(code.value);
-          said.replaceChildren(`Copied. Paste it into Settings on your other device, under this same heading.`);
+          btn.dataset.busy = '';
+          btn.classList.remove('busy');
+          flash(btn, '\u2713 Copied', 'Copy');
+          said.replaceChildren('Copied. Paste it into Settings on your other device, under this same heading \u2014 '
+            + 'or into an email to yourself, to carry it there.');
         } catch {
+          btn.dataset.busy = '';
+          btn.classList.remove('busy');
+          btn.disabled = false;
+          btn.replaceChildren('Copy');
           code.focus();
           code.select();
-          said.replaceChildren('Your browser would not let the page copy it. It is selected above — copy it yourself.');
+          said.replaceChildren('Your browser would not let the page copy it. It is selected above \u2014 copy it yourself.');
         }
       })();
     },
-  }, 'Copy');
+  }, 'Copy') as HTMLButtonElement;
+
+  /* The usual way this gets from one machine to the other. A real link, so
+     the browser opens the mail program the way it opens any other: on a
+     machine that sends no mail nothing happens, which is why this stands
+     beside Copy rather than instead of it. */
+  const mail = h('a.actionbtn', {
+    role: 'button',
+    title: 'Open a new email with the code in it, to send to yourself and open on the other device. '
+      + 'Delete the message once you have used it: it is a password, and mail keeps copies.',
+    onclick: () => {
+      said.replaceChildren('If no email opened, this device has no mail program set up \u2014 use Copy instead.');
+    },
+  }, 'Email the code') as HTMLAnchorElement;
+
+  /** The letter the button opens, written once the code exists. */
+  const addressed = (text: string): string => {
+    const body = ['Bridge Break settings, to carry this player to another device.', '',
+      'On the other device: open Bridge Break, go to Settings, open "Playing on more than one device",',
+      'paste the code below into "Settings from another device", and press the button twice.', '',
+      text, '',
+      'Treat this code like a password, and delete this message once you have used it.'].join('\n');
+    return `mailto:?subject=${encodeURIComponent('Bridge Break settings')}&body=${encodeURIComponent(body)}`;
+  };
 
   /* Pressing once says what is in the code and what will go; pressing again
      does it. Replacing who you are on a device is not a thing to do by a
@@ -2035,6 +2068,21 @@ function deviceSection(): HTMLElement {
     })();
   });
 
+  /* Ready before it is asked for: there is nothing to decide, and a code
+     nobody has pressed a button for is one less thing in the way. */
+  void (async () => {
+    try {
+      const text = await pack(collect(localStorage, true));
+      code.value = text;
+      /* Tall enough for the whole of it, so what you are copying is in view. */
+      code.rows = Math.min(12, Math.max(3, Math.ceil(text.length / 46)));
+      mail.href = addressed(text);
+    } catch (e) {
+      code.value = '';
+      said.replaceChildren(h('span.error-text', (e as Error).message));
+    }
+  })();
+
   return h('details.device-section',
     h('summary', { title: 'Only needed if you play on more than one device \u2014 a laptop and a desktop, say. '
       + 'Bridge Break knows you by a key kept in this browser alone, and no browser sync copies it across.' },
@@ -2047,7 +2095,7 @@ function deviceSection(): HTMLElement {
       h('small.muted', h('span.warn-text', 'Treat it like a password. '),
         'It carries your player key, your settings, any tournament passwords you have been given and your '
         + 'tournament-creator token if you have one.'),
-      h('div.row', copy),
+      h('div.row', copy, mail),
       h('label', h('span', 'Settings from another device'), paste,
         h('small', 'Everything on this device is replaced by what the code holds, and the page starts again.')),
       h('div.row', use),

@@ -757,3 +757,13 @@ form.grid textarea.devcode, textarea.devcode {
   min-height: calc(3 * 1.35em + 16px); max-height: none;
 }
 .device-section .check { font-size: .83rem; color: var(--muted); }
+/* A link that acts as a button, and should look like one. */
+a.actionbtn {
+  display: inline-flex; align-items: center; text-decoration: none; color: var(--ink);
+  border: 1px solid rgba(29, 90, 122, .62); background: var(--card);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer;
+}
+a.actionbtn:hover { border-color: var(--nav); box-shadow: inset 0 0 0 1px var(--nav); }
+/* The moment after a press: the button holds the word for a second or two. */
+button.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.done:disabled { opacity: 1; cursor: default; }
