@@ -2008,20 +2008,33 @@ function deviceSection(): HTMLElement {
      beside Copy rather than instead of it. */
   const mail = h('a.actionbtn', {
     role: 'button',
+    /* A tab of its own where mail is a website, rather than this page being
+       navigated away from the tournament it is showing. */
+    target: '_blank',
+    rel: 'noopener',
     title: 'Open a new email with the code in it, to send to yourself and open on the other device. '
       + 'Delete the message once you have used it: it is a password, and mail keeps copies.',
     onclick: () => {
-      said.replaceChildren('If no email opened, this device has no mail program set up \u2014 use Copy instead.');
+      said.replaceChildren('The email window belongs to your mail program, not to Bridge Break. The code is the '
+        + 'first thing in the message, so it is readable even if the window opens too small. If no email opened '
+        + 'at all, this device has no mail program set up \u2014 use Copy instead.');
     },
   }, 'Email the code') as HTMLAnchorElement;
 
-  /** The letter the button opens, written once the code exists. */
+  /**
+   * The letter the button opens.
+   *
+   * The code comes first and the explanation after it. The window belongs to
+   * whatever program the machine sends mail with, and some of them open it
+   * too small for the message and will not be resized — so the one part that
+   * must survive being cut off the bottom is put at the top, where it can be
+   * read and copied whatever the window does. The rest is three short lines.
+   */
   const addressed = (text: string): string => {
-    const body = ['Bridge Break settings, to carry this player to another device.', '',
-      'On the other device: open Bridge Break, go to Settings, open "Playing on more than one device",',
-      'paste the code below into "Settings from another device", and press the button twice.', '',
-      text, '',
-      'Treat this code like a password, and delete this message once you have used it.'].join('\n');
+    const body = [text, '',
+      'Bridge Break settings, to carry this player to another device.',
+      'There: Settings \u2192 "Playing on more than one device" \u2192 paste into "Settings from another device".',
+      'Treat it like a password, and delete this message once you have used it.'].join('\n');
     return `mailto:?subject=${encodeURIComponent('Bridge Break settings')}&body=${encodeURIComponent(body)}`;
   };
 
