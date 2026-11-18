@@ -1150,7 +1150,7 @@ function detailView(l: Listing): HTMLElement {
               ? h('button', {
                   onclick: () => openPastRecords(l),
                   title: 'The deal, the bidding at every table and what it scored, board by board',
-                }, pastRecords?.number === l.number ? 'Hide hand records' : 'Hand records')
+                }, pastRecords?.number === l.number ? 'Hide hand records' : 'Show hand records')
               : null),
           resultsTable(l.results))
       : null,
