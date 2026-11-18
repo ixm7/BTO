@@ -1908,6 +1908,10 @@ function openSettings(): void {
       h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
         h('input', { type: 'checkbox', name: 'sound', checked: settings.sound }), ' Play sounds at the table'),
 
+      /* Shut to begin with, like the section below it: most people play on
+         one machine and never need to think about any of this. */
+      deviceSection(),
+
       /* Always shut to begin with: a player who has a token has long since
          set it up, and the section is of no interest to anybody else. */
       h('details.director-section',
@@ -1927,6 +1931,96 @@ function openSettings(): void {
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'), h('button.primary', { type: 'submit' }, 'Save')));
     return form;
   });
+}
+
+/**
+ * Moving yourself to a second machine.
+ *
+ * A browser invents a private key the first time it is opened and keeps it in
+ * that browser, on that machine. The public tag derived from it is who you are
+ * to everybody else: it is what signs your entry, and what lets you take it
+ * back. Nothing syncs it — not Chrome's own sync, which carries bookmarks and
+ * passwords but never a site's storage — so the same person at a laptop and at
+ * a desktop is two strangers, each unable to withdraw the other's entry or
+ * answer the other's invitations.
+ *
+ * Carrying the key across is the whole of the fix, and it is the player's to
+ * carry: it never leaves their machines, and the relay has no copy to send.
+ */
+function deviceSection(): HTMLElement {
+  const show = h('input.masked', {
+    value: settings.playerKey, readOnly: true, spellcheck: false, autocomplete: 'off',
+    'aria-label': 'Your player key',
+  }) as HTMLInputElement;
+  const said = h('small.muted');
+  const paste = h('input', {
+    name: 'otherkey', placeholder: 'Paste the key from your other device', autocomplete: 'off',
+    spellcheck: false, 'aria-label': 'A player key from another device',
+  }) as HTMLInputElement;
+
+  const copy = h('button', {
+    type: 'button',
+    title: 'Copy this key so you can paste it into Bridge Break on your other device. '
+      + 'Treat it like a password: anyone who has it can enter and withdraw tournaments as you.',
+    onclick: () => {
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(settings.playerKey);
+          said.replaceChildren('Copied. Paste it into Settings on your other device, under this same heading.');
+        } catch {
+          /* Some browsers refuse the clipboard; selecting it is as good. */
+          show.classList.remove('masked');
+          show.focus();
+          show.select();
+          said.replaceChildren('Your browser would not let the page copy it. It is selected above \u2014 copy it yourself.');
+        }
+      })();
+    },
+  }, 'Copy my key');
+
+  const use = h('button.primary', {
+    type: 'button',
+    title: 'Become the player this key belongs to on this device too, so both devices share one entry, '
+      + 'one partnership and one history. Takes effect at once, whether or not you press Save.',
+    onclick: () => {
+      const key = paste.value.trim();
+      if (key === settings.playerKey) { said.replaceChildren('That is already the key this device is using.'); return; }
+      if (!/^[A-Za-z0-9_-]{32,128}$/.test(key)) {
+        said.replaceChildren(h('span.error-text', 'That does not look like a player key. Copy it from the other device with the button above.'));
+        return;
+      }
+      settings.playerKey = key;
+      saveSettings(settings);
+      show.value = key;
+      paste.value = '';
+      /* The tag is what everything else keys off, so nothing may be drawn
+         under the old one after this point. */
+      void playerTag(key).then((t) => {
+        myTag = t;
+        said.replaceChildren('Done. This device is now the same player as the other one.');
+        void refresh();
+      }).catch(() => {
+        said.replaceChildren(h('span.error-text', 'This browser cannot work out the tag for that key.'));
+      });
+    },
+  }, 'Use this key here');
+
+  return h('details.device-section',
+    h('summary', { title: 'Only needed if you play on more than one device \u2014 a laptop and a desktop, say. '
+      + 'Bridge Break knows you by a key kept in this browser alone, and no browser sync copies it across.' },
+      'Playing on more than one device'),
+    h('div.grid',
+      h('p.muted.device-why', 'Bridge Break knows you by a key stored in this browser only. Browser sync does not '
+        + 'carry it, so on another device you would be a different player \u2014 unable to withdraw an entry made '
+        + 'here, or to answer an invitation sent to you there. Copy the key across once and both devices are you.'),
+      h('label', h('span', 'This device\u2019s key'), show,
+        h('small', 'Keep it to yourself. It is what proves an entry is yours.')),
+      h('div.row', copy),
+      h('label', h('span', 'A key from another device'), paste,
+        h('small', 'Replaces the key above, and only that: the name, level and system on this device stay as they are. '
+          + 'Do this on the device you are bringing across, not on the one you are keeping.')),
+      h('div.row', use),
+      said));
 }
 
 const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Creator section in Settings '

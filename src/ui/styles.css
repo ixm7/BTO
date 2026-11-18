@@ -207,11 +207,11 @@ span.tip { display: inline-flex; }
 .status-line .claim-btn:disabled { opacity: .55; cursor: not-allowed; }
 
 /* Tournament Director subsection in Settings */
-details.director-section { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
-details.director-section summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--ink); padding: 4px 0; }
-details.director-section summary::marker { color: var(--muted); }
-details.director-section > .grid { display: grid; gap: 10px; margin-top: 8px; }
-details.director-section > .grid label { display: grid; gap: 3px; font-size: .85rem; color: var(--muted); }
+details.device-section, details.director-section { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
+details.device-section summary, details.director-section summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--ink); padding: 4px 0; }
+details.device-section summary::marker, details.director-section summary::marker { color: var(--muted); }
+details.device-section > .grid, details.director-section > .grid { display: grid; gap: 10px; margin-top: 8px; }
+details.device-section > .grid label, details.director-section > .grid label { display: grid; gap: 3px; font-size: .85rem; color: var(--muted); }
 details.director-section > .grid input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
 details.director-section > .grid small { color: var(--muted); }
 input.masked { -webkit-text-security: disc; text-security: disc; }
@@ -741,3 +741,8 @@ button.busy { cursor: progress; opacity: .8; }
 /* The records' own navigation: wide enough to read, beside its heading but
    not against it, and sized to its words rather than to the panel. */
 button.open.swap { display: inline-block; width: auto; margin-left: 22px; padding: 7px 16px; }
+
+/* Why anybody would want this, said once at the top of the section. */
+.device-why { font-size: .83rem; line-height: 1.45; margin: 0; }
+.device-section .error-text { color: var(--red); }
+.device-section small.muted { font-size: .83rem; }
