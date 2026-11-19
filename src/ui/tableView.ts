@@ -201,7 +201,7 @@ export interface TableViewOptions {
   /** Level and description of each player, by id. */
   playerInfo?: Map<string, { note?: string; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean }>;
   /** Show a player's details in full. */
-  onPlayerInfo?(p: { name: string; seat: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string }): void;
+  onPlayerInfo?(p: { name: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string }): void;
   /** The system this tournament's robots bid. */
   robots?: 'sayc' | '2/1';
 }
@@ -257,7 +257,6 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     }
     const tags = [isDummy ? 'dummy' : '', play && play.contract.declarer === seat ? 'declarer' : '', away ? 'away' : ''].filter(Boolean).join(', ');
     const info = o.playerInfo?.get(player.id);
-    const seatName = `${SEAT_NAMES[seat]}${vul ? ' (vulnerable)' : ''}`;
     /* The tooltip says it all in brief; a click opens it with room to read. */
     /*
      * A player who has filled in a pair card has said it twice: what they bid
@@ -276,7 +275,7 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       ? [[info?.pairSystem, info?.pairVsNt].filter(Boolean).join(', '),
         ...(info?.pairNote ? [info.pairNote] : [])].filter(Boolean).join('\n')
       : '';
-    const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}),
+    const details = { name: player.name, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}),
       ...(info?.systems ? { systems: info.systems } : {}), ...(info?.pairSystem ? { pairSystem: info.pairSystem } : {}),
       ...(info?.pairVsNt ? { pairVsNt: info.pairVsNt } : {}),
       ...(info?.pairNote ? { pairNote: info.pairNote } : {}), ...(info?.pairCard ? { pairCard: true } : {}),

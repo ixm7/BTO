@@ -1485,12 +1485,11 @@ const playerTitle = (p: { name: string; skill?: string }): string =>
 
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
-  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string; partner?: string },
+  p: { name: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
     dialog(playerTitle(p), () => h('div.about',
-      p.seat ? h('p.muted', p.seat) : null,
       h('ul',
         robots === '2/1'
           ? h('li', h('b', '2/1:'), ' two-over-one game forcing, forcing 1NT over a major, 5-card majors, 15\u201317 1NT, Stayman, Jacoby transfers, '
@@ -1517,7 +1516,6 @@ function openPlayerInfo(
   const agreed = [p.pairSystem, p.pairVsNt].filter(Boolean).join(', ');
   dialog(playerTitle(p), () => h('div',
     h('dl.facts',
-      p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
       hasPair ? null : [h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given'))],
       hasPair ? null : [h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description'))],
       p.partner ? [h('dt', 'Partner'), h('dd', p.partner)] : null),
