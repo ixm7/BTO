@@ -3119,7 +3119,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'),
     state && state.results.length > 0
-      ? h('button', {
+      ? h('button.open.inline', {
           disabled: myTurn,
           onclick: () => { reviewing = !reviewing; recBoard = null; recTable = null; recMode = 'mine'; render(); },
           title: myTurn
