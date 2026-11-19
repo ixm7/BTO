@@ -7,6 +7,7 @@
  * whichever line is selected.
  */
 import { SUIT_SYMBOLS, cardSuit, rankChar, sortForDisplay, type Card, type Seat } from '../engine/cards';
+import { isVulnerable, type Vulnerability } from '../engine/deal';
 import { callToString, type Call } from '../engine/bidding';
 import { boardComplete, impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
 import type { BoardResult, TState } from '../tournament/state';
@@ -33,17 +34,23 @@ export interface RecordsHandlers {
 }
 
 /** One hand written the way a hand record prints it: a line per suit. */
-function handBlock(cards: readonly Card[], label: string, highlight: boolean): HTMLElement {
+function handBlock(cards: readonly Card[], label: string, highlight: boolean, vul: boolean): HTMLElement {
   const lines = SUIT_ORDER.map((suit) => {
     const inSuit = sortForDisplay(cards.filter((c) => cardSuit(c) === suit));
     const ranks = inSuit.map((c) => (rankChar(c) === 'T' ? '10' : rankChar(c))).join('');
     return h(`div.hl${isRed(suit) ? '.r' : ''}`, h('span.hs', SUIT_SYMBOLS[suit]), h('span.hr', ranks || '—'));
   });
-  return h(`div.handblock${highlight ? '.me' : ''}`, h('div.hname', label), ...lines);
+  return h(`div.handblock${highlight ? '.me' : ''}`,
+    h(`div.hname${vul ? '.vul' : ''}`, { title: vul ? `${label} is vulnerable` : '' }, label), ...lines);
 }
 
-/** The auction as it was bid, in seat columns. */
-function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }[]): HTMLElement {
+/**
+ * The auction as it was bid, in seat columns. Vulnerable sides wear the red
+ * over their column, as at the table and as a hand record prints it: without
+ * it the bidding cannot be read for what it risked.
+ */
+function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }[],
+  vul: Vulnerability): HTMLElement {
   const order: Seat[] = ['W', 'N', 'E', 'S'];
   const cells: HTMLElement[] = [];
   if (calls.length > 0) {
@@ -58,8 +65,10 @@ function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }
   }
   const rows: HTMLElement[] = [];
   for (let i = 0; i < cells.length; i += 4) rows.push(h('tr', cells.slice(i, i + 4)));
+  const red = (s: Seat): boolean => isVulnerable(vul, s === 'N' || s === 'S' ? 'NS' : 'EW');
   return h('div.auction.review-auction', h('table',
-    h('thead', h('tr', order.map((s) => h('th', s)))),
+    h('thead', h('tr', order.map((s) => h(`th${red(s) ? '.vul' : ''}`,
+      { title: red(s) ? `${SEAT_NAMES[s]} is vulnerable` : '' }, s)))),
     h('tbody', rows.length ? rows : [h('tr', h('td', { colSpan: 4 }, 'No bidding recorded'))])));
 }
 
@@ -128,17 +137,18 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   const { N, E, S, W } = review.hands;
   const ourSeats = review.own ? (review.own.result.nsPair === myPair ? 'NS' : 'EW') : '';
 
+  const red = (seat: Seat): boolean => isVulnerable(review.vul, seat === 'N' || seat === 'S' ? 'NS' : 'EW');
   const diagram = h('div.deal',
-    h('div.d-top', handBlock(N, 'North', ourSeats.includes('N'))),
-    h('div.d-left', handBlock(W, 'West', ourSeats.includes('W'))),
+    h('div.d-top', handBlock(N, 'North', ourSeats.includes('N'), red('N'))),
+    h('div.d-left', handBlock(W, 'West', ourSeats.includes('W'), red('W'))),
     h('div.d-mid',
       h('div', h('b', `Board ${board}`)),
       h('div.muted', `Dealer ${SEAT_NAMES[review.dealer]}`),
       h('div.muted', `Vul ${review.vul}`),
       shown ? h('div.muted', { style: 'margin-top:6px' }, `Table ${shown.result.table + 1}`) : null,
       shown ? h('div', h('b', shown.result.text)) : null),
-    h('div.d-right', handBlock(E, 'East', ourSeats.includes('E'))),
-    h('div.d-bottom', handBlock(S, 'South', ourSeats.includes('S'))));
+    h('div.d-right', handBlock(E, 'East', ourSeats.includes('E'), red('E'))),
+    h('div.d-bottom', handBlock(S, 'South', ourSeats.includes('S'), red('S'))));
 
   /*
    * The boards, always on screen. In "other tables" the list below is that
@@ -208,7 +218,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
         ? h('div.bidblock', h('h4', !played || (others && view.table !== null)
               ? `Table ${shown.result.table + 1} Auction`
               : 'My Table Auction'),
-            auctionTable(shown.result.auction))
+            auctionTable(shown.result.auction, review.vul))
         : null,
       diagram));
 }

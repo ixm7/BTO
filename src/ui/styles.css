@@ -608,12 +608,25 @@ button.pc:disabled { opacity: 1; }
   grid-area: mid; align-self: center; justify-self: center; text-align: center;
   font-size: .85rem; line-height: 1.5;
 }
+/* A hand record is read as four boxes; a box needs an edge you can see. The
+   page's hairline rule is for separating text, and around a card of its own
+   it disappeared — the only hands with a visible edge were the two the
+   reader had held, which made an accident of layout look like a statement. */
 .handblock {
   min-width: clamp(118px, 11vw, 168px);
-  border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: #fff;
+  border: 1px solid #8d9a94; border-radius: 6px; padding: 6px 9px; background: #fff;
   font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
 }
-.handblock .hname { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+/* The seat's name is a header over its cards rather than a word sitting on
+   top of them: centred, ruled off, and reaching the edges of the block. A
+   vulnerable side wears the red there, which is the one thing a hand record
+   must say that the cards themselves cannot. */
+.handblock .hname {
+  font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  margin: -6px -9px 5px; padding: 3px 9px 2px; text-align: center;
+  border-bottom: 1px solid #8d9a94; border-radius: 5px 5px 0 0;
+}
+.handblock .hname.vul { background: var(--red); color: #fff; border-bottom-color: var(--red-dark); }
 .handblock .hl { display: flex; gap: 6px; line-height: 1.32; font-size: clamp(.9rem, 1vw, 1.08rem); }
 .handblock .hl.r { color: var(--red); }
 .handblock .hs { width: 1em; text-align: center; }
@@ -647,7 +660,12 @@ button.pc:disabled { opacity: 1; }
 .deal-wrap > .bidblock { width: clamp(168px, 16vw, 248px); }
 .deal-wrap .auction table { font-size: clamp(.9rem, 1vw, 1.08rem); line-height: 1.32; }
 .deal-wrap .auction th, .deal-wrap .auction td { padding: .2em .24em; }
-.handblock.me { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,92,69,.15); }
+/* The same edge the hands wear, so the five boxes of a record match. */
+.deal-wrap .auction table { box-shadow: 0 0 0 1px #8d9a94; }
+/* The hands the reader held. Marked with a halo rather than an edge of its
+   own: four boxes with one of them differently bordered reads as a mistake,
+   where a glow around two of them reads as the point it is making. */
+.handblock.me { box-shadow: 0 0 0 3px rgba(31, 92, 69, .22); }
 
 /* ---- claims: the question sits on the felt where the trick would be ---- */
 .center .claimbox {
