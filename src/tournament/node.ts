@@ -49,7 +49,7 @@ export interface RobotBrain {
  * action at a table a person is sitting at is spaced by this; tables with
  * nobody at them play with no pause at all.
  */
-export const ROBOT_DELAY_MS = 1000;
+export const ROBOT_DELAY_MS = 1500;
 
 export interface NodeOptions {
   /** Delay before a robot acts, so humans can follow the play. */
