@@ -9,7 +9,7 @@ import { collect, describe, pack, unpack } from './backup';
 import { qrSvg } from './qr';
 import { renderRecords, type RecordsMode } from './review';
 import { pairOfName, recordsOf, stateOfRecords, type HandRecords } from '../tournament/records';
-import { TournamentNode, deviceScore } from '../tournament/node';
+import { ROBOT_DELAY_MS, TournamentNode, deviceScore } from '../tournament/node';
 import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
 import { SEATS } from '../engine/cards';
 import { installHoverTips } from './hoverTip';
@@ -2658,7 +2658,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
     const login = settings.githubLogin.trim().toLowerCase();
     const isDirector = !!info.listing && !!login && info.listing.initiatorLogin.toLowerCase() === login;
     room = info;
-    node = attach(transport, info, isDirector, 900);
+    node = attach(transport, info, isDirector, ROBOT_DELAY_MS);
     render();
   } catch (e) { fail(e); }
 }
@@ -2686,7 +2686,7 @@ function startDemo(): void {
   errorMsg = null; notice = null; published = false;
   const info: RoomInfo = { id: 'demo', name: 'Demo: you and seven robots', boardsPerRound: 2, rounds: 2, minTables: 2, listing: null, demo: true };
   room = info;
-  node = attach(new MemoryHub().connect(), info, true, 900);
+  node = attach(new MemoryHub().connect(), info, true, ROBOT_DELAY_MS);
   node.start({ id: info.id, name: info.name, boardsPerRound: 2, rounds: 2, minTables: 2 });
   render();
 }

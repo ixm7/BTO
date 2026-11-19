@@ -42,6 +42,15 @@ export interface RobotBrain {
   card(play: PlayState, seat: Seat, auction: AuctionState | null, system: RobotSystem): Promise<Card>;
 }
 
+/*
+ * How long a robot waits before it calls or plays. It is not thinking time —
+ * the robot has its answer at once — it is reading time for the people at the
+ * table, who have to see a card land before the next one does. Every robot
+ * action at a table a person is sitting at is spaced by this; tables with
+ * nobody at them play with no pause at all.
+ */
+export const ROBOT_DELAY_MS = 1000;
+
 export interface NodeOptions {
   /** Delay before a robot acts, so humans can follow the play. */
   botDelayMs?: number;
@@ -139,7 +148,7 @@ export class TournamentNode {
 
   constructor(readonly transport: Transport, readonly me: Me, opts: NodeOptions = {}) {
     this.o = {
-      botDelayMs: opts.botDelayMs ?? 700,
+      botDelayMs: opts.botDelayMs ?? ROBOT_DELAY_MS,
       robot: opts.robot,
       tableIndex: opts.tableIndex,
       absentGraceMs: opts.absentGraceMs ?? 20000,

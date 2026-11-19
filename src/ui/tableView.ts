@@ -269,7 +269,9 @@ export function renderTable(o: TableViewOptions): HTMLElement {
     const named = info?.skill ? `${player.name} [${info.skill}]` : player.name;
     const tip = player.bot ? `${player.name}\nBids ${o.robots === '2/1' ? 'Two-over-One (2/1)' : 'Standard American (SAYC)'} and explains each bid.\nClick for details.`
       : [named,
-        ...(hasPair ? [] : [`Bidding: ${info?.systems || 'not given'}`, `Description: ${info?.note || 'none'}`])].join('\n');
+        /* Under a name, a system and a sentence need no words in front of
+           them to say which is which. */
+        ...(hasPair ? [] : [info?.systems, info?.note].filter(Boolean) as string[])].join('\n');
     /* Kept apart from the player's own lines, and shown apart from them. */
     const tipPair = hasPair
       ? [[info?.pairSystem, info?.pairVsNt].filter(Boolean).join(', '),

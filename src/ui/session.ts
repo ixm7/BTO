@@ -12,7 +12,7 @@
  * round about to be played.
  */
 import { resultsRoom, seatOf, tableRoom } from '../tournament/plan';
-import { TournamentNode, type Me, type RobotBrain } from '../tournament/node';
+import { ROBOT_DELAY_MS, TournamentNode, type Me, type RobotBrain } from '../tournament/node';
 import { mergeSeating, type BoardResult, type Seating, type TournamentConfig } from '../tournament/state';
 import type { Transport } from '../net/transport';
 
@@ -150,7 +150,7 @@ export class TournamentSession {
          table it may leave again in a moment. */
       ...(at ? {} : { deviceScore: 1, isDirector: false }),
     }, {
-      botDelayMs: this.o.botDelayMs ?? 900,
+      botDelayMs: this.o.botDelayMs ?? ROBOT_DELAY_MS,
       robot: this.o.robot,
       ...(this.o.wake ? { wake: this.o.wake } : {}),
       tableIndex: table,
