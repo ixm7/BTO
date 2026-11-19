@@ -82,7 +82,7 @@ const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
 export function renderRecords(state: TState, myPair: number | null, view: RecordsView, on: RecordsHandlers): HTMLElement {
   const boards = [...new Set(state.results.map((r) => r.board))].sort((a, b) => a - b);
   if (boards.length === 0) {
-    return h('div.panel', h('h3', 'Hand records'),
+    return h('div.panel', h('h3', 'Hand Records'),
       h('p.muted', 'Nothing finished yet. Boards appear here as they are played.'));
   }
 
@@ -166,7 +166,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   return h('div.panel',
     h('div.row', h('h3', others
         ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
-        : 'Your boards'),
+        : 'Your Boards'),
       /* The way between the two halves of the records, and the thing most
          people come here to press. It was over on the far edge, away from
          the boards it works with, and in the quietest style on the page:
@@ -179,7 +179,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
             title: others
               ? 'Go back to every board you played at your own table'
               : 'See what every other table did with this same board',
-          }, others ? 'My table' : 'Other tables')
+          }, others ? 'My Table' : 'Other Tables')
         : null),
     strip,
     h('p.muted', !played
@@ -197,11 +197,18 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
         .map((t) => (played ? t : t.replace(/^We/, 'N-S').replace(/^They/, 'E-W')))
         .map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
       h('tbody', rows))),
-    h('div.deal-wrap', diagram),
-    shown?.result.auction
-      ? h('div', h('h4', !played || (others && view.table !== null)
-            ? `How table ${shown.result.table + 1} bid it`
-            : 'How you bid it'),
-          auctionTable(shown.result.auction))
-      : null);
+    /*
+     * The deal is three columns with the top hand in the middle, so the
+     * corner beside it is empty: wide enough and the bidding sits there,
+     * level with the hands, instead of below the whole diagram where it was
+     * a scroll away. Too narrow for both and it drops back underneath.
+     */
+    h('div.deal-wrap',
+      shown?.result.auction
+        ? h('div.bidblock', h('h4', !played || (others && view.table !== null)
+              ? `How table ${shown.result.table + 1} bid it`
+              : 'How you bid it'),
+            auctionTable(shown.result.auction))
+        : null,
+      diagram));
 }

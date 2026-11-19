@@ -440,7 +440,7 @@ function inviteBanner(): HTMLElement | null {
         h('button.primary', { onclick: (e: Event) => answer(l.number, i.from, true, e) }, 'Accept')),
       stillWaiting(answerKey(l.number, i.from, false),
         h('button.danger', { onclick: (e: Event) => answer(l.number, i.from, false, e) }, 'Decline')),
-      h('button.link', { onclick: () => openPartners(l) }, 'Partners list')))));
+      h('button.link', { onclick: () => openPartners(l) }, 'Partners List')))));
 }
 
 /*
@@ -687,7 +687,7 @@ function askAboutClash(l: Listing, go: () => void): void {
     h('p.muted', `Reckoned at ${BOARD_MINUTES} minutes a board and ${BETWEEN_ROUNDS_MINUTES} between rounds, so it is an estimate rather than a promise.`),
     h('div.row', h('span.spacer'),
       h('button', { onclick: close }, 'Cancel'),
-      h('button.primary', { onclick: () => { close(); go(); } }, 'Enter anyway'))));
+      h('button.primary', { onclick: () => { close(); go(); } }, 'Enter Anyway'))));
 }
 /* "3 rounds x 3 boards": the arithmetic of the number beside it, written the
    way a player would say it rather than as a sentence. */
@@ -745,7 +745,7 @@ function directoryView(): HTMLElement {
     }
     if (onlyOpen && !shown.length) {
       body.append(h('p', { style: 'margin:10px 2px' },
-        h('button.link', { onclick: () => { onlyOpen = false; render(); } }, 'Show all tournaments')));
+        h('button.link', { onclick: () => { onlyOpen = false; render(); } }, 'Show All Tournaments')));
     }
   }
   return h('div',
@@ -755,13 +755,13 @@ function directoryView(): HTMLElement {
       d ? h('label.check', { title: 'Show only tournaments that have not started and still have room' },
         h('input', { type: 'checkbox', checked: onlyOpen, onchange: (e: Event) => { onlyOpen = (e.target as HTMLInputElement).checked; render(); } }),
         ' Open for registration') : null,
-      h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join private room'),
+      h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join Private Room'),
       h('button', { onclick: startDemo }, 'Play a demo vs robots'),
       !d ? null : d.canWrite
-        ? h('button.primary', { onclick: openCreate }, 'New tournament')
+        ? h('button.primary', { onclick: openCreate }, 'New Tournament')
         /* Only a token can write a tournament into the list. The tooltip hangs
            on a wrapper, since a disabled button is sent no mouse events. */
-        : h('span.tip', { title: DIRECTOR_NOTE }, h('button.primary', { disabled: true }, 'New tournament'))),
+        : h('span.tip', { title: DIRECTOR_NOTE }, h('button.primary', { disabled: true }, 'New Tournament'))),
     body);
 }
 
@@ -883,11 +883,11 @@ function boardControls(l: Listing): HTMLElement | null {
         ? 'Upload a different PBN/LIN file to play instead of the boards you uploaded'
         : 'Optional! Instead of defaulting to random hands, you may upload a PBN/LIN file',
       onclick: () => pick.click(),
-    }, l.boards ? 'Replace the boards' : 'Upload boards'),
+    }, l.boards ? 'Replace The Boards' : 'Upload Boards'),
     l.boards ? h('button.link', {
       title: 'Revert the boards to randomly dealt hands',
       onclick: () => void clearBoards(l),
-    }, 'Deal them instead') : null);
+    }, 'Deal Them Instead') : null);
 }
 
 /** Stop the series: this one and any later one already on the list stop repeating. */
@@ -1021,7 +1021,7 @@ function detailView(l: Listing): HTMLElement {
     return waiting(`invite:${them}`, h('button', {
       title: `Ask ${r.name} to be your partner for this tournament.`,
       onclick: act(() => d.invitePartner(l.number, r.login), `Invitation sent to ${r.name}.`, { key: `invite:${them}` }),
-    }, 'Invite to Partner'));
+    }, 'Invite To Partner'));
   };
 
   const myAcceptedInvite = l.partners?.invitations.find((i) =>
@@ -1047,7 +1047,7 @@ function detailView(l: Listing): HTMLElement {
   }
   if (open && welcome && myPartnerLogin && d.canAct) {
     actions.append(h('span.tip', { title: `End your partnership with ${who(l, myPartnerLogin)}. You both stay in the tournament, and either of you can find somebody else.` },
-      h('button', { onclick: () => void endPartnership(l, myPartnerLogin) }, 'Cancel partnership')));
+      h('button', { onclick: () => void endPartnership(l, myPartnerLogin) }, 'Cancel Partnership')));
   }
   if (open && welcome) {
     if (d.canAct) {
@@ -1119,7 +1119,7 @@ function detailView(l: Listing): HTMLElement {
        from this view, and where it cannot — registering without a token — the
        link sits with the action it belongs to. */
     h('div.row.backrow',
-      h('button', { onclick: () => { location.hash = ''; } }, '← All tournaments'),
+      h('button.open.inline', { onclick: () => { location.hash = ''; } }, '← All Tournaments'),
       noticeTag()),
     whyNot ? h('div.note', { style: 'margin-top:10px' }, whyNot) : null,
     l.noPlayers ? h('div.note', { style: 'margin-top:10px' },
@@ -1141,13 +1141,13 @@ function detailView(l: Listing): HTMLElement {
           ? `${regs.length} of ${l.meta.capacity}${full ? ' \u2014 full' : ''}`
           : `? of ${l.meta.capacity}${l.skimmed ? ' (still loading)' : ''}`),
         h('dt', 'Type'), h('dd', `${scoringName(l.meta.scoring)} \u00b7 robots bid ${l.meta.robots === '2/1' ? '2/1' : 'SAYC'}`),
-        h('dt', 'Open to'), h('dd', levelText(l.meta),
+        h('dt', 'Open To'), h('dd', levelText(l.meta),
           l.meta.lock ? h('span', ` \u00b7 \u{1F512} password needed${rememberedPassword(l.number) ? ' (you have it)' : ' \u2014 ask the director'}`) : null),
         h('dt', 'Boards'), ((controls) => h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
           l.boards ? h('span.muted', ` \u00b7 from the director's own file${controls ? ', and can still be changed' : ''}`) : null,
           controls))(boardControls(l)),
         l.meta.repeat === 'weekly' ? [h('dt', 'Repeats'), h('dd', `Every ${weekdayOf(l)} at the same time`,
-          canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop repeating')] : null)] : null),
+          canStop(l) ? [' ', h('button.link.danger', { onclick: () => void stopSeries(l) }, 'Stop Repeating')] : null)] : null),
       /* How the tournament gets going sits beside the button that puts you in
          it rather than on a line of its own above the panel: it is about
          that button, and a line to itself was a line of the page spent. */
@@ -1158,19 +1158,19 @@ function detailView(l: Listing): HTMLElement {
         `The entry list could not be read, so this page cannot tell who has registered. ${l.readError}`) : null),
     l.results
       ? h('div.panel', { style: 'margin-top:14px' },
-          h('div.row', h('h3', 'Final results'), h('span.spacer'),
+          h('div.row', h('h3', 'Final Results'), h('span.spacer'),
             /* The hands outlive the session that played them, so a player can
                go back over a board a week later, from any browser. */
             l.records
-              ? h('button', {
+              ? h('button.open.inline', {
                   onclick: () => openPastRecords(l),
                   title: 'The deal, the bidding at every table and what it scored, board by board',
-                }, pastRecords?.number === l.number ? 'Hide hand records' : 'Show hand records')
+                }, pastRecords?.number === l.number ? 'Hide Hand Records' : 'Show Hand Records')
               : null),
           resultsTable(l.results))
       : null,
     l.results ? pastRecordsPanel(l) : null,
-    h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered players'),
+    h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered Players'),
       regs && regs.length ? h('div.table-scroll', h('table.list',
         h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
         /*
@@ -1290,7 +1290,7 @@ function openPartners(initial: Listing): void {
                 onclick: act(() => d.respondToInvite(current.number, i.from, true), { key: `accept:${i.from}`, label: 'Accepting\u2026' }) }, 'Accept')),
               pendingOn(`decline:${i.from}`, h('button.danger', { disabled: busy,
                 onclick: act(() => d.respondToInvite(current.number, i.from, false), { key: `decline:${i.from}`, label: 'Declining\u2026' }) }, 'Decline')))));
-          rows.push(h('h3', 'Invitations for you'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
+          rows.push(h('h3', 'Invitations For You'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
 
         const myAccepted = p.invitations.filter((i) => i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
@@ -1313,7 +1313,7 @@ function openPartners(initial: Listing): void {
                 disabled: busy,
                 title: 'End this partnership. You both stay in the tournament, and either of you can find somebody else.',
                 onclick: act(() => endPartnership(current, partner)),
-              }, 'Cancel partnership') : null)));
+              }, 'Cancel Partnership') : null)));
         }
 
         rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
@@ -1332,8 +1332,8 @@ function openPartners(initial: Listing): void {
                   h('td', isMe ? null
                     : partnered ? h('span.badge.upcoming', 'Partnered')
                     : sentPending
-                      ? h('button', { disabled: busy, onclick: act(() => d.cancelInvite(current.number, s.login)) }, 'Cancel invite')
-                      : h('button', { disabled: busy || !myLogin, onclick: () => openNoteDialog(`Invite ${who(current, s.login)}`, 'Send invite', (note) => void act(() => d.invitePartner(current.number, s.login, note))()) }, 'Invite')));
+                      ? h('button', { disabled: busy, onclick: act(() => d.cancelInvite(current.number, s.login)) }, 'Cancel Invite')
+                      : h('button', { disabled: busy || !myLogin, onclick: () => openNoteDialog(`Invite ${who(current, s.login)}`, 'Send Invite', (note) => void act(() => d.invitePartner(current.number, s.login, note))()) }, 'Invite')));
               })))));
 
         rows.push(h('div.row', { style: 'margin-top:10px' },
@@ -1492,9 +1492,9 @@ function openPlayerInfo(
   dialog(p.name, (close) => h('div',
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
-      p.pairSystem ? [h('dt', 'This pair plays'), h('dd', p.pairSystem)] : null,
-      p.pairVsNt ? [h('dt', 'Over their 1NT'), h('dd', p.pairVsNt)] : null,
-      p.pairNote ? [h('dt', 'Pair description'), h('dd', p.pairNote)] : null,
+      p.pairSystem ? [h('dt', 'This Pair Plays'), h('dd', p.pairSystem)] : null,
+      p.pairVsNt ? [h('dt', 'Over Their 1NT'), h('dd', p.pairVsNt)] : null,
+      p.pairNote ? [h('dt', 'Pair Description'), h('dd', p.pairNote)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
       h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given')),
       h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description')),
@@ -1506,7 +1506,7 @@ function openAbout(): void {
   dialog('About Bridge Break', (close) => h('div.about',
     h('p', 'Bridge Break runs ', h('b', 'free duplicate bridge tournaments'), ' in your browser.'),
 
-    h('h3', 'What it does'),
+    h('h3', 'What It Does'),
     h('ul',
       h('li', h('b', 'Private rooms.'), ' Enter or share a private room code with the players you wish to invite.'),
       h('li', h('b', 'Robots.'), ' They fill any empty, timed-out, or withdrawn seat. You can hand your seat '
@@ -1516,7 +1516,7 @@ function openAbout(): void {
         + 'tournaments. Optionally, upload boards using PBN or LIN formats.'),
       h('li', h('b', 'Skill Levels.'), ' Tournaments may limit the range of allowed skill levels.')),
 
-    h('h3', 'First steps'),
+    h('h3', 'First Steps'),
     h('ol',
       h('li', 'Open ', h('b', 'Settings'), ' and enter a name, skill level, and a short description.'),
       h('li', 'Click ', h('b', 'Play a demo vs robots'), ' to learn how bidding, alerting, and playing works.'),
@@ -1527,7 +1527,7 @@ function openAbout(): void {
         h('b', 'However, you can re-select the tournament and click an option to be reseated to '
           + 'rejoin your partner.'))),
 
-    h('h3', 'Who made it'),
+    h('h3', 'Who Made It'),
     h('p', 'Bridge Break is written by Ido Millet, owner of Millet Software (',
       h('a', { href: `https://${SITE}`, target: '_blank', rel: 'noopener' }, SITE), ').'),
     h('p', 'Please email feedback and suggestions to ',
@@ -1758,15 +1758,15 @@ function openPartnership(l: Listing, partner: string): void {
         draw();
       } }, box, h('button.primary', { type: 'submit' }, 'Send')),
       h('div.panel', { style: 'margin-top:14px' },
-        h('h3', 'Your pair card'),
+        h('h3', 'Your Pair Card'),
         h('p.muted', { style: 'margin-top:0' }, 'Both of you write this one, and it is shown at the table to everybody. Save it and it will be waiting the next time you play together.'),
         where,
         h('form.grid', { onsubmit: (e: Event) => { e.preventDefault(); void save(); } },
-          tipped('Bidding system', sysEl, 'The system the two of you have agreed to play.'),
+          tipped('Bidding System', sysEl, 'The system the two of you have agreed to play.'),
           tipped('Over Opponents 1NT', vsEl, 'Natural, Cappelletti, DONT, \u2026 ?'),
-          tipped('Pair description', noteEl, 'Carding, notrump range, and anything else the table should know.'),
+          tipped('Pair Description', noteEl, 'Carding, notrump range, and anything else the table should know.'),
           h('div.row', h('span.spacer'),
-            h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Save pair card')))),
+            h('button.primary', { type: 'submit', disabled: !d.canAct }, 'Save Pair Card')))),
       h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
   }, () => {
     closed = true;
@@ -1910,12 +1910,12 @@ function openSettings(): void {
         tipped('Your name (shown at the table)',
           h('input', { name: 'name', value: settings.name, required: true, maxLength: 30, autocomplete: 'name' }),
           'What other players see at the table and on the entry list.'),
-        tipped('Skill level',
+        tipped('Skill Level',
           h('select', { name: 'skill' },
             h('option', { value: '', selected: settings.skill === '' }, 'Prefer not to say'),
             SKILLS.map((x) => h('option', { value: x, selected: settings.skill === x }, x))),
           'How you would describe your own game. Some tournaments are open only to certain levels.')),
-      tipped('Bidding system',
+      tipped('Bidding System',
         h('select', { name: 'systems' },
           SYSTEM_PREFS.map((x) => h('option', { value: x, selected: settings.systems === x }, x || ' '))),
         'Select the bidding system(s) you prefer.'),
@@ -1973,7 +1973,7 @@ function deviceSection(): HTMLElement {
   }) as HTMLTextAreaElement;
   /* The code itself is the fallback, not the first thing to look at: a phone
      reads the square, and a second computer wants the string. */
-  const codeBox = h('label.codebox', { hidden: true }, h('span', 'The code itself'), code);
+  const codeBox = h('label.codebox', { hidden: true }, h('span', 'The Code Itself'), code);
   const reveal = h('button', {
     type: 'button',
     title: 'The same settings as the square, written out \u2014 for carrying them to another computer, '
@@ -1981,10 +1981,10 @@ function deviceSection(): HTMLElement {
     onclick: () => {
       const shut = codeBox.hidden;
       codeBox.hidden = !shut;
-      reveal.replaceChildren(shut ? 'Hide the code' : 'Show the code');
+      reveal.replaceChildren(shut ? 'Hide The Code' : 'Show The Code');
       if (shut) { code.focus(); code.select(); }
     },
-  }, 'Show the code') as HTMLButtonElement;
+  }, 'Show The Code') as HTMLButtonElement;
   const paste = h('textarea.devcode', {
     name: 'devcode', rows: 3, spellcheck: false, autocomplete: 'off',
     placeholder: 'Paste the code from your other device',
@@ -2052,7 +2052,7 @@ function deviceSection(): HTMLElement {
         + 'first thing in the message, so it is readable even if the window opens too small. If no email opened '
         + 'at all, this device has no mail program set up \u2014 use Copy instead.');
     },
-  }, 'Email the code') as HTMLAnchorElement;
+  }, 'Email The Code') as HTMLAnchorElement;
 
   /**
    * The letter the button opens.
@@ -2107,7 +2107,7 @@ function deviceSection(): HTMLElement {
         const items = await unpack(paste.value);
         const what = describe(items);
         ready = items;
-        use.replaceChildren('Replace my settings');
+        use.replaceChildren('Replace My Settings');
         use.classList.add('danger');
         use.title = 'Press again to replace this device\u2019s settings. There is no undo.';
         said.replaceChildren(h('span.warn-text', 'This will replace everything on this device. '),
@@ -2173,7 +2173,7 @@ const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Creator sect
 function openCreate(): void {
   const d = directory();
   if (!d?.canWrite) return;
-  dialog('New tournament', (close) => {
+  dialog('New Tournament', (close) => {
     const err = h('div');
     const tz = localTimeZone();
     const soon = new Date(Date.now() + 24 * 3600 * 1000);
@@ -2241,28 +2241,28 @@ function openCreate(): void {
         render();
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
-      field('Tournament name', h('input', { name: 'name', required: true, maxLength: 60 })),
-      field('Director (your name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
+      field('Tournament Name', h('input', { name: 'name', required: true, maxLength: 60 })),
+      field('Director (Your Name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
       h('div.two',
         field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
           h('option', { value: 'matchpoints' }, 'Matchpoints'), h('option', { value: 'imps' }, 'IMP Pairs'))),
-        field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
+        field('Open To', h('div.levels', SKILLS.map((x) => h('label.check',
           h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))))),
       h('div.two',
-        field('Start time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
-        field('Time zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
+        field('Start Time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
+        field('Time Zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
       h('div.two',
-        field('Capacity (max players)', h('input', { name: 'capacity', type: 'number', min: 8, max: 200, step: 4, value: 16, required: true })),
+        field('Capacity (Max Players)', h('input', { name: 'capacity', type: 'number', min: 8, max: 200, step: 4, value: 16, required: true })),
         h('div.two',
           field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 4, required: true })),
-          field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
-      field('Inactivity limit (seconds)',
+          field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
+      field('Inactivity Limit (Seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: NEW_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
       field('Robots bid',
         h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
         'The system robots use when they fill a seat. They explain every bid they make.'),
-      field('Password (optional)',
+      field('Password (Optional)',
         h('input', { name: 'password', type: 'text', autocomplete: 'off', maxLength: 128,
           placeholder: 'Leave empty for a tournament anybody may enter' }),
         'Set one and only the players you give it to can register — for a club night or a class. '
@@ -2275,13 +2275,13 @@ function openCreate(): void {
       h('div.two',
         field('From', h('select', { name: 'from' }, HOURS.map((x) => h('option', { value: x.hour, selected: x.hour === 10 }, x.name)))),
         field('To', h('select', { name: 'to' }, HOURS.map((x) => h('option', { value: x.hour, selected: x.hour === 13 }, x.name))))),
-      field('On these days', h('div.levels', WEEKDAYS.map((x) => h('label.check',
+      field('On These Days', h('div.levels', WEEKDAYS.map((x) => h('label.check',
         h('input', { type: 'checkbox', name: `day-${x.day}` }), x.name))),
         'One tournament for every hour on every day ticked, the first week only \u2014 each then repeats weekly if that is ticked too. '
         + 'The start time above gives the week to start from, and must be on the hour. No day ticked means the day it starts on.'),
       err,
       h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'),
-        h('button.primary', { type: 'submit' }, 'Create tournament')));
+        h('button.primary', { type: 'submit' }, 'Create Tournament')));
     return form;
   });
 }
@@ -2296,11 +2296,11 @@ function joinByCode(): void {
     enterRoom({ id: `private:${code}`, name: `Private room “${code}”`, boardsPerRound: Number(val(f, 'boards')) || 2, rounds: Number(val(f, 'rounds')) || undefined, listing: null, demo: false });
   } },
     h('p.muted', { style: 'margin:0' }, 'Everyone who enters the same code lands in the same room — nothing to sign up for. Good for a quick game or a test.'),
-    field('Your name', h('input', { name: 'name', required: true, value: settings.name, maxLength: 30 })),
+    field('Your Name', h('input', { name: 'name', required: true, value: settings.name, maxLength: 30 })),
     field('Room code', h('input', { name: 'code', required: true, minLength: 3, maxLength: 30, placeholder: 'e.g. tuesday-club' })),
     h('div.two',
       field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 2 })),
-      field('Boards / round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2 }))),
+      field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2 }))),
     h('div.row', h('span.spacer'), h('button', { type: 'button', onclick: close }, 'Cancel'), h('button.primary', { type: 'submit' }, 'Join'))));
 }
 
@@ -2725,7 +2725,7 @@ function myCardPanel(state: TState, meId: string, onBoard?: (board: number) => v
       h('td.num', r ? (byImps ? impText(r.weImps) : Math.round(r.wePercent)) : ''));
   };
   return h('div.panel',
-    h('h3', 'Your card'),
+    h('h3', 'Your Card'),
     h('div.muted', place),
     h('div.table-scroll', { style: 'margin-top:8px' }, h('table.list.card',
       h('thead', h('tr', h('th.num', '#'), h('th', 'Contract'), h('th.num', 'Score'), h('th.num', byImps ? 'IMPs' : '%'))),
@@ -2782,7 +2782,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   countdownCue(l, true);
 
   return h('div', head, h('div.panel',
-    h('h3', 'Waiting room'),
+    h('h3', 'Waiting Room'),
     h('p.muted', 'Everyone plays at their own table, so there is nothing to connect to until entries close. Entries so far:'),
     h('div.table-scroll', h('table.list', h('tbody', entries.map((r, i) => h(`tr${r.login.toLowerCase() === myId() ? '.me' : ''}`,
       h('td.num', i + 1), h('td', r.name), h('td.muted', r.pairCode ? `pair: ${r.pairCode}` : '')))))),
@@ -2850,7 +2850,7 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
     return h('button.primary', {
       title: `Reseat me on next hand with${mate ? ` ${mate}` : ''}`,
       onclick: () => { steppedAside = false; noteActivity(); n.takeSeat(me); render(); },
-    }, 'Reseat me');
+    }, 'Reseat Me');
   }
 
   /* No seat: a latecomer, or somebody whose own seat was taken on while they
@@ -2860,7 +2860,7 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
     h('button.primary', {
       disabled: free.length === 0, title: 'Please replace a random Robot with me',
       onclick: () => { claimRobotSeat(n); render(); },
-    }, 'Replace a Robot'),
+    }, 'Replace A Robot'),
     h('span.muted', free.length
       ? `${free.length} robot seat${free.length === 1 ? '' : 's'} free here.`
       : session?.notPlaying
@@ -2915,7 +2915,7 @@ function replacedPanel(state: TState, table: TableState): HTMLElement | null {
     return h('tr', h('td', ownerOf(state.config, owner)?.name ?? owner), h('td.muted', '→'), h('td', sitting.name));
   }).filter((x): x is HTMLElement => x !== null);
   if (rows.length === 0) return null;
-  return h('div.panel', h('h3', 'Stood down'),
+  return h('div.panel', h('h3', 'Stood Down'),
     h('table.list', h('tbody', rows)),
     h('p.muted', { style: 'margin:6px 0 0' }, 'A player who comes back takes their own seat again from the next board.'));
 }
@@ -3065,7 +3065,7 @@ function openClaim(n: TournamentNode): void {
   pick.onchange = show;
   show();
   const who = declaring ? 'the two defenders' : 'declarer and your partner';
-  dialog(declaring ? 'Claim tricks' : 'Concede tricks', (close) => h('div',
+  dialog(declaring ? 'Claim Tricks' : 'Concede Tricks', (close) => h('div',
     h('p', declaring ? 'How many of the ' : 'How many of the ', h('b', `${left} remaining trick${left === 1 ? '' : 's'}`),
       declaring ? ' do you claim?' : ' do you concede to declarer?'),
     h('div.row', pick, h('span', declaring ? 'tricks for you' : 'tricks to declarer')),
@@ -3101,7 +3101,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
           title: myTurn
             ? 'The table is waiting for you. The records open again once you have called or played.'
             : 'Look back over the boards: all four hands, the bidding, and what every other table did' },
-        reviewing ? 'Back to the table' : 'Hand records')
+        reviewing ? 'Back to the table' : 'Hand Records')
       : null,
     state ? seatControls(n, state, info.demo) : null,
     info.demo ? null : h('span.muted', `Host: ${n.coordinatorName}${n.isCoordinator ? ' (this device)' : ''} · ${n.lobby().length} connected`));
@@ -3118,7 +3118,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     const lobby = n.lobby();
     const tables = Math.max(1, Math.ceil(Math.min(lobby.length, info.capacity ?? Infinity) / 4));
     return h('div', head, h('div.panel',
-      h('h3', 'Waiting room'),
+      h('h3', 'Waiting Room'),
       h('p.muted', settings.transport === 'local'
         ? 'Connection: this browser only. Open this page in more tabs and enter the same room to add players.'
         : 'Players connect directly to each other. It can take a few seconds for everyone to appear.'),
@@ -3137,7 +3137,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
                 idleTimeoutMs: info.demo ? 0 : info.listing ? idleSecOf(info.listing.meta) * 1000 : undefined,
               });
             } catch (e) { fail(e); }
-          } }, 'Start tournament'),
+          } }, 'Start Tournament'),
           h('span.muted', n.me.isDirector || !info.listing ? 'This device is hosting.' : 'The director is not connected, so this device is hosting.'))
         : h('p.muted', `Waiting for ${n.coordinatorName} to start the tournament.`)));
   }
@@ -3230,7 +3230,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
  */
 function noticeTag(): HTMLElement | null {
   return notice
-    ? h('div.note', notice, ' ', h('button.link', { onclick: () => { notice = null; render(); } }, 'dismiss'))
+    ? h('div.note', notice, ' ', h('button.link', { onclick: () => { notice = null; render(); } }, 'Dismiss'))
     : null;
 }
 
