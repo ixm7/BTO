@@ -2760,7 +2760,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   const l = info.listing;
   const d = directory();
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button', { onclick: leaveRoom }, '← Leave'),
+    h('button.open.inline', { onclick: leaveRoom }, '← Leave'),
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'));
 
@@ -3091,7 +3091,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
      traveller while their own clock runs out. */
   if (myTurn && reviewing) { reviewing = false; recBoard = null; recTable = null; }
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button', { onclick: leaveRoom }, '← Leave'),
+    h('button.open.inline', { onclick: leaveRoom }, '← Leave'),
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'),
     state && state.results.length > 0
