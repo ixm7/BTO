@@ -1221,7 +1221,7 @@ function openPartners(initial: Listing): void {
   const sync = (l: Listing): void => { if (!closed && l.number === current.number) { current = l; draw(); } };
   partnersSync = sync;
 
-  dialog(`Partners — ${initial.meta.name}`, (close) => {
+  dialog(`Partners — ${initial.meta.name}`, () => {
     const body = h('div');
     const myLogin = myId();
 
@@ -1357,8 +1357,8 @@ function openPartners(initial: Listing): void {
       } catch (e) { err = (e as Error).message; }
       draw();
     })();
-    return h('div', body, h('div.row', { style: 'margin-top:10px' }, h('span.spacer'), h('button', { onclick: close }, 'Close')));
-  }, () => { closed = true; if (partnersSync === sync) partnersSync = null; });
+    return body;
+  }, () => { closed = true; if (partnersSync === sync) partnersSync = null; }, 'Close');
 }
 
 /* --------------------------------------------------------------- dialogs */
@@ -1373,7 +1373,7 @@ function dialog(title: string, build: (close: () => void) => HTMLElement, onClos
      words up here instead. */
   dlg.append(h('div.dlg-head', h('h2', title),
     headButton
-      ? h('button.primary.dlg-close', { type: 'button', onclick: close }, headButton)
+      ? h('button.open.inline.dlg-close', { type: 'button', onclick: close }, headButton)
       : h('button.x', { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: close }, '\u00d7')),
   build(close));
   dlg.addEventListener('cancel', () => { dlg.remove(); onClose?.(); });
@@ -1527,7 +1527,7 @@ function openPlayerInfo(
 }
 
 function openAbout(): void {
-  dialog('About Bridge Break', (close) => h('div.about',
+  dialog('About Bridge Break', () => h('div.about',
     h('p', 'Bridge Break runs ', h('b', 'free duplicate bridge tournaments'), ' in your browser.'),
 
     h('h3', 'What It Does'),
@@ -1556,7 +1556,7 @@ function openAbout(): void {
       h('a', { href: `https://${SITE}`, target: '_blank', rel: 'noopener' }, SITE), ').'),
     h('p', 'Please email feedback and suggestions to ',
       h('a', { href: `mailto:${MAIL}` }, MAIL), '.'),
-    h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+    ), undefined, 'Close');
 }
 
 /* ----------------------------------------------------------- passwords */
