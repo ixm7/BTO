@@ -206,8 +206,8 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
     h('div.deal-wrap',
       shown?.result.auction
         ? h('div.bidblock', h('h4', !played || (others && view.table !== null)
-              ? `How table ${shown.result.table + 1} bid it`
-              : 'How you bid it'),
+              ? `Table ${shown.result.table + 1} Auction`
+              : 'My Table Auction'),
             auctionTable(shown.result.auction))
         : null,
       diagram));

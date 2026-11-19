@@ -640,7 +640,13 @@ button.pc:disabled { opacity: 1; }
 .deal-wrap > .bidblock { flex: 0 0 auto; }
 .deal-wrap > .deal { flex: 0 1 auto; }
 .bidblock h4 { margin: 0 0 6px; }
-.bidblock .auction { margin: 0; }
+/* The auction sizes its own type to its own width, which beside the deal left
+   it set in something half the size of the cards it sits next to. Here it is
+   given a width of the hands' order and the hands' type size, so that the two
+   halves of a hand record read as one thing. */
+.deal-wrap > .bidblock { width: clamp(168px, 16vw, 248px); }
+.deal-wrap .auction table { font-size: clamp(.9rem, 1vw, 1.08rem); line-height: 1.32; }
+.deal-wrap .auction th, .deal-wrap .auction td { padding: .2em .24em; }
 .handblock.me { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31,92,69,.15); }
 
 /* ---- claims: the question sits on the felt where the trick would be ---- */
