@@ -1452,8 +1452,12 @@ function tablePlayerInfo(n: TournamentNode): Map<string, TableInfo> {
         ? { system: robots, vsNt: '', note: '' }
         : pairAgreement({ id: pa.id, systems: out.get(pa.id)?.systems as SystemPref },
           { id: pb.id, systems: out.get(pb.id)?.systems as SystemPref });
+      /* A card the two of them wrote, as against a system worked out from
+         what each plays: only the first speaks for the partnership, and only
+         the first stands in for what a player says about himself. */
+      const written = !pa.bot && !pb.bot && pairCards.has(pairKey(pa.id, pb.id));
       for (const id of [pa.id, pb.id]) {
-        out.set(id, { ...out.get(id), pairSystem: card.system,
+        out.set(id, { ...out.get(id), pairSystem: card.system, ...(written ? { pairCard: true } : {}),
           ...(card.vsNt ? { pairVsNt: card.vsNt } : {}), ...(card.note ? { pairNote: card.note } : {}) });
       }
     }
@@ -1465,11 +1469,13 @@ function tablePlayerInfo(n: TournamentNode): Map<string, TableInfo> {
 export interface TableInfo {
   note?: string; skill?: string; systems?: string;
   pairSystem?: string; pairVsNt?: string; pairNote?: string;
+  /** True only where the pair wrote a card, not where one was inferred. */
+  pairCard?: boolean;
 }
 
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
-  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; note?: string; partner?: string },
+  p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
@@ -1489,16 +1495,27 @@ function openPlayerInfo(
       h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
     return;
   }
+  /*
+   * Where a pair has filled in a card, the card answers for the partnership
+   * and the player's own system and description are the same answer written
+   * twice — so they give way to it, and the card is set apart under a heading
+   * of its own rather than listed among the player's own facts.
+   */
+  const hasPair = !!p.pairCard;
   dialog(p.name, (close) => h('div',
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
-      p.pairSystem ? [h('dt', 'This Pair Plays'), h('dd', p.pairSystem)] : null,
-      p.pairVsNt ? [h('dt', 'Over Their 1NT'), h('dd', p.pairVsNt)] : null,
-      p.pairNote ? [h('dt', 'Pair Description'), h('dd', p.pairNote)] : null,
       h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
-      h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given')),
-      h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description')),
+      hasPair ? null : [h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given'))],
+      hasPair ? null : [h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description'))],
       p.partner ? [h('dt', 'Partner'), h('dd', p.partner)] : null),
+    hasPair
+      ? h('div.paircard', h('h4', 'Pair Card'),
+          h('dl.facts',
+            p.pairSystem ? [h('dt', 'Plays'), h('dd', p.pairSystem)] : null,
+            p.pairVsNt ? [h('dt', 'Over Their 1NT'), h('dd', p.pairVsNt)] : null,
+            p.pairNote ? [h('dt', 'Description'), h('dd', p.pairNote)] : null))
+      : null,
     h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
 }
 

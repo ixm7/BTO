@@ -695,6 +695,29 @@ button.pc:disabled { opacity: 1; }
   background: #1f2420; color: #f3f1ea; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
   font-size: .85rem; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere;
 }
+/* The pair's own words, in the pair's own colour: what a partnership has
+   agreed is a different kind of fact from what a player says about himself,
+   and on one dark panel the two ran together. */
+.hover-tip .tip-pair {
+  margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(243, 241, 234, .25);
+  color: #f3cf63;
+}
+.hover-tip .tip-pair-head {
+  font-size: .76em; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  opacity: .85; margin-bottom: 1px;
+}
+
+/* The pair's card inside a player's details: a block of its own, so that what
+   the partnership has agreed is never read as what this player said. */
+.paircard {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: #f3efe2; border: 1px solid var(--line); border-left: 3px solid var(--gold);
+}
+.paircard h4 {
+  margin: 0 0 6px; font-size: .76rem; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.paircard dl.facts { margin: 0; }
 
 /* How many people are here: quiet, with a live dot. */
 .online { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); white-space: nowrap; }

@@ -46,7 +46,23 @@ export function installHoverTips(): void {
        something inside one has to live inside it, or it is hidden behind it. */
     const host = el?.closest('dialog[open]') ?? document.body;
     if (tip.parentElement !== host) host.append(tip);
-    if (tip.textContent !== text) tip.textContent = text;
+    /* What a pair has agreed is not what this player said about themselves,
+       so it is set apart and in its own colour rather than run on below. */
+    const pair = el?.dataset.tipPair ?? '';
+    const key = `${text}\u0000${pair}`;
+    if (tip.dataset.key !== key) {
+      tip.replaceChildren(text);
+      if (pair) {
+        const box = document.createElement('div');
+        box.className = 'tip-pair';
+        const head = document.createElement('div');
+        head.className = 'tip-pair-head';
+        head.textContent = 'Pair card';
+        box.append(head, pair);
+        tip.append(box);
+      }
+      tip.dataset.key = key;
+    }
     tip.hidden = false;
     place(e.clientX, e.clientY);
   }, { passive: true });
