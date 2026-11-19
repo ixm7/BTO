@@ -754,9 +754,9 @@ function directoryView(): HTMLElement {
       h('span.spacer'),
       d ? h('label.check', { title: 'Show only tournaments that have not started and still have room' },
         h('input', { type: 'checkbox', checked: onlyOpen, onchange: (e: Event) => { onlyOpen = (e.target as HTMLInputElement).checked; render(); } }),
-        ' Open for registration') : null,
+        ' Open for Registration') : null,
       h('button', { onclick: joinByCode, title: 'Play with specific people using a shared room code, instead of an open tournament from the list above — good for a private game with friends or a quick test with nothing to sign up for.' }, 'Join Private Room'),
-      h('button', { onclick: startDemo }, 'Play a demo vs robots'),
+      h('button', { onclick: startDemo }, 'Play a Demo vs Robots'),
       !d ? null : d.canWrite
         ? h('button.primary', { onclick: openCreate }, 'New Tournament')
         /* Only a token can write a tournament into the list. The tooltip hangs
@@ -883,7 +883,7 @@ function boardControls(l: Listing): HTMLElement | null {
         ? 'Upload a different PBN/LIN file to play instead of the boards you uploaded'
         : 'Optional! Instead of defaulting to random hands, you may upload a PBN/LIN file',
       onclick: () => pick.click(),
-    }, l.boards ? 'Replace The Boards' : 'Upload Boards'),
+    }, l.boards ? 'Replace the Boards' : 'Upload Boards'),
     l.boards ? h('button.link', {
       title: 'Revert the boards to randomly dealt hands',
       onclick: () => void clearBoards(l),
@@ -1021,7 +1021,7 @@ function detailView(l: Listing): HTMLElement {
     return waiting(`invite:${them}`, h('button', {
       title: `Ask ${r.name} to be your partner for this tournament.`,
       onclick: act(() => d.invitePartner(l.number, r.login), `Invitation sent to ${r.name}.`, { key: `invite:${them}` }),
-    }, 'Invite To Partner'));
+    }, 'Invite to Partner'));
   };
 
   const myAcceptedInvite = l.partners?.invitations.find((i) =>
@@ -1080,7 +1080,7 @@ function detailView(l: Listing): HTMLElement {
           });
         } }, full ? 'Full' : 'Register')));
     } else {
-      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the tournament page'),
+      actions.append(h('a', { href: l.url, target: '_blank', rel: 'noopener', title: PARTNERING_NOTE }, 'Register on the Tournament Page'),
         h('span.muted', `(comment “/register ${settings.name.trim() || 'Your Name'}”, or add a token in Settings to register from here)`));
     }
     /*
@@ -1097,7 +1097,7 @@ function detailView(l: Listing): HTMLElement {
         title: seated ? 'Go back to your table.'
           : 'Join by taking over a seat where a robot is playing for somebody who dropped out.',
         onclick: () => { leftAt.delete(l.number); void enterRoom(roomInfoOf(l)); },
-      }, seated ? 'Return to your table' : 'Take over a robot\u2019s seat'));
+      }, seated ? 'Return to Your Table' : 'Take Over a Robot\u2019s Seat'));
     }
   }
   if (open && welcome) {
@@ -1141,7 +1141,7 @@ function detailView(l: Listing): HTMLElement {
           ? `${regs.length} of ${l.meta.capacity}${full ? ' \u2014 full' : ''}`
           : `? of ${l.meta.capacity}${l.skimmed ? ' (still loading)' : ''}`),
         h('dt', 'Type'), h('dd', `${scoringName(l.meta.scoring)} \u00b7 robots bid ${l.meta.robots === '2/1' ? '2/1' : 'SAYC'}`),
-        h('dt', 'Open To'), h('dd', levelText(l.meta),
+        h('dt', 'Open to'), h('dd', levelText(l.meta),
           l.meta.lock ? h('span', ` \u00b7 \u{1F512} password needed${rememberedPassword(l.number) ? ' (you have it)' : ' \u2014 ask the director'}`) : null),
         h('dt', 'Boards'), ((controls) => h('dd', `${boardCount(l.meta)}:  ${boardsText(l.meta)}`,
           l.boards ? h('span.muted', ` \u00b7 from the director's own file${controls ? ', and can still be changed' : ''}`) : null,
@@ -1290,7 +1290,7 @@ function openPartners(initial: Listing): void {
                 onclick: act(() => d.respondToInvite(current.number, i.from, true), { key: `accept:${i.from}`, label: 'Accepting\u2026' }) }, 'Accept')),
               pendingOn(`decline:${i.from}`, h('button.danger', { disabled: busy,
                 onclick: act(() => d.respondToInvite(current.number, i.from, false), { key: `decline:${i.from}`, label: 'Declining\u2026' }) }, 'Decline')))));
-          rows.push(h('h3', 'Invitations For You'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
+          rows.push(h('h3', 'Invitations for You'), h('div.table-scroll', h('table.list', h('tbody', toMe.map(inviteRow)))));
         }
 
         const myAccepted = p.invitations.filter((i) => i.status === 'accepted' && !!myLogin && (i.from.toLowerCase() === myLogin || i.to.toLowerCase() === myLogin));
@@ -1316,7 +1316,7 @@ function openPartners(initial: Listing): void {
               }, 'Cancel Partnership') : null)));
         }
 
-        rows.push(h('h3', 'Looking for a partner'), h('div.table-scroll', h('table.list', h('tbody',
+        rows.push(h('h3', 'Looking for a Partner'), h('div.table-scroll', h('table.list', h('tbody',
           p.seekers.length === 0
             ? [h('tr', h('td.muted', 'Nobody yet.'))]
             : p.seekers.map((s) => {
@@ -1338,8 +1338,8 @@ function openPartners(initial: Listing): void {
 
         rows.push(h('div.row', { style: 'margin-top:10px' },
           amSeeking
-            ? h('button', { disabled: busy, onclick: act(() => d.cancelSeekingPartner(current.number)) }, 'Remove me from the list')
-            : h('button.primary', { disabled: busy || !myLogin, onclick: act(() => d.seekPartner(current.number, settings.partnerNote)) }, 'Add me to the list')));
+            ? h('button', { disabled: busy, onclick: act(() => d.cancelSeekingPartner(current.number)) }, 'Remove Me from the List')
+            : h('button.primary', { disabled: busy || !myLogin, onclick: act(() => d.seekPartner(current.number, settings.partnerNote)) }, 'Add Me to the List')));
       }
 
       body.replaceChildren(...rows.filter((x): x is HTMLElement => x !== null));
@@ -1519,7 +1519,7 @@ function openAbout(): void {
     h('h3', 'First Steps'),
     h('ol',
       h('li', 'Open ', h('b', 'Settings'), ' and enter a name, skill level, and a short description.'),
-      h('li', 'Click ', h('b', 'Play a demo vs robots'), ' to learn how bidding, alerting, and playing works.'),
+      h('li', 'Click ', h('b', 'Play a Demo vs Robots'), ' to learn how bidding, alerting, and playing works.'),
       h('li', 'Pick a tournament from the list and ', h('b', 'Register'),
         ' to be randomly paired or join/use the Partners List.'),
       h('li', 'If you exceed the timeout limit set by the tournament director for each bid/play, '
@@ -1919,7 +1919,7 @@ function openSettings(): void {
         h('select', { name: 'systems' },
           SYSTEM_PREFS.map((x) => h('option', { value: x, selected: settings.systems === x }, x || ' '))),
         'Select the bidding system(s) you prefer.'),
-      tipped('Player description',
+      tipped('Player Description',
         h('textarea', { name: 'note', rows: 2, maxLength: 140, placeholder: 'e.g. Strong 2/1, prefers evenings' }, settings.partnerNote),
         'Visible to other players when they click your name at the table.'),
       h('label.check', { title: 'A chime when the table is waiting on you, and the brush of each card as it is played' },
@@ -1981,10 +1981,10 @@ function deviceSection(): HTMLElement {
     onclick: () => {
       const shut = codeBox.hidden;
       codeBox.hidden = !shut;
-      reveal.replaceChildren(shut ? 'Hide The Code' : 'Show The Code');
+      reveal.replaceChildren(shut ? 'Hide the Code' : 'Show the Code');
       if (shut) { code.focus(); code.select(); }
     },
-  }, 'Show The Code') as HTMLButtonElement;
+  }, 'Show the Code') as HTMLButtonElement;
   const paste = h('textarea.devcode', {
     name: 'devcode', rows: 3, spellcheck: false, autocomplete: 'off',
     placeholder: 'Paste the code from your other device',
@@ -2052,7 +2052,7 @@ function deviceSection(): HTMLElement {
         + 'first thing in the message, so it is readable even if the window opens too small. If no email opened '
         + 'at all, this device has no mail program set up \u2014 use Copy instead.');
     },
-  }, 'Email The Code') as HTMLAnchorElement;
+  }, 'Email the Code') as HTMLAnchorElement;
 
   /**
    * The letter the button opens.
@@ -2161,7 +2161,7 @@ function deviceSection(): HTMLElement {
             + 'have been given and your tournament-creator token if you have one.'))),
       h('div.row', copy, mail, reveal),
       codeBox,
-      h('label', h('span', 'Settings from another device'), paste,
+      h('label', h('span', 'Settings from Another Device'), paste,
         h('small', 'Everything on this device is replaced by what the code holds, and the page starts again.')),
       h('div.row', use),
       said));
@@ -2246,7 +2246,7 @@ function openCreate(): void {
       h('div.two',
         field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
           h('option', { value: 'matchpoints' }, 'Matchpoints'), h('option', { value: 'imps' }, 'IMP Pairs'))),
-        field('Open To', h('div.levels', SKILLS.map((x) => h('label.check',
+        field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
           h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))))),
       h('div.two',
         field('Start Time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
@@ -2259,7 +2259,7 @@ function openCreate(): void {
       field('Inactivity Limit (Seconds)',
         h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: NEW_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
-      field('Robots bid',
+      field('Robots Bid',
         h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
         'The system robots use when they fill a seat. They explain every bid they make.'),
       field('Password (Optional)',
@@ -2287,7 +2287,7 @@ function openCreate(): void {
 }
 
 function joinByCode(): void {
-  dialog('Private room', (close) => h('form.grid', { onsubmit: (e: Event) => {
+  dialog('Private Room', (close) => h('form.grid', { onsubmit: (e: Event) => {
     e.preventDefault();
     const f = e.target as HTMLFormElement;
     const code = val(f, 'code').toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -2297,7 +2297,7 @@ function joinByCode(): void {
   } },
     h('p.muted', { style: 'margin:0' }, 'Everyone who enters the same code lands in the same room — nothing to sign up for. Good for a quick game or a test.'),
     field('Your Name', h('input', { name: 'name', required: true, value: settings.name, maxLength: 30 })),
-    field('Room code', h('input', { name: 'code', required: true, minLength: 3, maxLength: 30, placeholder: 'e.g. tuesday-club' })),
+    field('Room Code', h('input', { name: 'code', required: true, minLength: 3, maxLength: 30, placeholder: 'e.g. tuesday-club' })),
     h('div.two',
       field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 2 })),
       field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2 }))),
@@ -2766,7 +2766,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
 
   if (session?.notPlaying) {
     return h('div', head, h('div.panel',
-      h('h3', 'Looking for a seat'),
+      h('h3', 'Looking for a Seat'),
       h('p', 'The entry list was closed before you registered, so there is no seat of your own in this one. '
         + 'Where a player has dropped out and left a robot playing their cards, you can take that seat over: '
         + 'this looks at one table after another until it finds one.')));
@@ -2860,7 +2860,7 @@ function seatControls(n: TournamentNode, state: TState, demo: boolean): HTMLElem
     h('button.primary', {
       disabled: free.length === 0, title: 'Please replace a random Robot with me',
       onclick: () => { claimRobotSeat(n); render(); },
-    }, 'Replace A Robot'),
+    }, 'Replace a Robot'),
     h('span.muted', free.length
       ? `${free.length} robot seat${free.length === 1 ? '' : 's'} free here.`
       : session?.notPlaying
@@ -3101,7 +3101,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
           title: myTurn
             ? 'The table is waiting for you. The records open again once you have called or played.'
             : 'Look back over the boards: all four hands, the bidding, and what every other table did' },
-        reviewing ? 'Back to the table' : 'Hand Records')
+        reviewing ? 'Back to the Table' : 'Hand Records')
       : null,
     state ? seatControls(n, state, info.demo) : null,
     info.demo ? null : h('span.muted', `Host: ${n.coordinatorName}${n.isCoordinator ? ' (this device)' : ''} · ${n.lobby().length} connected`));
@@ -3155,10 +3155,10 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   if (state.finished) {
     main.append(state.aborted
       ? h('div.panel',
-          h('h3', 'Tournament aborted'),
+          h('h3', 'Tournament Aborted'),
           h('p', 'Every table was left without a player, so the tournament was called off. The boards played so far are below.'),
           resultsTable(toResults(state)))
-      : h('div.panel', h('h3', 'Tournament finished'), resultsTable(toResults(state))));
+      : h('div.panel', h('h3', 'Tournament Finished'), resultsTable(toResults(state))));
     const d = directory();
     if (info.listing && d) {
       const l = info.listing;
