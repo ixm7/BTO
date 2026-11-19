@@ -3277,7 +3277,7 @@ function render(): void {
       testMode() ? testSwitcher() : h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
       onlineTag(),
       inLiveTournament() ? null
-        : h('button', { onclick: openLobby, title: 'Messages players leave each other between tournaments' }, 'Lobby'),
+        : h('button', { onclick: openLobby, title: 'Public message board' }, 'Lobby'),
       h('button', { onclick: openAbout, title: 'What this is, what it does, and how to start' }, 'About'),
       h('button', { onclick: openSettings }, 'Settings')),
     errorMsg ? h('div.error', { role: 'alert' }, errorMsg) : null,
