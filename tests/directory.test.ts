@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  byLevelThenSystem, DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts, expectedLength, overlap } from '../src/directory/github';
+  byLevelThenSystem, DEFAULT_IDLE_SEC, KEEP_CANCELLED_MS, Directory, GitHubError, SKILLS, levelPhrase, levelText, toSkill, welcomes, KEEP_FINISHED_MS, parseStart, pinnedRoster, randomSeed, MAX_IDLE_SEC, MAX_NAME, MIN_IDLE_SEC, deriveStatus, idleSecOf, inviteCode, issueBody, makeMeta, parseMeta, parsePartners, parseRegistrations, parseRepo, playingWindowMs, visibleInList, type TournamentResults, byStart, type Listing, type Status, repeatStarts, expectedLength, overlap } from '../src/directory/github';
 import { countdown, formatInZone, zonedToUtc } from '../src/directory/time';
 
 const base = { name: 'Friday Pairs', director: 'Ido', start: '2026-11-20T19:30', timeZone: 'America/New_York', levels: ['Intermediate', 'Advanced'] as const, capacity: 16, boardsPerRound: 2, rounds: 4 };
@@ -38,6 +38,14 @@ describe('levels of player', () => {
   it('keeps the listed levels in one order, whatever order they are given in', () => {
     expect(makeMeta({ ...base, levels: ['Expert', 'Beginner', 'Expert'] }).levels).toEqual(['Beginner', 'Expert']);
     expect(() => makeMeta({ ...base, levels: [] })).toThrow(/at least one/i);
+  });
+
+  it('takes a name of forty-five characters and refuses the forty-sixth', () => {
+    const name = 'x'.repeat(MAX_NAME);
+    expect(makeMeta({ ...base, name }).name).toBe(name);
+    /* The trim comes first, so trailing spaces are not counted against it. */
+    expect(makeMeta({ ...base, name: `  ${name}  ` }).name).toBe(name);
+    expect(() => makeMeta({ ...base, name: `${name}x` })).toThrow(/45 characters/);
   });
 
   it('treats a tournament made before levels existed as open to everyone', () => {

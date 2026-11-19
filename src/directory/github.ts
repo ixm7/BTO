@@ -266,10 +266,15 @@ const RESULTS_RE = /<!--\s*bridge-results\s*([\s\S]*?)-->/;
 const RECORDS_RE = /<!--\s*bridge-records\s*([\s\S]*?)-->/;
 /** Cheap enough to run over every comment of every listing. */
 const RECORDS_MARK = '<!-- bridge-records';
+/* A tournament's name is read in a row of a list, on a button, and in the
+   heading of its own page. Past this it is not a name, it is a sentence, and
+   it pushes the facts beside it off the line. */
+export const MAX_NAME = 45;
 
 export function makeMeta(input: Omit<TournamentMeta, 'v' | 'scoring' | 'startUtc' | 'levels'> & { levels: readonly Skill[]; scoring?: TournamentMeta['scoring'] }): TournamentMeta {
   const name = input.name.trim();
   if (!name) throw new Error('Tournament name is required');
+  if (name.length > MAX_NAME) throw new Error(`Tournament name must be ${MAX_NAME} characters or fewer`);
   if (!input.director.trim()) throw new Error('Director name is required');
   const levels = skillList(input.levels);
   if (levels.length === 0) throw new Error('Choose at least one level of player');

@@ -1,5 +1,5 @@
 import { BoardError, readBoards } from '../engine/boards';
-import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, byLevelThenSystem, type Invitation, type Listing, type Registration, type Skill, type TournamentResults } from '../directory/github';
+import { CHAT_MAX, PAIR_NOTE_MAX, pairKey, systemBetween, type ChatMessage, type PairCard, BOARD_MINUTES, BETWEEN_ROUNDS_MINUTES, expectedLength, overlap, SYSTEM_PREFS, systemPref, systemToken, type SystemPref, NEW_IDLE_SEC, WEEKDAYS, repeatStarts, MAX_NAME, MIN_PLAYERS, MIN_TABLES, impsText, scoringName, Directory, type Status, GitHubError, isRelayed, playerTag, MAX_IDLE_SEC, MIN_IDLE_SEC, SKILLS, idleSecOf, inviteCode, levelPhrase, levelText, pinnedRoster, makeMeta, toSkill, welcomes, byLevelThenSystem, type Invitation, type Listing, type Registration, type Skill, type TournamentResults } from '../directory/github';
 import { ago, allTimeZones, countdown, formatInZone, localTimeZone } from '../directory/time';
 import { MemoryHub, localTransport, type Transport } from '../net/transport';
 import { TournamentSession, type SessionMemory } from './session';
@@ -2241,7 +2241,7 @@ function openCreate(): void {
         render();
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
-      field('Tournament Name', h('input', { name: 'name', required: true, maxLength: 60 })),
+      field('Tournament Name', h('input', { name: 'name', required: true, maxLength: MAX_NAME })),
       field('Director (Your Name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
       h('div.two',
         field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
