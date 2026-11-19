@@ -267,14 +267,14 @@ export function renderTable(o: TableViewOptions): HTMLElement {
      * the level stays, because a pair card does not carry it.
      */
     const hasPair = !!info?.pairCard;
+    const named = info?.skill ? `${player.name} [${info.skill}]` : player.name;
     const tip = player.bot ? `${player.name}\nBids ${o.robots === '2/1' ? 'Two-over-One (2/1)' : 'Standard American (SAYC)'} and explains each bid.\nClick for details.`
-      : [player.name, `Level: ${info?.skill || 'not given'}`,
+      : [named,
         ...(hasPair ? [] : [`Bidding: ${info?.systems || 'not given'}`, `Description: ${info?.note || 'none'}`])].join('\n');
     /* Kept apart from the player's own lines, and shown apart from them. */
     const tipPair = hasPair
-      ? [...(info?.pairSystem ? [`Plays: ${info.pairSystem}`] : []),
-        ...(info?.pairVsNt ? [`Over their 1NT: ${info.pairVsNt}`] : []),
-        ...(info?.pairNote ? [info.pairNote] : [])].join('\n')
+      ? [[info?.pairSystem, info?.pairVsNt].filter(Boolean).join(', '),
+        ...(info?.pairNote ? [info.pairNote] : [])].filter(Boolean).join('\n')
       : '';
     const details = { name: player.name, seat: seatName, robot: !!player.bot, ...(info?.skill ? { skill: info.skill } : {}),
       ...(info?.systems ? { systems: info.systems } : {}), ...(info?.pairSystem ? { pairSystem: info.pairSystem } : {}),

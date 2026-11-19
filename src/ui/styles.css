@@ -718,6 +718,11 @@ button.pc:disabled { opacity: 1; }
   text-transform: uppercase; color: var(--muted);
 }
 .paircard dl.facts { margin: 0; }
+/* What they play needs no word in front of it under that heading. */
+.paircard .plays { font-weight: 600; }
+.paircard .pairnote { margin: 5px 0 0; }
+/* A dialog with nothing to fill in says Close where the cross used to be. */
+.dlg-head .dlg-close { flex: 0 0 auto; padding: 5px 14px; }
 
 /* How many people are here: quiet, with a live dot. */
 .online { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); white-space: nowrap; }

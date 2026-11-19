@@ -1363,13 +1363,19 @@ function openPartners(initial: Listing): void {
 
 /* --------------------------------------------------------------- dialogs */
 
-function dialog(title: string, build: (close: () => void) => HTMLElement, onClose?: () => void): void {
+function dialog(title: string, build: (close: () => void) => HTMLElement, onClose?: () => void,
+  headButton?: string): void {
   const dlg = h('dialog') as HTMLDialogElement;
   const close = (): void => { dlg.close(); dlg.remove(); onClose?.(); };
   /* The cross is the same door as Escape and as whatever button the dialog
-     carries at its foot — useful when that foot is a scroll away. */
+     carries at its foot — useful when that foot is a scroll away. A dialog
+     with nothing to fill in has no foot worth keeping, and says Close in
+     words up here instead. */
   dlg.append(h('div.dlg-head', h('h2', title),
-    h('button.x', { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: close }, '\u00d7')), build(close));
+    headButton
+      ? h('button.primary.dlg-close', { type: 'button', onclick: close }, headButton)
+      : h('button.x', { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: close }, '\u00d7')),
+  build(close));
   dlg.addEventListener('cancel', () => { dlg.remove(); onClose?.(); });
   document.body.append(dlg);
   dlg.showModal();
@@ -1473,13 +1479,17 @@ export interface TableInfo {
   pairCard?: boolean;
 }
 
+/** A name with the level in square brackets after it, where one is known. */
+const playerTitle = (p: { name: string; skill?: string }): string =>
+  (p.skill ? `${p.name} [${p.skill}]` : p.name);
+
 /** A player's name, level and description, with room to read them. */
 function openPlayerInfo(
   p: { name: string; seat?: string; robot: boolean; skill?: string; systems?: string; pairSystem?: string; pairVsNt?: string; pairNote?: string; pairCard?: boolean; note?: string; partner?: string },
   robots?: 'sayc' | '2/1',
 ): void {
   if (p.robot) {
-    dialog(p.name, (close) => h('div.about',
+    dialog(playerTitle(p), () => h('div.about',
       p.seat ? h('p.muted', p.seat) : null,
       h('ul',
         robots === '2/1'
@@ -1492,7 +1502,7 @@ function openPlayerInfo(
         h('li', 'For each card play, the robot solves multiple random hands that match the visible information. '
           + 'It plays the card that does best on average. The random hands respect the cards played, who has shown out of a suit, '
           + 'and what each player\u2019s bidding showed. The robot only uses what a player in its seat could see (Fair Play).')),
-      h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+      ), undefined, 'Close');
     return;
   }
   /*
@@ -1502,21 +1512,20 @@ function openPlayerInfo(
    * of its own rather than listed among the player's own facts.
    */
   const hasPair = !!p.pairCard;
-  dialog(p.name, (close) => h('div',
+  /* The card is two short things: what they play, and what they say about it.
+     Under a heading of its own neither needs a word in front of it. */
+  const agreed = [p.pairSystem, p.pairVsNt].filter(Boolean).join(', ');
+  dialog(playerTitle(p), () => h('div',
     h('dl.facts',
       p.seat ? [h('dt', 'Seat'), h('dd', p.seat)] : null,
-      h('dt', 'Level'), h('dd', p.skill || h('span.muted', 'Not given')),
       hasPair ? null : [h('dt', 'Bidding'), h('dd', p.systems || h('span.muted', 'Not given'))],
       hasPair ? null : [h('dt', 'Description'), h('dd', p.note || h('span.muted', 'No description'))],
       p.partner ? [h('dt', 'Partner'), h('dd', p.partner)] : null),
     hasPair
       ? h('div.paircard', h('h4', 'Pair Card'),
-          h('dl.facts',
-            p.pairSystem ? [h('dt', 'Plays'), h('dd', p.pairSystem)] : null,
-            p.pairVsNt ? [h('dt', 'Over Their 1NT'), h('dd', p.pairVsNt)] : null,
-            p.pairNote ? [h('dt', 'Description'), h('dd', p.pairNote)] : null))
-      : null,
-    h('div.row', h('span.spacer'), h('button.primary', { onclick: close }, 'Close'))));
+          agreed ? h('div.plays', agreed) : null,
+          p.pairNote ? h('p.pairnote', p.pairNote) : null)
+      : null), undefined, 'Close');
 }
 
 function openAbout(): void {
