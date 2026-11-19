@@ -91,7 +91,7 @@ const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
 export function renderRecords(state: TState, myPair: number | null, view: RecordsView, on: RecordsHandlers): HTMLElement {
   const boards = [...new Set(state.results.map((r) => r.board))].sort((a, b) => a - b);
   if (boards.length === 0) {
-    return h('div.panel.records', h('h3', 'Hand Records'),
+    return h('div.panel', h('h3', 'Hand Records'),
       h('p.muted', 'Nothing finished yet. Boards appear here as they are played.'));
   }
 
@@ -173,7 +173,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
     }, String(b)))),
     hop(1, '\u203a', 'The board after this one'));
 
-  return h('div.panel.records',
+  return h('div.panel',
     h('div.row', h('h3', others
         ? complete ? `Board ${board} at every table` : `Board ${board}, so far`
         : 'Your Boards'),

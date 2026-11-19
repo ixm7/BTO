@@ -19,6 +19,9 @@
   --radius: 10px;
   /* Scale the table surface up on large screens so cards stay easy to read (BBO-style larger cards). */
   --wrap-max: min(1500px, 96vw);
+  /* Every page but the table: wide enough for six columns, narrow enough that
+     they stay within an eye's reach of each other. */
+  --page-max: min(1180px, 96vw);
   --felt-pad: clamp(12px, 1vw, 24px);
   --felt-gap: clamp(6px, .55vw, 14px);
   /* Cards butt together with no gaps, so a hand is thirteen of these wide.
@@ -122,7 +125,9 @@ button.open.starting { animation: starting 1.5s ease-out infinite; }
 }
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
-.wrap { max-width: var(--wrap-max); margin: 0 auto; padding: 16px; }
+.wrap { max-width: var(--page-max); margin: 0 auto; padding: 16px; }
+/* The table, where width is the game rather than empty page. */
+.wrap.wide { max-width: var(--wrap-max); }
 header.top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
 header.top .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
 header.top .brand span { color: var(--muted); font-size: .85rem; }
@@ -645,14 +650,6 @@ button.pc:disabled { opacity: 1; }
 .list tr.pick:hover > td { background: #f3efe2; }
 .list tr.sel > td { background: #e4eee7; box-shadow: inset 2px 0 0 var(--accent); }
 .list tr.me.sel > td { background: #efe6cd; }
-/*
- * A hand record stops growing. Stretched across a large window its six
- * columns stand so far apart that a row cannot be read across, and the deal
- * floats in the middle of an acre of panel. The cap is set above the width
- * the deal and the auction need side by side, so widening the window past it
- * changes nothing rather than breaking the layout in two.
- */
-.panel.records { max-width: 1120px; margin-inline: auto; }
 .deal-wrap {
   margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
   display: flex; flex-wrap: wrap; align-items: flex-start;

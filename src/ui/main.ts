@@ -3239,7 +3239,15 @@ function render(): void {
   const view = room && (awaitingStart || session) && !node ? waitingRoom(room)
     : node && room ? roomView(node, room)
     : detail ? detailView(detail) : directoryView();
-  root.replaceChildren(h('div.wrap',
+  /*
+   * Everything but the felt is held in. A page of panels stretched across a
+   * large window stands its columns an inch apart and is read worse for the
+   * room it was given; the table is the one place where more width is more
+   * game, so it alone keeps the full measure. The records shown from the
+   * table are a page of panels like any other.
+   */
+  const atTable = !!(node && room) && !reviewing;
+  root.replaceChildren(h(`div.wrap${atTable ? '.wide' : ''}`,
     h('header.top',
       h('div.brand', h('h1', h('span.suits', h('b', '♠'), h('b', '♥'), h('b', '♦'), h('b', '♣')), ' Bridge Break'), h('span', 'free duplicate tournaments')),
       testMode() ? testSwitcher() : h('span.muted', settings.name ? `Playing as ${settings.name}` : ''),
