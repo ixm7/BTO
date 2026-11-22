@@ -2506,9 +2506,21 @@ function leaveRoom(): void {
   closeSpares();
   session?.close();
   stopStartPoll();
-  // What was saved only exists to survive a page refresh; leaving on purpose discards it.
-  if (room) { try { sessionStorage.removeItem(`bridge-p2p:log:${room.id}`); } catch { /* storage unavailable */ } }
-  forgetSessions();
+  /*
+   * Kept unless the tournament is over. Leaving is a player stepping away for
+   * a few minutes, and in a tournament whose only human is that player, this
+   * browser holds the only copy of what has been played: throwing it away put
+   * them back at board one of round one when they came back.
+   */
+  const over = !!(node?.state?.finished || node?.state?.aborted);
+  if (over) {
+    if (room) keptDrop(logKey(room.id));
+    forgetSessions();
+  } else memoryKeys.clear();
+  /* Nobody else is playing this one, so nobody else can report it. */
+  if (!over && room?.listing && node?.state && watchForAbandon(room.listing, node.state, node.me.playerId)) {
+    notice = 'You were the only player in that tournament. Come back within ten minutes or it will be marked as abandoned.';
+  }
   node = null; session = null; awaitingStart = false; room = null; published = false; watchTable = 0;
   forgetReveals();
   render();
@@ -2577,6 +2589,55 @@ document.addEventListener('visibilitychange', () => {
   openSpares();
 });
 
+/*
+ * A tournament with one human in it stops being played the moment that human
+ * walks away, and nobody is left to say so: the directory goes on calling it
+ * "running" until the hour and more it allows for a slow field has passed.
+ *
+ * So the player's own browser says it, a few minutes after they leave — long
+ * enough to answer the door and come back, short enough that the list is not
+ * lying all evening. Coming back calls it off, and so does anybody else
+ * taking the tournament up in the meantime.
+ */
+const ABANDON_AFTER_MS = 10 * 60 * 1000;
+let abandonTimer: ReturnType<typeof setTimeout> | null = null;
+let abandonFor: number | null = null;
+
+function dropAbandonWatch(): void {
+  if (abandonTimer) { clearTimeout(abandonTimer); abandonTimer = null; }
+  abandonFor = null;
+}
+
+/** True where the field is this player and robots: nobody else to carry on. */
+function aloneInField(state: TState, meId: string): boolean {
+  const humans = new Set(state.config.pairs.flatMap((p) => p.players).filter((x) => !x.bot).map((x) => x.id));
+  return humans.size <= 1 && humans.has(meId);
+}
+
+function watchForAbandon(l: Listing, state: TState, meId: string): boolean {
+  if (state.finished || state.aborted || !aloneInField(state, meId)) return false;
+  if (!directory()?.canAct) return false;
+  dropAbandonWatch();
+  abandonFor = l.number;
+  abandonTimer = setTimeout(() => { void sayAbandoned(l.number); }, ABANDON_AFTER_MS);
+  return true;
+}
+
+async function sayAbandoned(number: number): Promise<void> {
+  abandonTimer = null;
+  abandonFor = null;
+  const d = directory();
+  /* Not if this browser is back at it, and not if the tournament has moved on
+     by itself — somebody else may have taken a seat, or finished it. */
+  if (!d?.canAct || room?.listing?.number === number) return;
+  try {
+    const fresh = await d.get(number);
+    if (fresh.status !== 'in progress') return;
+    await d.markAbandoned(number);
+    await refresh();
+  } catch { /* it ages out of the list on its own soon enough */ }
+}
+
 /**
  * Where a browser leaves what it has seen of a tournament, so that a reload
  * rejoins the round being played rather than starting the tournament again.
@@ -2584,16 +2645,16 @@ document.addEventListener('visibilitychange', () => {
  * long as the tab, and leaving the room on purpose throws it away.
  */
 function sessionMemory(id: string, which = 'me'): { load(): SessionMemory | null; save(m: SessionMemory): void } {
-  const key = `bridge-p2p:ses:${id}:${which}`;
+  const key = `${SES_PREFIX}${id}:${which}`;
   memoryKeys.add(key);
   return {
-    load: () => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as SessionMemory | null; } catch { return null; } },
-    save: (m) => { try { sessionStorage.setItem(key, JSON.stringify(m)); } catch { /* quota, or no storage */ } },
+    load: () => keptRead<SessionMemory>(key),
+    save: (m) => keptWrite(key, m),
   };
 }
 const memoryKeys = new Set<string>();
 function forgetSessions(): void {
-  for (const k of memoryKeys) { try { sessionStorage.removeItem(k); } catch { /* none to remove */ } }
+  for (const k of memoryKeys) keptDrop(k);
   memoryKeys.clear();
 }
 
@@ -2643,6 +2704,9 @@ function maybePublish(n: TournamentNode): void {
         try { await d.publishRecords(l.number, recordsOf(state)); } catch { /* the result matters more */ }
         await d.publishResults(l.number, toResults(state));
         published = true;
+        /* On the page for good now, and the hands with it. */
+        if (room) keptDrop(logKey(room.id));
+        forgetSessions();
         render();
         void refresh();
       } catch (e) {
@@ -2752,8 +2816,66 @@ async function openSession(l: Listing): Promise<void> {
   watchRound();
 }
 
+/*
+ * A tournament's log, kept where it survives leaving the table.
+ *
+ * It used to live in sessionStorage and be thrown away the moment somebody
+ * pressed Leave, on the reasoning that only a page refresh needed it. That
+ * holds while other players are still sitting there: they have the log, and
+ * whoever comes back is given it. It does not hold for a tournament whose
+ * only human walks away for a minute — there is nobody left holding anything,
+ * so the log was the tournament, and discarding it put the player back at
+ * board one of round one with the boards they had played gone.
+ *
+ * So it is kept, in localStorage, until the tournament is over or a day has
+ * passed. A stale log is harmless where there are peers: a browser that
+ * rejoins is caught up by the longest log in the room, not by its own.
+ */
+const LOG_PREFIX = 'bridge-p2p:log:';
+const SES_PREFIX = 'bridge-p2p:ses:';
+const KEEP_MS = 24 * 3600 * 1000;
+const logKey = (id: string): string => `${LOG_PREFIX}${id}`;
+
+/** Whatever was last written under this key, from either store. */
+function keptRead<T>(key: string): T | null {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const raw = store.getItem(key);
+      if (!raw) continue;
+      const held = JSON.parse(raw) as { at?: number; held?: T } | T;
+      const value = held && typeof held === 'object' && 'held' in (held as object)
+        ? (held as { held?: T }).held : (held as T);
+      if (value !== undefined && value !== null) return value;
+    } catch { /* unreadable: treat as absent */ }
+  }
+  return null;
+}
+
+function keptWrite(key: string, held: unknown): void {
+  const body = JSON.stringify({ at: Date.now(), held });
+  try { localStorage.setItem(key, body); return; } catch { /* full, or refused */ }
+  try { sessionStorage.setItem(key, body); } catch { /* nothing to be done */ }
+}
+
+function keptDrop(key: string): void {
+  for (const store of [localStorage, sessionStorage]) {
+    try { store.removeItem(key); } catch { /* storage unavailable */ }
+  }
+}
+
+/** What is left of tournaments old enough to be over however they ended. */
+function pruneKept(): void {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(LOG_PREFIX) && !key.startsWith(SES_PREFIX)) continue;
+      let at = 0;
+      try { at = (JSON.parse(localStorage.getItem(key) ?? '{}') as { at?: number }).at ?? 0; } catch { at = 0; }
+      if (Date.now() - at > KEEP_MS) localStorage.removeItem(key);
+    }
+  } catch { /* storage unavailable */ }
+}
+
 function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDelayMs: number): TournamentNode {
-  const key = `bridge-p2p:log:${info.id}`;
   const n = new TournamentNode(transport, {
     playerId: settings.playerId, name: settings.name.trim() || 'Guest', deviceScore: deviceScore(), isDirector,
     pairCode: settings.pairCode || undefined,
@@ -2767,8 +2889,8 @@ function attach(transport: Transport, info: RoomInfo, isDirector: boolean, botDe
        waiting and a long think should not cost you your seat. */
     idleTimeoutMs: info.demo ? 0 : undefined,
     persist: info.demo ? undefined : {
-      load: () => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as TEvent[] | null; } catch { return null; } },
-      save: (events) => { try { sessionStorage.setItem(key, JSON.stringify(events)); } catch { /* quota */ } },
+      load: () => keptRead<TEvent[]>(logKey(info.id)),
+      save: (events) => keptWrite(logKey(info.id), events),
     },
   });
   n.onChange(() => { timeoutCue(n); render(); });
@@ -2785,6 +2907,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   stopStartPoll();
   errorMsg = null; notice = null; published = false; markedAbandoned = false; publishing = false; publishFailed = null;
   forgetReveals();
+  if (abandonFor !== null && abandonFor === info.listing?.number) dropAbandonWatch();
   steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
@@ -3563,6 +3686,8 @@ setSound(settings.sound);
 /* A browser will not make a sound until the page has been touched, so the
    audio waits for that first click rather than being refused now. */
 armSound();
+/* What is left of tournaments played a day or more ago goes on the way in. */
+pruneKept();
 window.addEventListener('hashchange', () => { if (!node) void route(); else render(); });
 window.addEventListener('pagehide', () => node?.close());
 render();
