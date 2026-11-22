@@ -645,9 +645,13 @@ table.list.gridded.entries td button { margin: 0; }
 }
 .deal .d-top { grid-area: top; } .deal .d-left { grid-area: left; }
 .deal .d-right { grid-area: right; } .deal .d-bottom { grid-area: bottom; }
+/* The particulars of the board, set to the size of the cards around them:
+   smaller, they read as a footnote to a diagram they are the key to. The
+   middle column is as wide as the hand above it, which "Dealer South" fits
+   inside at this size. */
 .deal .d-mid {
   grid-area: mid; align-self: center; justify-self: center; text-align: center;
-  font-size: .85rem; line-height: 1.5;
+  font-size: clamp(.92rem, 1.05vw, 1.12rem); line-height: 1.45;
 }
 /* A hand record is read as four boxes; a box needs an edge you can see. The
    page's hairline rule is for separating text, and around a card of its own
