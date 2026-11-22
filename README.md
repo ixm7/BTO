@@ -1,77 +1,64 @@
 # Bridge Break
 
-Duplicate bridge tournaments (matchpoints) that run entirely in the players' browsers.
-There is no game server: browsers talk to each other over WebRTC, and the list of
-tournaments lives in the Issues of a public GitHub repository.
+**Free duplicate bridge tournaments, played in your browser.**
 
-## Try it
+→ **[www.bridgebreak.org](https://www.bridgebreak.org)**
 
-```bash
-npm install
-npm run dev        # open the printed URL, then "Play a demo vs robots"
-npm test           # 77 tests: rules, scoring, tournament simulation, directory
-npm run build      # static site in dist/ (host it on GitHub Pages or anywhere)
-```
+No account, no download, nothing to install. Open the page, put in a name, and play.
+A tournament with a single entry still plays: robots fill the empty seats, and there are
+always at least two tables, so your boards are always scored against somebody else's.
 
-To try several players on one machine: Settings → Connection → "This browser only",
-then open the page in a few tabs and "Join private room" with the same code.
+## What it does
 
-## Setting up the tournament directory
+- **Duplicate scoring.** Matchpoints or IMP pairs, scored against every other table that
+  played the same board. Travellers and hand records for every board, kept with the
+  tournament so you can go back over a hand a week later.
+- **Robots.** They fill any empty, timed-out or withdrawn seat, bid SAYC or 2/1, and alert
+  and explain their own calls. Hand your seat to one whenever you like and take it back
+  when you return; a latecomer can take a robot's place.
+- **Nobody is left waiting.** A voice warns you before your time runs out, and a robot
+  takes your cards if you are still away. Press *Reseat Me* and you rejoin your own
+  partner on the next board.
+- **Partners.** Say you are looking, read what other players say about their game, and
+  invite or accept with one press. A pair fills in a card together — system, defence to
+  1NT, a note — and it is there at the table for your opponents to read.
+- **Private rooms.** Share a code with whoever you want to play, and play on your own.
+- **Running tournaments.** Create them public or password-protected, set the level range,
+  the number of rounds and boards, and how long a player may keep the table waiting.
+  Deal them randomly or upload your own boards as PBN or LIN. Clone one you have run
+  before, or let it repeat every week.
 
-1. Create a public GitHub repository (for example `yourname/bridge-club`) with Issues enabled.
-2. In the app, open Settings and enter `yourname/bridge-club`.
-   To bake it in for everyone, build with `VITE_DIRECTORY_REPO=yourname/bridge-club npm run build`.
-3. Optional: each person who wants to create tournaments, register or publish results from
-   inside the app pastes a fine-grained GitHub token with "Issues: read and write" on that
-   repository. Without a token the app opens github.com with the form pre-filled.
+## First steps
 
-How the directory maps onto GitHub:
+1. Open **Settings** and enter a name, your level, and a short description of your game.
+2. Press **Play a Demo vs Robots** to see how bidding, alerting and play work here.
+3. Pick a tournament and **Register** — then find a partner on the partners list, or be
+   paired when it starts.
+4. Turn up. If you have to step away, a robot plays your cards until you press
+   **Reseat Me**.
 
-| Tournament data | Where it lives |
-|---|---|
-| Name, director, type, start time, time zone, level, capacity, format | The issue (readable table plus a hidden JSON block) |
-| Initiator / director | The issue author |
-| Registered players | Comments containing `/register Name` (`/withdraw` undoes it; optional `pair:CODE` picks a partner) |
-| Results | A comment with the ranking table, after which the issue is closed |
-| Status | Derived: upcoming, in progress, finished, cancelled, expired |
+## Running a club night
 
-## How a tournament runs
+Put a token in Settings and the **New Tournament** button appears. A tournament can be
+open to everybody or locked with a password you give out; you choose the levels it is for,
+how many rounds and boards it plays, and how patient it is with a player who has gone
+quiet. Set it to repeat weekly and next week's appears as soon as this week's starts.
 
-- Everyone opens the tournament and presses "Enter playing room". The room name is
-  `owner/repo#issue`, so all players of that tournament find each other.
-- One browser is the host (coordinator). The rule is the same on every device, so no vote
-  is needed: the director if connected, otherwise the most capable device (desktop over
-  tablet over phone, then CPU cores), otherwise the lowest peer id.
-- The host starts the tournament. Players sharing a partner code are paired; the rest are
-  paired in arrival order; robots fill empty seats.
-- Every action goes to the host, which checks it against the rules and appends it to a log
-  that all peers hold. The whole tournament is a pure function of that log, and deals come
-  from a seed in the first log entry, so any peer can take over as host at any moment.
-- If the host disappears, the next device takes over after catching up with the longest log.
-  A robot plays for anyone who has been disconnected for 20 seconds, until they return.
-- Movement: North-South pairs stay put, East-West pairs move up one table per round, and
-  every table plays the same boards in a round.
+Questions about running a series, or about hosting one for your own club, are welcome at
+the address below.
 
-## Layout
+## Who made it
 
-```
-src/engine      cards, deals, bidding, play, duplicate scoring, matchpoints, robot
-src/tournament  state.ts (event log reducer, movement, standings), node.ts (peer + host logic)
-src/net         transport interface; in-memory, same-browser tabs, and WebRTC (Trystero)
-src/directory   GitHub Issues directory and time-zone helpers
-src/ui          plain DOM + TypeScript interface
-tests           vitest suites
-```
+Bridge Break is written by Ido Millet, owner of Millet Software
+([www.MilletSoftware.com](https://www.MilletSoftware.com)).
 
-## Known limits
+Feedback and suggestions are very welcome: **ido@MilletSoftware.com**
 
-- No protection against cheating, by design: every peer holds the seed and so could work
-  out all four hands. The interface only shows what a player is entitled to see.
-- All players of a tournament share one WebRTC mesh. Fine for a club game of a few tables;
-  dozens of tables would need a mesh per table.
-- Players behind strict firewalls may fail to connect without a TURN relay
-  (`trysteroTransport(roomId, { turnConfig })`).
-- Host hand-over has no fencing: if the old host is still alive while a new one takes over
-  (a network split), the two logs can diverge.
-- No round clock, claims, undos, alerts or chat yet. The robot is a basic player.
-- Unauthenticated GitHub reads are limited to 60 per hour per IP address.
+## Copyright
+
+Copyright © Ido Millet, Millet Software. All rights reserved.
+
+This repository is published so that Bridge Break can be played; it is not offered under
+an open-source licence. No permission is given to copy, modify, redistribute or host this
+software, or to use it as the basis of another service, whether or not for payment. If you
+would like to use any part of it, please ask — the answer is often yes.

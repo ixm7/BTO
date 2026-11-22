@@ -1224,7 +1224,7 @@ function detailView(l: Listing): HTMLElement {
   if (d.canWrite) {
     actions.append(h('button', {
       onclick: () => openCreate(l),
-      title: 'Make another tournament like this one, for tomorrow at the same time. You can change anything before it is made.',
+      title: 'Make another tournament like this one. You can change anything before it is made.',
     }, 'Clone'));
   }
 
@@ -1284,7 +1284,11 @@ function detailView(l: Listing): HTMLElement {
           resultsTable(l.results))
       : null,
     l.results ? pastRecordsPanel(l) : null,
-    h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered Players'),
+    /* The entry list is for a tournament that has not happened yet: who is in,
+       how strong they are, who still needs a partner. Once it has been played
+       the results say who was there and what they did, and the same names
+       underneath in entry order say nothing again. */
+    l.results ? null : h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered Players'),
       regs && regs.length ? h('div.table-scroll', h('table.list',
         h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
         /*
@@ -1307,11 +1311,11 @@ function detailView(l: Listing): HTMLElement {
 
 function resultsTable(r: TournamentResults): HTMLElement {
   if (r.scoring === 'imps') {
-    return h('div.table-scroll', h('table.list',
+    return h('div.table-scroll', h('table.list.gridded',
       h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'IMPs'))),
       h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction), h('td.num', impsText(x.imps ?? 0)))))));
   }
-  return h('div.table-scroll', h('table.list',
+  return h('div.table-scroll', h('table.list.gridded',
     h('thead', h('tr', h('th.num', 'Rank'), h('th', 'Pair'), h('th', 'Dir'), h('th.num', 'Score'), h('th.num', 'MP'))),
     h('tbody', r.rankings.map((x) => h('tr', h('td.num', x.rank), h('td', x.players), h('td', x.direction),
       h('td.num', `${Math.round(x.percent)}%`), h('td.num', `${x.matchpoints}/${x.maxMatchpoints}`))))));
