@@ -2498,8 +2498,16 @@ function stopStartPoll(): void {
   if (startPoll) { clearInterval(startPoll); startPoll = null; }
 }
 
-function leaveRoom(): void {
+function leaveRoom(ending = false): void {
   if (room?.listing) leftAt.set(room.listing.number, Date.now());
+  /* Ending it: tell the directory, and keep nothing that could resume it. */
+  if (ending && room?.listing) {
+    const number = room.listing.number;
+    void sayAbandoned(number);
+    keptDrop(logKey(room.id));
+    forgetSessions();
+    notice = 'You were the last player, so that tournament has ended.';
+  }
   node?.close();
   openSpares = null;
   stopRoundWatch();
@@ -2512,15 +2520,13 @@ function leaveRoom(): void {
    * browser holds the only copy of what has been played: throwing it away put
    * them back at board one of round one when they came back.
    */
-  const over = !!(node?.state?.finished || node?.state?.aborted);
+  /* Kept unless the tournament is over, so that a player who steps away from
+     a table others are still playing comes back to where they left off. */
+  const over = ending || !!(node?.state?.finished || node?.state?.aborted);
   if (over) {
     if (room) keptDrop(logKey(room.id));
     forgetSessions();
   } else memoryKeys.clear();
-  /* Nobody else is playing this one, so nobody else can report it. */
-  if (!over && room?.listing && node?.state && watchForAbandon(room.listing, node.state, node.me.playerId)) {
-    notice = 'You were the only player in that tournament. Come back within ten minutes or it will be marked as abandoned.';
-  }
   node = null; session = null; awaitingStart = false; room = null; published = false; watchTable = 0;
   forgetReveals();
   render();
@@ -2590,52 +2596,53 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /*
- * A tournament with one human in it stops being played the moment that human
- * walks away, and nobody is left to say so: the directory goes on calling it
- * "running" until the hour and more it allows for a slow field has passed.
+ * The last player out turns the lights off.
  *
- * So the player's own browser says it, a few minutes after they leave — long
- * enough to answer the door and come back, short enough that the list is not
- * lying all evening. Coming back calls it off, and so does anybody else
- * taking the tournament up in the meantime.
+ * A tournament is a room full of browsers and nothing else: when the last
+ * human leaves there is no one to play it, no one to finish it and no one to
+ * report it, and it would sit in the list saying "running" until the hour and
+ * more allowed for a slow field had passed. So the player who leaves last
+ * ends it on their way out, and it ends for good — the record of it goes with
+ * them, so there is nothing to come back to.
+ *
+ * Robots do not count, and neither does a human who has already gone: what
+ * matters is whether anybody else is still connected to the room.
  */
-const ABANDON_AFTER_MS = 10 * 60 * 1000;
-let abandonTimer: ReturnType<typeof setTimeout> | null = null;
-let abandonFor: number | null = null;
-
-function dropAbandonWatch(): void {
-  if (abandonTimer) { clearTimeout(abandonTimer); abandonTimer = null; }
-  abandonFor = null;
+function lastHumanHere(n: TournamentNode, state: TState): boolean {
+  const others = [
+    ...state.config.pairs.flatMap((p) => p.players),
+    ...Object.values(state.substitutes),
+  ].filter((x) => !x.bot && x.id !== n.me.playerId);
+  return !others.some((x) => n.isPresent(x.id));
 }
 
-/** True where the field is this player and robots: nobody else to carry on. */
-function aloneInField(state: TState, meId: string): boolean {
-  const humans = new Set(state.config.pairs.flatMap((p) => p.players).filter((x) => !x.bot).map((x) => x.id));
-  return humans.size <= 1 && humans.has(meId);
-}
-
-function watchForAbandon(l: Listing, state: TState, meId: string): boolean {
-  if (state.finished || state.aborted || !aloneInField(state, meId)) return false;
-  if (!directory()?.canAct) return false;
-  dropAbandonWatch();
-  abandonFor = l.number;
-  abandonTimer = setTimeout(() => { void sayAbandoned(l.number); }, ABANDON_AFTER_MS);
-  return true;
-}
-
+/** Say so in the directory, where the rest of the world is looking. */
 async function sayAbandoned(number: number): Promise<void> {
-  abandonTimer = null;
-  abandonFor = null;
   const d = directory();
-  /* Not if this browser is back at it, and not if the tournament has moved on
-     by itself — somebody else may have taken a seat, or finished it. */
-  if (!d?.canAct || room?.listing?.number === number) return;
+  if (!d?.canAct) return;
   try {
     const fresh = await d.get(number);
     if (fresh.status !== 'in progress') return;
     await d.markAbandoned(number);
     await refresh();
   } catch { /* it ages out of the list on its own soon enough */ }
+}
+
+/**
+ * Leaving, with a word first where leaving ends the tournament. The button is
+ * next to the table and easily pressed; what it does here cannot be undone.
+ */
+function askLeave(): void {
+  const l = room?.listing;
+  const n = node;
+  const state = n?.state;
+  if (!l || !n || !state || state.finished || state.aborted || !lastHumanHere(n, state)) { leaveRoom(); return; }
+  dialog('Leave and End It?', (close) => h('div',
+    h('p', 'You are the last player at this tournament. Robots are filling the other seats, so leaving ends it here.'),
+    h('p.muted', 'The boards played so far will not be scored or published, and the tournament cannot be resumed.'),
+    h('div.row', h('span.spacer'),
+      h('button', { onclick: close }, 'Stay'),
+      h('button.danger', { onclick: () => { close(); leaveRoom(true); } }, 'Leave and End It'))));
 }
 
 /**
@@ -2907,7 +2914,6 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   stopStartPoll();
   errorMsg = null; notice = null; published = false; markedAbandoned = false; publishing = false; publishFailed = null;
   forgetReveals();
-  if (abandonFor !== null && abandonFor === info.listing?.number) dropAbandonWatch();
   steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
@@ -3058,7 +3064,7 @@ function waitingRoom(info: RoomInfo): HTMLElement {
   const l = info.listing;
   const d = directory();
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button.open.inline', { onclick: leaveRoom }, '← Leave'),
+    h('button.open.inline', { onclick: askLeave }, '← Leave'),
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'));
 
@@ -3439,7 +3445,7 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
      traveller while their own clock runs out. */
   if (myTurn && reviewing) { reviewing = false; recBoard = null; recTable = null; }
   const head = h('div.row', { style: 'margin-bottom:10px' },
-    h('button.open.inline', { onclick: leaveRoom }, '← Leave'),
+    h('button.open.inline', { onclick: askLeave }, '← Leave'),
     h('h2', info.name, info.listing ? [' ', untilTag(info.listing.meta.startUtc) ?? ''] : null),
     h('span.spacer'),
     state && state.results.length > 0
