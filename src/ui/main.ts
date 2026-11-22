@@ -2345,8 +2345,13 @@ function openCreate(from?: Listing): void {
         const hourly = (f.elements.namedItem('hourly') as HTMLInputElement).checked;
         const from = Number(val(f, 'from')), to = Number(val(f, 'to'));
         if (hourly && to < from) throw new Error('The last hour comes before the first one');
+        /* The director is whoever is making it. The field asked for a name
+           the app already has, and nothing else about a tournament depends on
+           it: it is a line on the page saying who to ask. */
+        const director = settings.name.trim();
+        if (!director) throw new Error('Put your name in Settings first — it goes on the tournament as the director.');
         const common = {
-          name: val(f, 'name'), director: val(f, 'director'), timeZone: val(f, 'tz'),
+          name: val(f, 'name'), director, timeZone: val(f, 'tz'),
           levels: SKILLS.filter((x) => (f.elements.namedItem(`lvl-${x}`) as HTMLInputElement | null)?.checked),
           capacity: Number(val(f, 'capacity')),
           boardsPerRound: Number(val(f, 'boards')), rounds: Number(val(f, 'rounds')),
@@ -2401,13 +2406,16 @@ function openCreate(from?: Listing): void {
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
       field('Tournament Name', h('input', { name: 'name', required: true, maxLength: MAX_NAME, value: m?.name ?? '' })),
-      field('Director (Your Name)', h('input', { name: 'director', required: true, value: m?.director ?? settings.name, maxLength: 30 })),
       h('div.two',
-        field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
+        tipped('Type', h('select', { name: 'type' },
           h('option', { value: 'matchpoints', selected: m?.scoring !== 'imps' }, 'Matchpoints'),
-          h('option', { value: 'imps', selected: m?.scoring === 'imps' }, 'IMP Pairs'))),
-        field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
-          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: m ? m.levels.includes(x) : true }), x))))),
+          h('option', { value: 'imps', selected: m?.scoring === 'imps' }, 'IMP Pairs')),
+          'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.'),
+        tipped('Inactivity Limit (Seconds)',
+          h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: m ? idleSecOf(m) : NEW_IDLE_SEC, required: true }),
+          'How long a player may keep the table waiting before a robot takes their seat.')),
+      field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
+        h('input', { type: 'checkbox', name: `lvl-${x}`, checked: m ? m.levels.includes(x) : true }), x)))),
       h('div.two',
         field('Start Time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
         field('Time Zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
@@ -2416,23 +2424,21 @@ function openCreate(from?: Listing): void {
         h('div.two',
           field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: m?.rounds ?? 4, required: true })),
           field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: m?.boardsPerRound ?? 2, required: true })))),
-      field('Inactivity Limit (Seconds)',
-        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: m ? idleSecOf(m) : NEW_IDLE_SEC, required: true }),
-        'How long a player may keep the table waiting before a robot takes their seat.'),
-      field('Robots Bid',
+      tipped('Robots Bid',
         h('select', { name: 'robots' },
           h('option', { value: 'sayc', selected: m?.robots !== '2/1' }, 'SAYC (Standard American)'),
           h('option', { value: '2/1', selected: m?.robots === '2/1' }, '2/1 (Two-over-One game forcing)')),
         'The system robots use when they fill a seat. They explain every bid they make.'),
-      field('Password (Optional)',
+      tipped('Password (Optional)',
         h('input', { name: 'password', type: 'text', autocomplete: 'off', maxLength: 128,
           placeholder: 'Leave empty for a tournament anybody may enter' }),
-        (m?.lock ? 'The tournament this came from has a password, and it cannot be carried over: only a signature of it is kept, and that cannot be read back. Set one here to lock this one too. '
-          : 'Set one and only the players you give it to can register — for a club night or a class. ')
-        + 'It is not kept anywhere: the page carries a signature of it that cannot be read back, and the relay checks it.'),
-      h('label.check', h('input', { type: 'checkbox', name: 'weekly', checked: m?.repeat === 'weekly' }),
+        m?.lock
+          ? 'The tournament this came from has a password, and it cannot be carried over: only a signature of it is kept, and that cannot be read back. Set one here to lock this one too.'
+          : 'Set one and only the players you give it to can register \u2014 for a club night or a class.'),
+      h('label.check', {
+        'data-tip': 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.',
+      }, h('input', { type: 'checkbox', name: 'weekly', checked: m?.repeat === 'weekly' }),
         'Repeat every week on the same day and time'),
-      h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),
       h('label.check', h('input', { type: 'checkbox', name: 'hourly' }),
         'Hold it on every hour, and on more than one day'),
       h('div.two',
