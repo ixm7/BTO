@@ -598,7 +598,29 @@ button.pc:disabled { opacity: 1; }
 .status-line { margin-top: 10px; min-height: 1.5em; }
 
 /* ---- hand records: the scorecard, the deal, and the other tables ---- */
-.scorecard tfoot td { border-top: 2px solid var(--line); background: #fbf6e6; }
+/*
+ * The scorecard is a grid and is drawn as one: ruled both ways, its header a
+ * band of its own, its rows close enough together that a card of twenty-odd
+ * boards does not push the deal off the screen, and no wider than its numbers
+ * need — stretched across the panel the six columns stood too far apart to
+ * read a row across.
+ */
+.scorecard {
+  width: auto; min-width: min(520px, 100%); max-width: 640px; margin: 2px auto 0;
+  border: 1px solid #8d9a94; border-radius: 6px; overflow: hidden;
+}
+table.list.scorecard th {
+  background: #e4e9e4; color: var(--ink); padding: 4px 10px;
+  border-bottom: 1px solid #8d9a94; border-right: 1px solid #c3ccc7;
+}
+table.list.scorecard td { padding: 3px 10px; vertical-align: middle; border-right: 1px solid #dcdfd6; }
+table.list.scorecard th:last-child, table.list.scorecard td:last-child { border-right: 0; }
+table.list.scorecard tbody tr:last-child td { border-bottom: 1px solid #dcdfd6; }
+/* Where the card adds up to: ruled off, and in the ink of a conclusion. */
+.scorecard tfoot td {
+  border-top: 2px solid #8d9a94; background: #e4e9e4; font-weight: 600;
+  padding: 4px 10px; border-bottom: 0;
+}
 .list tr.me > td { background: #fbf3dc; }
 
 /* The deal laid out as a hand record prints it, each hand against its seat. */

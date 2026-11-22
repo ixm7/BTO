@@ -175,7 +175,53 @@ const fail = (e: unknown): void => { errorMsg = e instanceof Error ? e.message :
 
 /** Keep `detail` and `listings` in sync with a Listing fetched elsewhere (e.g. from
  * inside the Partners dialog), and push it to that dialog too, if one is open for it. */
-function syncListing(l: Listing): void {
+/*
+ * What I have just done to an entry list, until a read of the directory
+ * shows it. A comment posted now is not in the next read of the issue —
+ * GitHub serves that from a cache, and the relay keeps one of its own — so
+ * for some seconds every read still says I am not registered. Without this
+ * the button that just said Registering goes back to saying Register, and
+ * only a reload tells the truth. The first read that agrees throws it away.
+ */
+let justDid: { number: number; login: string; joined: boolean; mine?: Registration; at: number } | null = null;
+
+/** Long enough for any read to catch up; after it, the directory is right. */
+const PENDING_MS = 90_000;
+
+function applyPending(l: Listing): Listing {
+  const p = justDid;
+  if (!p || p.number !== l.number || !l.registrations) return l;
+  if (Date.now() - p.at > PENDING_MS) { justDid = null; return l; }
+  const there = l.registrations.some((r) => r.login.toLowerCase() === p.login);
+  if (there === p.joined) { justDid = null; return l; }
+  return p.joined && p.mine
+    ? { ...l, registrations: [...l.registrations, p.mine] }
+    : { ...l, registrations: l.registrations.filter((r) => r.login.toLowerCase() !== p.login) };
+}
+
+/** My own entry, as the directory will read it once it catches up. */
+function iJustJoined(l: Listing, login: string): void {
+  if (!login) return;
+  justDid = {
+    number: l.number, login, joined: true, at: Date.now(),
+    mine: {
+      login, name: settings.name.trim(), at: new Date().toISOString(),
+      ...(settings.pairCode ? { pairCode: settings.pairCode } : {}),
+      ...(settings.skill ? { skill: settings.skill } : {}),
+      ...(settings.systems ? { systems: settings.systems } : {}),
+    },
+  };
+  syncListing(l);
+}
+
+function iJustLeft(l: Listing, login: string): void {
+  if (!login) return;
+  justDid = { number: l.number, login, joined: false, at: Date.now() };
+  syncListing(l);
+}
+
+function syncListing(incoming: Listing): void {
+  const l = applyPending(incoming);
   /* Never back to a skimmed one: the page being looked at has read its
      comments, and the next poll of the list has not. */
   if (detail && detail.number === l.number && !(l.skimmed && !detail.skimmed)) detail = l;
@@ -1057,6 +1103,7 @@ function detailView(l: Listing): HTMLElement {
             // Unregistering breaks the partnership too, so the ex-partner's own browser
             // stops treating us as accepted-and-should-auto-register, and sees we split up.
             if (myPartnerLogin) await d.unpair(l.number, myPartnerLogin);
+            iJustLeft(l, myLogin);
           }, 'You have unregistered.', { key: 'withdraw', label: 'Unregistering…' }) }, 'Unregister'))
         : waiting('register', h('button.primary', { title: PARTNERING_NOTE, disabled: full || !settings.name.trim(), onclick: (e: Event) => {
           const btn = e.currentTarget;
@@ -1072,6 +1119,7 @@ function detailView(l: Listing): HTMLElement {
                   throw x;
                 }
                 if (password) rememberPassword(password, l.number);
+                iJustJoined(l, myLogin);
               }, 'You are registered.', { key: 'register', label: 'Registering…' })();
             };
             /* A token is no way past this: the password is what the relay

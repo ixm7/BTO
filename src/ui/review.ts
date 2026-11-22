@@ -9,8 +9,8 @@
 import { SUIT_SYMBOLS, cardSuit, rankChar, sortForDisplay, type Card, type Seat } from '../engine/cards';
 import { isVulnerable, type Vulnerability } from '../engine/deal';
 import { callToString, type Call } from '../engine/bidding';
-import { boardComplete, impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
-import type { BoardResult, TState } from '../tournament/state';
+import { boardComplete, cardImps, cardTotal, impText, pairAt, reviewBoard, scorecard, type TravellerRow } from '../tournament/review';
+import { standings, type BoardResult, type TState } from '../tournament/state';
 import { h } from './dom';
 
 const SEAT_NAMES: Record<Seat, string> = { N: 'North', E: 'East', S: 'South', W: 'West' };
@@ -85,6 +85,14 @@ function fromOurSide(result: BoardResult, weAreNS: boolean, nsMp: number, top: n
   };
 }
 
+/** "2nd", "3rd": a rank as it is read aloud. */
+const ordinal = (n: number): string => {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? 'th'
+    : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th';
+  return `${n}${suffix}`;
+};
+
 const COLUMNS = ['Board', 'Result', 'We', 'They', 'We %', 'They %'];
 const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
 
@@ -110,6 +118,26 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
      to read is your own. */
   const complete = boardComplete(state, board);
   const traveller = complete ? review.traveller : review.traveller.filter((t) => t.mine);
+
+  /*
+   * Where the card adds up to. A scorecard without its total is a list of
+   * boards: the one number a player wants from it is the one at the bottom,
+   * and the one after that is where it puts them in the field. The traveller
+   * has no such line — it is one board, and the field's own standings are
+   * not what that table did.
+   */
+  const total = cardTotal(card);
+  const mySeat = myPair === null ? undefined : standings(state).find((x) => x.pair.id === myPair);
+  const footer = played && !others
+    ? h('tfoot', h('tr.total',
+        h('td', { colSpan: 2 }, mySeat && mySeat.boardsPlayed > 0
+          ? `Overall \u2014 ${ordinal(mySeat.rank)} of ${standings(state).length}`
+          : 'Overall'),
+        h('td.num', ''), h('td.num', ''),
+        ...(byImps
+          ? [h('td.num', impText(cardImps(card)))]
+          : [h('td.num', `${total.we}%`), h('td.num.muted', `${total.they}%`)])))
+    : null;
 
   const rows = others
     ? traveller.map((t: TravellerRow) => {
@@ -192,21 +220,23 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
           }, others ? 'My Table' : 'Other Tables')
         : null),
     strip,
-    h('p.muted', !played
-      ? 'You did not play in this tournament, so there is no card of your own here \u2014 these are the tables that did.'
-      : others
-        ? complete
-          ? 'The same deal as everyone else held it. Pick a line to see how that table bid it.'
-          : 'Some of the field is still playing this board, so only your own line is here. '
-            + 'The rest appear once everyone has finished it.'
-        : 'Every board you have played, scored against the tables that played it. Pick a board to see the deal.'),
+    /* A line of explanation above your own card told you what a scorecard is;
+       anybody reading one knows. The two states that are not obvious — no
+       card of your own, or a board the field has not finished — still say so. */
+    !played
+      ? h('p.muted', 'You did not play in this tournament, so there is no card of your own here \u2014 these are the tables that did.')
+      : others && !complete
+        ? h('p.muted', 'Some of the field is still playing this board, so only your own line is here. '
+          + 'The rest appear once everyone has finished it.')
+        : null,
     h('div.table-scroll', h('table.list.scorecard',
       /* "We" and "they" belong to somebody who was there; to a reader who
          was not, the two sides are just the two sides. */
       h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS)
         .map((t) => (played ? t : t.replace(/^We/, 'N-S').replace(/^They/, 'E-W')))
         .map((t, i) => h(i >= 2 ? 'th.num' : 'th', t)))),
-      h('tbody', rows))),
+      h('tbody', rows),
+      footer)),
     /*
      * The deal is three columns with the top hand in the middle, so the
      * corner beside it is empty: wide enough and the bidding sits there,
