@@ -112,7 +112,7 @@ let recMode: RecordsMode = 'mine';
  */
 const REVEAL_TRICK_MS = 2000;
 const REVEAL_HANDS_MS = 5000;
-let reveal: { table: number; board: number; phase: 'trick' | 'hands' } | null = null;
+let reveal: { board: number; phase: 'trick' | 'hands' } | null = null;
 let revealTimer: ReturnType<typeof setTimeout> | null = null;
 /** Boards whose end has already been shown, so it is shown once. */
 const revealed = new Set<string>();
@@ -145,12 +145,12 @@ function stepReveal(): void {
 }
 
 /** Start the pause, unless this board's end has been seen already. */
-function startReveal(tableIndex: number, board: number, hasPlay: boolean): void {
-  const key = `${tableIndex}:${board}`;
+function startReveal(board: number, hasPlay: boolean): void {
+  const key = String(board);
   if (revealed.has(key)) return;
   revealed.add(key);
   if (revealTimer) clearTimeout(revealTimer);
-  reveal = { table: tableIndex, board, phase: hasPlay ? 'trick' : 'hands' };
+  reveal = { board, phase: hasPlay ? 'trick' : 'hands' };
   revealTimer = setTimeout(stepReveal, hasPlay ? REVEAL_TRICK_MS : REVEAL_HANDS_MS);
 }
 /*
@@ -3266,12 +3266,11 @@ function revealPanel(n: TournamentNode, state: TState, table: TableState,
     h('h3', `Board ${at.board}${res ? ` \u2014 ${res.text}` : ''}`),
     h('span.spacer'),
     h('button.open.inline', { onclick: endReveal, title: 'Go straight on to the next board' }, 'Skip'));
-  if (at.phase === 'trick' && table.lastPlay) {
-    /* The table as it stood on the last card: the same view, with the board
-       that has ended put back into it. */
+  if (at.phase === 'trick' && table.play) {
+    /* The snapshot is the table as it stood on the last card; the auction is
+       put back beside it, and anything half-done is cleared away. */
     const frozen: TableState = {
-      ...table, boardNo: at.board, play: table.lastPlay, deal: table.lastDeal ?? table.deal,
-      dealer: dealerForBoard(at.board), vul: vulnerabilityForBoard(at.board),
+      ...table, boardNo: at.board,
       auction: res?.auction ? { dealer: dealerForBoard(at.board), calls: [...res.auction] } : null,
       claim: null, claimEnd: null,
     };
@@ -3293,7 +3292,7 @@ function revealPanel(n: TournamentNode, state: TState, table: TableState,
     panel.replaceChildren(h('div.bidblock', h('h4', 'My Table Auction'),
       auctionTable(res.auction, vulnerabilityForBoard(at.board))));
   }
-  const hands = table.lastDeal;
+  const hands = table.deal;
   return h('div', head, h('div.panel.reveal', hands
     ? dealDiagram({
         hands, board: at.board, dealer: dealerForBoard(at.board), vul: vulnerabilityForBoard(at.board), ourSeats,
@@ -3338,13 +3337,14 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
    * the table keeps what it just played, and the page stays on it a moment.
    */
   if (state) {
-    const mineIndex = state.tables.findIndex((t) => SEATS.some((x) => originalSeatId(state.config, t, x) === n.me.playerId));
-    const t = mineIndex >= 0 ? state.tables[mineIndex] : null;
-    if (t?.lastResult) {
+    /* Kept per pair rather than per table: at the turn of a round the tables
+       are re-seated, and half the field changes table. */
+    const ended = myPair === null ? undefined : state.finishedBoards?.[myPair];
+    if (ended?.lastResult) {
       /* Arriving at a tournament already under way is not the end of a board:
          what was finished before this browser looked is not news. */
-      if (!revealPrimed) { revealPrimed = true; revealed.add(`${mineIndex}:${t.lastResult.board}`); }
-      else if (!reviewing) startReveal(mineIndex, t.lastResult.board, !!t.lastPlay);
+      if (!revealPrimed) { revealPrimed = true; revealed.add(String(ended.lastResult.board)); }
+      else if (!reviewing) startReveal(ended.lastResult.board, !!ended.play);
     } else if (!revealPrimed) revealPrimed = true;
   }
   if (state && reviewing) {
@@ -3393,8 +3393,8 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const at = n.mySeat();
   const main = h('div');
 
-  const held = reveal ? state.tables[reveal.table] : null;
-  if (reveal && held) {
+  const held = reveal && myPair !== null ? state.finishedBoards?.[myPair] : null;
+  if (reveal && held && held.lastResult?.board === reveal.board) {
     main.append(revealPanel(n, state, held, reveal, boardPanel));
   } else if (state.finished) {
     main.append(state.aborted

@@ -137,15 +137,6 @@ export interface TableState {
   auction: AuctionState | null;
   play: PlayState | null;
   lastResult: BoardResult | null;
-  /**
-   * The board that has just been played, as it ended. The state moves to the
-   * next board the moment the last card is played, so without this the final
-   * trick is never drawn at all — and the hands everybody held go with it.
-   * Kept on the table until the next board finishes, and used by nothing the
-   * play depends on.
-   */
-  lastPlay?: PlayState | null;
-  lastDeal?: Hands | null;
   /** A claim waiting for an answer, if any. Nobody plays a card meanwhile. */
   claim?: Claim | null;
   /** The last claim that came to nothing, until the next card is played. */
@@ -195,6 +186,14 @@ export interface TState {
    * interrupted: these are applied when the next board is dealt.
    */
   pendingSeats: Record<string, PlayerRef | null>;
+  /**
+   * The table exactly as it stood when a pair's last board ended, kept for
+   * each pair so that the end of a board can be looked at after the state has
+   * moved on — which it does the instant the final card is played, and again
+   * when the round turns and the tables are re-seated. Keyed by pair, because
+   * the table a pair sits at is not the same table from one round to the next.
+   */
+  finishedBoards?: Record<number, TableState>;
 }
 
 /** Longest explanation kept for an alerted call. */
@@ -452,9 +451,10 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
   };
   state.results = [...state.results, result];
   table.lastResult = result;
-  /* Before setBoard clears them, for the look at the end of the board. */
-  table.lastPlay = table.play;
-  table.lastDeal = table.deal;
+  /* The table as it is this moment, before setBoard moves it on: the hands as
+     dealt, the play that has just ended, and who was sitting where. */
+  const ended: TableState = { ...table, seats: { ...table.seats }, lastResult: result };
+  state.finishedBoards = { ...state.finishedBoards, [table.nsPair]: ended, [table.ewPair]: ended };
   const lastOfRound = firstBoardOfRound(c, state.round) + c.boardsPerRound - 1;
   setBoard(c, table, boardNo < lastOfRound ? boardNo + 1 : null);
   applyPendingSeats(state);

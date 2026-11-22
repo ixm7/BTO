@@ -115,6 +115,38 @@ describe('peer-to-peer tournament', () => {
     expect(table[0]!.rank).toBe(1);
   });
 
+  it('keeps each pair\u2019s last board when the round turns and the tables are re-seated', async () => {
+    const hub = new MemoryHub();
+    const all = Array.from({ length: 8 }, (_, i) => join(hub, { playerId: `p${i}`, isDirector: i === 0, deviceScore: 50 + i }));
+    all.forEach(autopilot);
+    await until(() => all.every((n) => n.lobby().length === 8));
+    all[0]!.start({ id: 't2', name: 'Test', boardsPerRound: 2, rounds: 2, seed: 'fixed' });
+    await until(() => all.every((n) => n.state?.finished === true));
+
+    /*
+     * The end of a board is shown after the state has moved past it, and at
+     * the turn of a round the tables are rebuilt from scratch — so the board
+     * a pair has just played has to be kept somewhere that survives that.
+     * Replay up to the first state of the second round and look.
+     */
+    const log = JSON.parse(JSON.stringify(all[0]!.log)) as TEvent[];
+    let turned: ReturnType<typeof replay> | null = null;
+    for (let i = 1; i <= log.length; i++) {
+      const st = replay(log.slice(0, i));
+      if (st && st.round === 1) { turned = st; break; }
+    }
+    expect(turned).not.toBeNull();
+    const at = turned as NonNullable<typeof turned>;
+    at.config.pairs.forEach((_, pair) => {
+      const snap = at.finishedBoards?.[pair];
+      /* Round one is boards 1 and 2, and every table plays both. */
+      expect(snap?.lastResult?.board).toBe(2);
+      expect(snap?.deal).not.toBeNull();
+      /* The seats are the ones that played it, not the ones just dealt. */
+      expect(snap?.nsPair === pair || snap?.ewPair === pair).toBe(true);
+    });
+  });
+
   it('survives losing the host: another device takes over and a robot plays for the missing player', async () => {
     const hub = new MemoryHub();
     const all = Array.from({ length: 4 }, (_, i) => join(hub, { playerId: `p${i}`, isDirector: i === 0, deviceScore: 80 - i }));
