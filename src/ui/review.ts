@@ -49,7 +49,7 @@ function handBlock(cards: readonly Card[], label: string, highlight: boolean, vu
  * over their column, as at the table and as a hand record prints it: without
  * it the bidding cannot be read for what it risked.
  */
-function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }[],
+export function auctionTable(calls: readonly { seat: Seat; call: Call; alert?: string }[],
   vul: Vulnerability): HTMLElement {
   const order: Seat[] = ['W', 'N', 'E', 'S'];
   const cells: HTMLElement[] = [];
@@ -92,6 +92,31 @@ const ordinal = (n: number): string => {
     : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th';
   return `${n}${suffix}`;
 };
+
+/**
+ * The four hands as a hand record prints them, with the board between them.
+ * Used by the records, and by the table at the end of a board, where it is
+ * the one look everybody gets at what the other three were holding.
+ */
+export function dealDiagram(o: {
+  hands: Record<Seat, readonly Card[]>; board: number; dealer: Seat; vul: Vulnerability;
+  /** "NS", "EW" or "": the hands this reader held, marked with a halo. */
+  ourSeats: string;
+  /** Anything to add under the board's own particulars, such as the result. */
+  foot?: (HTMLElement | null)[] | null;
+}): HTMLElement {
+  const red = (seat: Seat): boolean => isVulnerable(o.vul, seat === 'N' || seat === 'S' ? 'NS' : 'EW');
+  return h('div.deal',
+    h('div.d-top', handBlock(o.hands.N, 'North', o.ourSeats.includes('N'), red('N'))),
+    h('div.d-left', handBlock(o.hands.W, 'West', o.ourSeats.includes('W'), red('W'))),
+    h('div.d-mid',
+      h('div', h('b', `Board ${o.board}`)),
+      h('div.muted', `Dealer ${SEAT_NAMES[o.dealer]}`),
+      h('div.muted', `Vul ${o.vul}`),
+      ...(o.foot ?? [])),
+    h('div.d-right', handBlock(o.hands.E, 'East', o.ourSeats.includes('E'), red('E'))),
+    h('div.d-bottom', handBlock(o.hands.S, 'South', o.ourSeats.includes('S'), red('S'))));
+}
 
 const COLUMNS = ['Board', 'Result', 'We', 'They', 'We %', 'They %'];
 const IMP_COLUMNS = ['Board', 'Result', 'We', 'They', 'IMPs'];
@@ -165,18 +190,10 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
   const { N, E, S, W } = review.hands;
   const ourSeats = review.own ? (review.own.result.nsPair === myPair ? 'NS' : 'EW') : '';
 
-  const red = (seat: Seat): boolean => isVulnerable(review.vul, seat === 'N' || seat === 'S' ? 'NS' : 'EW');
-  const diagram = h('div.deal',
-    h('div.d-top', handBlock(N, 'North', ourSeats.includes('N'), red('N'))),
-    h('div.d-left', handBlock(W, 'West', ourSeats.includes('W'), red('W'))),
-    h('div.d-mid',
-      h('div', h('b', `Board ${board}`)),
-      h('div.muted', `Dealer ${SEAT_NAMES[review.dealer]}`),
-      h('div.muted', `Vul ${review.vul}`),
-      shown ? h('div.muted', { style: 'margin-top:6px' }, `Table ${shown.result.table + 1}`) : null,
-      shown ? h('div', h('b', shown.result.text)) : null),
-    h('div.d-right', handBlock(E, 'East', ourSeats.includes('E'), red('E'))),
-    h('div.d-bottom', handBlock(S, 'South', ourSeats.includes('S'), red('S'))));
+  const diagram = dealDiagram({
+    hands: review.hands, board, dealer: review.dealer, vul: review.vul, ourSeats,
+    foot: shown ? [h('div.muted', { style: 'margin-top:6px' }, `Table ${shown.result.table + 1}`), h('div', h('b', shown.result.text))] : null,
+  });
 
   /*
    * The boards, always on screen. In "other tables" the list below is that

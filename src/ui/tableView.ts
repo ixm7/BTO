@@ -173,6 +173,11 @@ function callCell(call: Call, alert?: string): HTMLElement {
 
 export interface TableViewOptions {
   /**
+   * A board that has been played, shown as it ended. Nothing is waiting on
+   * anybody, so the line that says who the table is waiting for is left off.
+   */
+  frozen?: boolean;
+  /**
    * Where the auction goes once play has begun: a panel beside the table
    * rather than the foot of the rail on it, so the cards have the width and
    * the calls can be read at a comfortable size. Left out, it stays where it
@@ -362,7 +367,8 @@ export function renderTable(o: TableViewOptions): HTMLElement {
       : ended.why === 'withdrawn' ? `${SEAT_NAMES[ended.seat]} withdrew the claim. Play on. `
       : 'The claim was not answered in time. Play on. ';
   }
-  if (turn) {
+  /* A board being looked back at waits for nobody. */
+  if (turn && !o.frozen) {
     const actor = table.seats[turn.controller];
     if (iControl) status += turn.phase === 'auction' ? 'Your call.' : turn.seat === mySeat ? 'Your turn — play a card.' : 'Your turn — play a card from dummy.';
     else status += `Waiting for ${actor.name} (${SEAT_NAMES[turn.controller]})…`;

@@ -137,6 +137,15 @@ export interface TableState {
   auction: AuctionState | null;
   play: PlayState | null;
   lastResult: BoardResult | null;
+  /**
+   * The board that has just been played, as it ended. The state moves to the
+   * next board the moment the last card is played, so without this the final
+   * trick is never drawn at all — and the hands everybody held go with it.
+   * Kept on the table until the next board finishes, and used by nothing the
+   * play depends on.
+   */
+  lastPlay?: PlayState | null;
+  lastDeal?: Hands | null;
   /** A claim waiting for an answer, if any. Nobody plays a card meanwhile. */
   claim?: Claim | null;
   /** The last claim that came to nothing, until the next card is played. */
@@ -443,6 +452,9 @@ function finishBoard(state: TState, table: TableState, contract: Contract | null
   };
   state.results = [...state.results, result];
   table.lastResult = result;
+  /* Before setBoard clears them, for the look at the end of the board. */
+  table.lastPlay = table.play;
+  table.lastDeal = table.deal;
   const lastOfRound = firstBoardOfRound(c, state.round) + c.boardsPerRound - 1;
   setBoard(c, table, boardNo < lastOfRound ? boardNo + 1 : null);
   applyPendingSeats(state);

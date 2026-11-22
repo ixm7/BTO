@@ -7,7 +7,8 @@ import { planConfig, unmannedTables } from '../tournament/plan';
 import { cardImps, cardTotal, impText, pairOf, scorecard } from '../tournament/review';
 import { collect, describe, pack, unpack } from './backup';
 import { qrSvg } from './qr';
-import { renderRecords, type RecordsMode } from './review';
+import { auctionTable, dealDiagram, renderRecords, type RecordsMode } from './review';
+import { dealerForBoard, vulnerabilityForBoard } from '../engine/deal';
 import { pairOfName, recordsOf, stateOfRecords, type HandRecords } from '../tournament/records';
 import { ROBOT_DELAY_MS, TournamentNode, deviceScore } from '../tournament/node';
 import { firstBoardOfRound, originalSeatId, ownerOf, standings, tricksLeft, turnAt, type Standing, type TableState, type TEvent, type TournamentConfig, type TState } from '../tournament/state';
@@ -96,6 +97,62 @@ let reviewing = false;
 let recBoard: number | null = null;
 let recTable: number | null = null;
 let recMode: RecordsMode = 'mine';
+/*
+ * The end of a board, held long enough to be seen.
+ *
+ * The last card of a hand never appeared at all: the state moves to the next
+ * board the moment it is played, so the card that ended the hand and the
+ * trick it belonged to went by in the same frame as the new deal. The table
+ * keeps the play that finished, and this holds the page on it — two seconds
+ * on the final trick, five on the four hands as they were dealt — before
+ * letting the page go on to whatever comes next.
+ *
+ * It is one browser's pause, not the tournament's: the field plays on behind
+ * it, which is why it can be cut short with a press.
+ */
+const REVEAL_TRICK_MS = 2000;
+const REVEAL_HANDS_MS = 5000;
+let reveal: { table: number; board: number; phase: 'trick' | 'hands' } | null = null;
+let revealTimer: ReturnType<typeof setTimeout> | null = null;
+/** Boards whose end has already been shown, so it is shown once. */
+const revealed = new Set<string>();
+/** False until the first look at a room's state, which is never an ending. */
+let revealPrimed = false;
+
+/** A room of its own, each time: nothing carries over from the last one. */
+function forgetReveals(): void {
+  if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
+  reveal = null;
+  revealed.clear();
+  revealPrimed = false;
+}
+
+function endReveal(): void {
+  if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
+  reveal = null;
+  render();
+}
+
+function stepReveal(): void {
+  if (!reveal) return;
+  if (reveal.phase === 'trick') {
+    reveal = { ...reveal, phase: 'hands' };
+    revealTimer = setTimeout(stepReveal, REVEAL_HANDS_MS);
+    render();
+    return;
+  }
+  endReveal();
+}
+
+/** Start the pause, unless this board's end has been seen already. */
+function startReveal(tableIndex: number, board: number, hasPlay: boolean): void {
+  const key = `${tableIndex}:${board}`;
+  if (revealed.has(key)) return;
+  revealed.add(key);
+  if (revealTimer) clearTimeout(revealTimer);
+  reveal = { table: tableIndex, board, phase: hasPlay ? 'trick' : 'hands' };
+  revealTimer = setTimeout(stepReveal, hasPlay ? REVEAL_TRICK_MS : REVEAL_HANDS_MS);
+}
 /*
  * The hands of a tournament that is over, read back from its page. The log
  * they were played from is gone with the browsers that held it, so this is
@@ -1161,6 +1218,15 @@ function detailView(l: Listing): HTMLElement {
     }, seeking === undefined ? 'Partners List' : `Partners List [${seeking}]`));
   }
   if (!settings.name.trim()) actions.append(h('span.muted', 'Set your name in Settings first.'));
+  /* Most tournaments are the last one again on another day. Cloning opens the
+     same form filled in from this one, so a director who ran a club night on
+     Thursday has next Thursday's ready to look over and make. */
+  if (d.canWrite) {
+    actions.append(h('button', {
+      onclick: () => openCreate(l),
+      title: 'Make another tournament like this one, for tomorrow at the same time. You can change anything before it is made.',
+    }, 'Clone'));
+  }
 
   return h('div',
     /* No link out to the underlying page here: everything on it can be done
@@ -2242,15 +2308,32 @@ function deviceSection(): HTMLElement {
 const DIRECTOR_NOTE = 'To create tournaments, expand the Tournament Creator section in Settings '
   + 'and follow the instructions to generate a token.';
 
-function openCreate(): void {
+/**
+ * The form that makes a tournament, empty or filled in from one that exists.
+ *
+ * A clone is the same form with this tournament's answers in it, moved to
+ * tomorrow at the same hour: the director reads it over, changes what they
+ * want and makes it. A password cannot come across — the page keeps only a
+ * signature of one, which cannot be read back — so a locked tournament's
+ * clone is open until its director sets a new one.
+ */
+function openCreate(from?: Listing): void {
   const d = directory();
   if (!d?.canWrite) return;
-  dialog('New Tournament', (close) => {
+  const m = from?.meta;
+  dialog(m ? 'Clone Tournament' : 'New Tournament', (close) => {
     const err = h('div');
-    const tz = localTimeZone();
+    const tz = m?.timeZone ?? localTimeZone();
     const soon = new Date(Date.now() + 24 * 3600 * 1000);
     const pad = (n: number): string => String(n).padStart(2, '0');
-    const defaultStart = `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}T19:30`;
+    /* Tomorrow where the tournament is held, not where the director happens
+       to be: a club night at seven is at seven in the club's own zone. */
+    const tomorrow = m
+      ? new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(soon)
+      : `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`;
+    const defaultStart = m
+      ? `${tomorrow}T${(m.start.split('T')[1] ?? '19:30').slice(0, 5)}`
+      : `${tomorrow}T19:30`;
     const form = h('form.grid', { onsubmit: async (e: Event) => {
       e.preventDefault();
       const f = e.target as HTMLFormElement;
@@ -2313,33 +2396,37 @@ function openCreate(): void {
         render();
       } catch (x) { err.replaceChildren(h('div.error', (x as Error).message)); render(); }
     } },
-      field('Tournament Name', h('input', { name: 'name', required: true, maxLength: MAX_NAME })),
-      field('Director (Your Name)', h('input', { name: 'director', required: true, value: settings.name, maxLength: 30 })),
+      field('Tournament Name', h('input', { name: 'name', required: true, maxLength: MAX_NAME, value: m?.name ?? '' })),
+      field('Director (Your Name)', h('input', { name: 'director', required: true, value: m?.director ?? settings.name, maxLength: 30 })),
       h('div.two',
         field('Type', h('select', { name: 'type', title: 'Matchpoints: beat as many other tables as you can on each board. IMP Pairs: the size of the difference counts, as in a team match, but you play as a pair.' },
-          h('option', { value: 'matchpoints' }, 'Matchpoints'), h('option', { value: 'imps' }, 'IMP Pairs'))),
+          h('option', { value: 'matchpoints', selected: m?.scoring !== 'imps' }, 'Matchpoints'),
+          h('option', { value: 'imps', selected: m?.scoring === 'imps' }, 'IMP Pairs'))),
         field('Open to', h('div.levels', SKILLS.map((x) => h('label.check',
-          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: true }), x))))),
+          h('input', { type: 'checkbox', name: `lvl-${x}`, checked: m ? m.levels.includes(x) : true }), x))))),
       h('div.two',
         field('Start Time', h('input', { name: 'start', type: 'datetime-local', required: true, value: defaultStart })),
         field('Time Zone', h('select', { name: 'tz' }, allTimeZones().map((z) => h('option', { selected: z === tz }, z))))),
       h('div.two',
-        field('Capacity (Max Players)', h('input', { name: 'capacity', type: 'number', min: 8, max: 200, step: 4, value: 16, required: true })),
+        field('Capacity (Max Players)', h('input', { name: 'capacity', type: 'number', min: 8, max: 200, step: 4, value: m?.capacity ?? 16, required: true })),
         h('div.two',
-          field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: 4, required: true })),
-          field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: 2, required: true })))),
+          field('Rounds', h('input', { name: 'rounds', type: 'number', min: 1, max: 20, value: m?.rounds ?? 4, required: true })),
+          field('Boards / Round', h('input', { name: 'boards', type: 'number', min: 1, max: 8, value: m?.boardsPerRound ?? 2, required: true })))),
       field('Inactivity Limit (Seconds)',
-        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: NEW_IDLE_SEC, required: true }),
+        h('input', { name: 'idle', type: 'number', min: MIN_IDLE_SEC, max: MAX_IDLE_SEC, step: 5, value: m ? idleSecOf(m) : NEW_IDLE_SEC, required: true }),
         'How long a player may keep the table waiting before a robot takes their seat.'),
       field('Robots Bid',
-        h('select', { name: 'robots' }, h('option', { value: 'sayc' }, 'SAYC (Standard American)'), h('option', { value: '2/1' }, '2/1 (Two-over-One game forcing)')),
+        h('select', { name: 'robots' },
+          h('option', { value: 'sayc', selected: m?.robots !== '2/1' }, 'SAYC (Standard American)'),
+          h('option', { value: '2/1', selected: m?.robots === '2/1' }, '2/1 (Two-over-One game forcing)')),
         'The system robots use when they fill a seat. They explain every bid they make.'),
       field('Password (Optional)',
         h('input', { name: 'password', type: 'text', autocomplete: 'off', maxLength: 128,
           placeholder: 'Leave empty for a tournament anybody may enter' }),
-        'Set one and only the players you give it to can register — for a club night or a class. '
+        (m?.lock ? 'The tournament this came from has a password, and it cannot be carried over: only a signature of it is kept, and that cannot be read back. Set one here to lock this one too. '
+          : 'Set one and only the players you give it to can register — for a club night or a class. ')
         + 'It is not kept anywhere: the page carries a signature of it that cannot be read back, and the relay checks it.'),
-      h('label.check', h('input', { type: 'checkbox', name: 'weekly' }),
+      h('label.check', h('input', { type: 'checkbox', name: 'weekly', checked: m?.repeat === 'weekly' }),
         'Repeat every week on the same day and time'),
       h('small', { style: 'margin-top:-6px' }, 'Once each week\u2019s tournament starts, next week\u2019s appears on the list, ready for players to register.'),
       h('label.check', h('input', { type: 'checkbox', name: 'hourly' }),
@@ -2409,6 +2496,7 @@ function leaveRoom(): void {
   if (room) { try { sessionStorage.removeItem(`bridge-p2p:log:${room.id}`); } catch { /* storage unavailable */ } }
   forgetSessions();
   node = null; session = null; awaitingStart = false; room = null; published = false; watchTable = 0;
+  forgetReveals();
   render();
 }
 
@@ -2682,6 +2770,7 @@ async function enterRoom(info: RoomInfo): Promise<void> {
   session = null;
   stopStartPoll();
   errorMsg = null; notice = null; published = false; markedAbandoned = false; publishing = false; publishFailed = null;
+  forgetReveals();
   steppedAside = false; autoReseats = 0;
 
   /* A listed tournament plays a table at a time once its field is settled.
@@ -3148,6 +3237,57 @@ function openClaim(n: TournamentNode): void {
       h('button.primary', { onclick: () => { n.claim(Number(pick.value)); close(); } }, declaring ? 'Claim' : 'Concede'))));
 }
 
+/**
+ * The board that has just ended, held on the screen: first the trick that
+ * finished it, then the four hands as they were dealt. The tournament does
+ * not wait — this is one browser pausing on its way to the next board — so
+ * there is always a way to cut it short.
+ */
+function revealPanel(n: TournamentNode, state: TState, table: TableState,
+  at: { board: number; phase: 'trick' | 'hands' }, panel: HTMLElement): HTMLElement {
+  const res = table.lastResult;
+  const mine = pairOf(state, n.me.playerId);
+  const ourSeats = res === null || mine === null ? '' : res.nsPair === mine ? 'NS' : 'EW';
+  const head = h('div.row', { style: 'margin-bottom:8px' },
+    h('h3', `Board ${at.board}${res ? ` \u2014 ${res.text}` : ''}`),
+    h('span.spacer'),
+    h('button.open.inline', { onclick: endReveal, title: 'Go straight on to the next board' }, 'Skip'));
+  if (at.phase === 'trick' && table.lastPlay) {
+    /* The table as it stood on the last card: the same view, with the board
+       that has ended put back into it. */
+    const frozen: TableState = {
+      ...table, boardNo: at.board, play: table.lastPlay, deal: table.lastDeal ?? table.deal,
+      dealer: dealerForBoard(at.board), vul: vulnerabilityForBoard(at.board),
+      auction: res?.auction ? { dealer: dealerForBoard(at.board), calls: [...res.auction] } : null,
+      claim: null, claimEnd: null,
+    };
+    const seat = SEATS.find((x) => originalSeatId(state.config, table, x) === n.me.playerId) ?? null;
+    return h('div', head, renderTable({
+      table: frozen, mySeat: null, viewSeat: seat,
+      onCall: () => {}, onPlay: () => {}, onClaim: () => {},
+      onAnswerClaim: () => {}, onWithdrawClaim: () => {},
+      isPresent: (id) => n.isPresent(id),
+      playerInfo: tablePlayerInfo(n),
+      onPlayerInfo: (p) => openPlayerInfo(p, state.config.robots),
+      robots: state.config.robots,
+      panel, frozen: true,
+    }));
+  }
+  /* The auction stays beside the hands, as it was beside the trick: it is the
+     same board, and a panel that comes and goes reads as a glitch. */
+  if (res?.auction) {
+    panel.replaceChildren(h('div.bidblock', h('h4', 'My Table Auction'),
+      auctionTable(res.auction, vulnerabilityForBoard(at.board))));
+  }
+  const hands = table.lastDeal;
+  return h('div', head, h('div.panel.reveal', hands
+    ? dealDiagram({
+        hands, board: at.board, dealer: dealerForBoard(at.board), vul: vulnerabilityForBoard(at.board), ourSeats,
+        foot: res ? [h('div', { style: 'margin-top:6px' }, h('b', res.text))] : null,
+      })
+    : h('p.muted', 'The board is over.')));
+}
+
 function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const state = n.state;
   const myPair = state ? pairOf(state, n.me.playerId) : null;
@@ -3178,6 +3318,21 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
     state ? seatControls(n, state, info.demo) : null,
     info.demo ? null : h('span.muted', `Host: ${n.coordinatorName}${n.isCoordinator ? ' (this device)' : ''} · ${n.lobby().length} connected`));
 
+  /*
+   * Watch my own table for a board ending. The state has already moved to the
+   * next one by the time this runs, which is the whole reason for the pause:
+   * the table keeps what it just played, and the page stays on it a moment.
+   */
+  if (state) {
+    const mineIndex = state.tables.findIndex((t) => SEATS.some((x) => originalSeatId(state.config, t, x) === n.me.playerId));
+    const t = mineIndex >= 0 ? state.tables[mineIndex] : null;
+    if (t?.lastResult) {
+      /* Arriving at a tournament already under way is not the end of a board:
+         what was finished before this browser looked is not news. */
+      if (!revealPrimed) { revealPrimed = true; revealed.add(`${mineIndex}:${t.lastResult.board}`); }
+      else if (!reviewing) startReveal(mineIndex, t.lastResult.board, !!t.lastPlay);
+    } else if (!revealPrimed) revealPrimed = true;
+  }
   if (state && reviewing) {
     return h('div', head, renderRecords(state, myPair, { board: recBoard, table: recTable, mode: recMode }, {
       pickBoard: (b) => { recBoard = b; recTable = null; render(); },
@@ -3224,7 +3379,10 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const at = n.mySeat();
   const main = h('div');
 
-  if (state.finished) {
+  const held = reveal ? state.tables[reveal.table] : null;
+  if (reveal && held) {
+    main.append(revealPanel(n, state, held, reveal, boardPanel));
+  } else if (state.finished) {
     main.append(state.aborted
       ? h('div.panel',
           h('h3', 'Tournament Aborted'),
