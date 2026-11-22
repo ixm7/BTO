@@ -599,27 +599,35 @@ button.pc:disabled { opacity: 1; }
 
 /* ---- hand records: the scorecard, the deal, and the other tables ---- */
 /*
- * The scorecard is a grid and is drawn as one: ruled both ways, its header a
- * band of its own, its rows close enough together that a card of twenty-odd
- * boards does not push the deal off the screen, and no wider than its numbers
- * need — stretched across the panel the six columns stood too far apart to
- * read a row across.
+ * A table drawn as a grid: ruled both ways with an edge all round, its header
+ * a band of its own, its rows close enough together that a long one does not
+ * push what follows off the screen, and no wider than its columns need —
+ * stretched across a panel, six columns stand too far apart to read a row.
  */
-.scorecard {
-  width: auto; min-width: min(520px, 100%); max-width: 640px; margin: 2px auto 0;
+table.list.gridded {
+  width: auto; min-width: min(520px, 100%); max-width: 720px; margin: 2px auto 0;
+  border-collapse: separate; border-spacing: 0;
   border: 1px solid #8d9a94; border-radius: 6px; overflow: hidden;
 }
-table.list.scorecard th {
+table.list.gridded th {
   background: #e4e9e4; color: var(--ink); padding: 4px 10px;
   border-bottom: 1px solid #8d9a94; border-right: 1px solid #c3ccc7;
 }
-table.list.scorecard td { padding: 3px 10px; vertical-align: middle; border-right: 1px solid #dcdfd6; }
-table.list.scorecard th:last-child, table.list.scorecard td:last-child { border-right: 0; }
-table.list.scorecard tbody tr:last-child td { border-bottom: 1px solid #dcdfd6; }
+table.list.gridded td {
+  padding: 3px 10px; vertical-align: middle;
+  border-right: 1px solid #dcdfd6; border-bottom: 1px solid #dcdfd6;
+}
+table.list.gridded th:last-child, table.list.gridded td:last-child { border-right: 0; }
+table.list.gridded tbody tr:last-child > td { border-bottom: 0; }
 /* Where the card adds up to: ruled off, and in the ink of a conclusion. */
-.scorecard tfoot td {
+table.list.gridded tfoot td {
   border-top: 2px solid #8d9a94; background: #e4e9e4; font-weight: 600;
   padding: 4px 10px; border-bottom: 0;
+}
+/* The row being read, boxed on all four sides rather than barred on one. */
+.list.gridded tr.sel > td {
+  box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent),
+    inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
 }
 .list tr.me > td { background: #fbf3dc; }
 

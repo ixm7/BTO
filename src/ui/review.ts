@@ -246,7 +246,7 @@ export function renderRecords(state: TState, myPair: number | null, view: Record
         ? h('p.muted', 'Some of the field is still playing this board, so only your own line is here. '
           + 'The rest appear once everyone has finished it.')
         : null,
-    h('div.table-scroll', h('table.list.scorecard',
+    h('div.table-scroll', h('table.list.gridded.scorecard',
       /* "We" and "they" belong to somebody who was there; to a reader who
          was not, the two sides are just the two sides. */
       h('thead', h('tr', (byImps ? IMP_COLUMNS : COLUMNS)
