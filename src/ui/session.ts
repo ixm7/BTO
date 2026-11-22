@@ -320,6 +320,13 @@ export class TournamentSession {
     const state = node.state;
     if (state && !state.finished && state.round > this.round) {
       const next = state.round;
+      /*
+       * One last word before the round's room is pulled down. The board that
+       * ended the round ended it in this state and no other — the next round
+       * opens a new room that knows nothing of it — so a page that wants to
+       * show the end of a board has this tick to see it in.
+       */
+      this.o.onChange();
       void this.joinRound(next);
       return;
     }

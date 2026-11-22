@@ -113,6 +113,14 @@ let recMode: RecordsMode = 'mine';
 const REVEAL_TRICK_MS = 2000;
 const REVEAL_HANDS_MS = 5000;
 let reveal: { board: number; phase: 'trick' | 'hands' } | null = null;
+/*
+ * What the reveal is drawn from, taken when it starts rather than read again
+ * while it runs. A listed tournament plays a round in a room of its own and
+ * pulls it down at the end of it, so the board that ended a round outlives
+ * the node that knows about it by some seconds — exactly the seconds the
+ * reveal is on the screen.
+ */
+let revealCtx: { n: TournamentNode; state: TState; table: TableState } | null = null;
 let revealTimer: ReturnType<typeof setTimeout> | null = null;
 /** Boards whose end has already been shown, so it is shown once. */
 const revealed = new Set<string>();
@@ -123,6 +131,7 @@ let revealPrimed = false;
 function forgetReveals(): void {
   if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
   reveal = null;
+  revealCtx = null;
   revealed.clear();
   revealPrimed = false;
 }
@@ -130,6 +139,7 @@ function forgetReveals(): void {
 function endReveal(): void {
   if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
   reveal = null;
+  revealCtx = null;
   render();
 }
 
@@ -145,13 +155,14 @@ function stepReveal(): void {
 }
 
 /** Start the pause, unless this board's end has been seen already. */
-function startReveal(board: number, hasPlay: boolean): void {
+function startReveal(board: number, hasPlay: boolean): boolean {
   const key = String(board);
-  if (revealed.has(key)) return;
+  if (revealed.has(key)) return false;
   revealed.add(key);
   if (revealTimer) clearTimeout(revealTimer);
   reveal = { board, phase: hasPlay ? 'trick' : 'hands' };
   revealTimer = setTimeout(stepReveal, hasPlay ? REVEAL_TRICK_MS : REVEAL_HANDS_MS);
+  return true;
 }
 /*
  * The hands of a tournament that is over, read back from its page. The log
@@ -3473,7 +3484,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
       /* Arriving at a tournament already under way is not the end of a board:
          what was finished before this browser looked is not news. */
       if (!revealPrimed) { revealPrimed = true; revealed.add(String(ended.lastResult.board)); }
-      else if (!reviewing) startReveal(ended.lastResult.board, !!ended.play);
+      else if (!reviewing && startReveal(ended.lastResult.board, !!ended.play)) {
+        revealCtx = { n, state, table: ended };
+      }
     } else if (!revealPrimed) revealPrimed = true;
   }
   if (state && reviewing) {
@@ -3522,9 +3535,9 @@ function roomView(n: TournamentNode, info: RoomInfo): HTMLElement {
   const at = n.mySeat();
   const main = h('div');
 
-  const held = reveal && myPair !== null ? state.finishedBoards?.[myPair] : null;
-  if (reveal && held && held.lastResult?.board === reveal.board) {
-    main.append(revealPanel(n, state, held, reveal, boardPanel));
+  const ctx = revealCtx;
+  if (reveal && ctx && ctx.table.lastResult?.board === reveal.board) {
+    main.append(revealPanel(ctx.n, ctx.state, ctx.table, reveal, boardPanel));
   } else if (state.finished) {
     main.append(state.aborted
       ? h('div.panel',
@@ -3607,9 +3620,32 @@ function noticeTag(): HTMLElement | null {
     : null;
 }
 
+/**
+ * The end of a board when the round went with it. Between rounds the old
+ * room has been pulled down and the new one is still forming, so there is no
+ * table to hang this on — it is drawn from what was kept when the board
+ * ended, with a head of its own.
+ */
+function frozenRoom(info: RoomInfo): HTMLElement {
+  const ctx = revealCtx as NonNullable<typeof revealCtx>;
+  const at = reveal as NonNullable<typeof reveal>;
+  const head = h('div.row', { style: 'margin-bottom:10px' },
+    h('button.open.inline', { onclick: askLeave }, '\u2190 Leave'),
+    h('h2', info.name),
+    h('span.spacer'));
+  const side = h('div.side');
+  const boardPanel = h('div.board-panel');
+  const main = h('div', revealPanel(ctx.n, ctx.state, ctx.table, at, boardPanel));
+  if (boardPanel.childElementCount) side.append(boardPanel);
+  return h('div', head, h('div.room', main, side));
+}
+
 function render(): void {
-  const onDetail = !(room && (awaitingStart || session) && !node) && !(node && room) && !!detail;
-  const view = room && (awaitingStart || session) && !node ? waitingRoom(room)
+  /* The reveal outlives the room it happened in, so it comes first. */
+  const frozen = !!(room && reveal && revealCtx && !node);
+  const onDetail = !frozen && !(room && (awaitingStart || session) && !node) && !(node && room) && !!detail;
+  const view = frozen && room ? frozenRoom(room)
+    : room && (awaitingStart || session) && !node ? waitingRoom(room)
     : node && room ? roomView(node, room)
     : detail ? detailView(detail) : directoryView();
   /*
