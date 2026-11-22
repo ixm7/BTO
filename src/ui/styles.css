@@ -624,6 +624,12 @@ table.list.gridded tfoot td {
   border-top: 2px solid #8d9a94; background: #e4e9e4; font-weight: 600;
   padding: 4px 10px; border-bottom: 0;
 }
+/* The entry list carries names, and two of its columns hold a button: it
+   wants more width than a card of numbers, and a little more air. */
+table.list.gridded.entries { max-width: 900px; }
+table.list.gridded.entries td { padding: 4px 10px; }
+table.list.gridded.entries td button { margin: 0; }
+
 /* The row being read, boxed on all four sides rather than barred on one. */
 .list.gridded tr.sel > td {
   box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent),

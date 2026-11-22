@@ -1289,8 +1289,11 @@ function detailView(l: Listing): HTMLElement {
        the results say who was there and what they did, and the same names
        underneath in entry order say nothing again. */
     l.results ? null : h('div.panel', { style: 'margin-top:14px' }, h('h3', 'Registered Players'),
-      regs && regs.length ? h('div.table-scroll', h('table.list',
-        h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'), h('th', ''))),
+      regs && regs.length ? ((waiting: boolean) => h('div.table-scroll', h('table.list.gridded.entries',
+        h('thead', h('tr', h('th.num', ''), h('th', 'Player'), h('th', 'Level'), h('th', 'Bidding'), h('th', 'Partner'),
+          /* Only where somebody is on it: an empty column of its own reads as
+             a mistake in a ruled table. */
+          waiting ? h('th', '') : null)),
         /*
          * Strongest first, and players of a system together within that: the
          * list is read to find somebody to play with, and that is the order
@@ -1303,7 +1306,8 @@ function detailView(l: Listing): HTMLElement {
           h('td.muted', r.skill ?? ''),
           h('td.muted', r.systems ?? ''),
           h('td.muted', partnerCell(r)),
-          h('td.muted', entry >= l.meta.capacity ? 'waiting list' : ''))))))
+          waiting ? h('td.muted', entry >= l.meta.capacity ? 'waiting list' : '') : null)))))
+      )(regs.length > l.meta.capacity)
         : h('p.muted', regs ? 'Nobody yet.'
           : l.skimmed ? 'Reading the entry list\u2026'
           : l.readError ?? 'Could not load registrations.')));
